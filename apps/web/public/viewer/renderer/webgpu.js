@@ -305,3 +305,4 @@ export class WebGPURenderer {
         return out;
     }
 }
+//# sourceMappingURL=webgpu.js.map

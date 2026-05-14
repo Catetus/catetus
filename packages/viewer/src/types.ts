@@ -78,6 +78,19 @@ export interface ViewerOptions {
    * paths intentionally ignore this so visual-regression frames stay stable.
    */
   autoRotateFraming?: number;
+  /**
+   * Optional override for the bbox the viewer uses to position the camera.
+   * When provided, all camera-path math uses this bbox in place of the
+   * bbox loaded from the asset's manifest.
+   *
+   * Use case: visual-regression. If a preset prunes geometry (e.g.
+   * `size-min` killing low-opacity floaters), the manifest's bbox shrinks
+   * and the auto-framed camera flies in close — comparing it to the
+   * baseline's distant camera then measures the *reframing*, not the
+   * preset's actual quality. Passing the input scene's bbox here pins the
+   * camera so every preset is rendered from the same viewpoint.
+   */
+  cameraBbox?: { min: [number, number, number]; max: [number, number, number] };
 }
 
 /**

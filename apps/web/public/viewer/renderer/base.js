@@ -174,3 +174,4 @@ export function sortBackToFront(splats, cam, indices) {
     for (let i = 0; i < n; i++)
         indices[i] = pairs[i][1];
 }
+//# sourceMappingURL=base.js.map

@@ -40,6 +40,27 @@
   const src = params.get('src');
   const renderer = (params.get('renderer') || 'auto');
   const seed = Number(params.get('seed') || 0xC0FFEE);
+  // Optional ?cameraBbox=<URL-encoded JSON>{min:[x,y,z], max:[x,y,z]} so the
+  // harness can pin every preset's camera to the input scene's bbox. Without
+  // this, a preset that prunes geometry (e.g. floater_proxy × size-min)
+  // shrinks its own bbox, reframes the camera, and the ΔE94 against the
+  // baseline measures the reframing rather than the visual delta.
+  const cameraBboxRaw = params.get('cameraBbox');
+  let cameraBbox = undefined;
+  if (cameraBboxRaw) {
+    try {
+      const parsed = JSON.parse(cameraBboxRaw);
+      if (
+        parsed &&
+        Array.isArray(parsed.min) && parsed.min.length === 3 &&
+        Array.isArray(parsed.max) && parsed.max.length === 3
+      ) {
+        cameraBbox = { min: parsed.min, max: parsed.max };
+      }
+    } catch {
+      // Bad JSON — fall back to the manifest bbox.
+    }
+  }
   const status = document.getElementById('status');
   const canvas = document.getElementById('c');
 
@@ -61,6 +82,7 @@
         cameraPath: 'orbit-8',
         deterministic: true,
         seed,
+        ...(cameraBbox ? { cameraBbox } : {}),
       });
 
       viewer.on('warning', (e) => sf.warnings.push({ code: e.code, message: e.message }));

@@ -235,3 +235,4 @@ export function mulMat4(a, b) {
     }
     return o;
 }
+//# sourceMappingURL=math.js.map

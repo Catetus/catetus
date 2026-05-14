@@ -267,3 +267,4 @@ export class WebGL2Renderer {
         return program;
     }
 }
+//# sourceMappingURL=webgl2.js.map

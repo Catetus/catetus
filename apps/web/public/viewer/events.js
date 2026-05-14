@@ -57,3 +57,4 @@ export class Emitter {
         this.listeners.clear();
     }
 }
+//# sourceMappingURL=events.js.map

@@ -297,27 +297,27 @@
           "passed": true
         },
         "webMobile": {
-          "meanDeltaE94": 0.000887,
-          "maxDeltaE94": 0.000949,
-          "p95DeltaE94": 0.000949,
-          "meanPixelMatch": 0.000017,
-          "meanSsimLoss": 0.007589,
+          "meanDeltaE94": 0.000672,
+          "maxDeltaE94": 0.000673,
+          "p95DeltaE94": 0.000672,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.004031,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.908181,
-          "mlScoreMax": 0.923377,
+          "mlScore": 0.926579,
+          "mlScoreMax": 0.926818,
           "mlScoreVersion": "0.3.0-perkind"
         },
         "sizeMin": {
-          "meanDeltaE94": 0.144802,
-          "maxDeltaE94": 0.147303,
-          "p95DeltaE94": 0.147293,
-          "meanPixelMatch": 0.273118,
-          "meanSsimLoss": 0.283179,
-          "status": "fail",
-          "passed": false,
-          "mlScore": 0.371705,
-          "mlScoreMax": 0.377594,
+          "meanDeltaE94": 0.003704,
+          "maxDeltaE94": 0.003708,
+          "p95DeltaE94": 0.003708,
+          "meanPixelMatch": 0.005672,
+          "meanSsimLoss": 0.106301,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.834159,
+          "mlScoreMax": 0.834861,
           "mlScoreVersion": "0.3.0-perkind"
         }
       },
@@ -1065,6 +1065,6 @@
     "sizeMinRatioMedian": 23.19,
     "sizeMinRatioMax": 38.92,
     "fidelityWebMobilePass": 16,
-    "fidelitySizeMinPass": 15
+    "fidelitySizeMinPass": 16
   }
 }

@@ -223,6 +223,27 @@ function optimize(ply, preset, outDir) {
   return gltf;
 }
 
+/**
+ * Return the canonical bbox of the input PLY (pre-optimization). The fidelity
+ * harness pins every preset's camera to this bbox so a preset that legitimately
+ * prunes outlier geometry (e.g. floaters at radius >20 in a 4-unit scene)
+ * doesn't get penalized for shrinking the auto-framed orbit radius — that
+ * would measure the reframing rather than the visual delta.
+ */
+function inputPlyBbox(ply) {
+  const res = spawnSync(CLI, ['analyze', ply], { encoding: 'utf8' });
+  if (res.status !== 0) {
+    throw new Error(`splatforge analyze ${ply} exited with status ${res.status}`);
+  }
+  const j = JSON.parse(res.stdout);
+  const bb = j && j.boundingBox;
+  if (!bb || !Array.isArray(bb.min) || !Array.isArray(bb.max)) return null;
+  return {
+    min: [Number(bb.min[0]), Number(bb.min[1]), Number(bb.min[2])],
+    max: [Number(bb.max[0]), Number(bb.max[1]), Number(bb.max[2])],
+  };
+}
+
 /* -------------------------------------------------- static server */
 
 const MIME = {
@@ -280,7 +301,7 @@ function startServer({ scenesRoot, port }) {
  * `framesOutDir`. Returns the list of PNG buffers (in-memory) so a caller can
  * compute metrics without re-reading disk.
  */
-async function renderFrames(baseUrl, gltfRelativePath, framesOutDir, renderer) {
+async function renderFrames(baseUrl, gltfRelativePath, framesOutDir, renderer, cameraBbox) {
   // SBENCH_CHROME_FLAGS lets the hardware-accel rerun (apps/fidelity-gpu/run.py)
   // force ANGLE/Vulkan flags without the script having to know about Modal.
   const extraFlags = (process.env.SBENCH_CHROME_FLAGS || '')
@@ -295,7 +316,10 @@ async function renderFrames(baseUrl, gltfRelativePath, framesOutDir, renderer) {
   try {
     const ctx = await browser.newContext({ viewport: { width: 512, height: 512 } });
     const page = await ctx.newPage();
-    const url = `${baseUrl}/page.html?src=${encodeURIComponent(`/scenes/${gltfRelativePath}`)}&renderer=${renderer}&seed=42`;
+    const bboxQuery = cameraBbox
+      ? `&cameraBbox=${encodeURIComponent(JSON.stringify(cameraBbox))}`
+      : '';
+    const url = `${baseUrl}/page.html?src=${encodeURIComponent(`/scenes/${gltfRelativePath}`)}&renderer=${renderer}&seed=42${bboxQuery}`;
     await page.goto(url, { waitUntil: 'load' });
     // Big real scenes (3.6M splats) need a long budget on the CPU-rasterized
     // SwiftShader path. Override via SBENCH_RENDER_TIMEOUT_MS if needed.
@@ -425,6 +449,18 @@ async function main() {
 /* Per-scene worker, extracted so the main loop can wrap it in try/catch. */
 async function processScene(scene, ply, stage, baseUrl, renderer, results) {
 
+      // Snapshot the input PLY's bbox so every preset's render uses the same
+      // camera framing. Without this, a preset that prunes outliers (e.g.
+      // size-min × floater_proxy) shrinks its bbox, the auto-framed camera
+      // flies in close, and the resulting ΔE94 measures the reframing rather
+      // than the perceptual delta.
+      const cameraBbox = inputPlyBbox(ply);
+      if (cameraBbox) {
+        console.error(
+          `[fidelity]   pinning camera to input bbox min=[${cameraBbox.min.map((v) => v.toFixed(2)).join(',')}] max=[${cameraBbox.max.map((v) => v.toFixed(2)).join(',')}]`,
+        );
+      }
+
       // Optimize all 3 presets up front so we can render each into the same
       // server view without re-staging mid-flight.
       const sceneStage = resolve(stage, scene.id);
@@ -446,6 +482,7 @@ async function processScene(scene, ply, stage, baseUrl, renderer, results) {
           presetGltfs[preset],
           framesOut,
           renderer,
+          cameraBbox,
         );
       }
 
