@@ -1,28 +1,58 @@
 # SplatForge — handoff to next Claude Code session
 
-**Handoff date:** 2026-05-14
+**Handoff date:** 2026-05-14 (late-night session continued)
 **Last release tag:** `v0.1.1`
 **Owner:** Monte (`montabano1@gmail.com`)
-**Repo:** https://github.com/montabano1/SplatForge (**public** since 2026-05-14)
-**Live preview:** https://splatforge-montabano1-gmailcoms-projects.vercel.app
+**Public repo:** https://github.com/montabano1/SplatForge
+**Private repo:** https://github.com/montabano1/splatforge-private (new — open-core companion)
+**Live preview:** https://splatforge.vercel.app
 
 ---
 
-## TL;DR
+## TL;DR — what changed tonight
 
-SplatForge shipped v0.1.0 (Phase 0–2: CLI + viewer SDK + SplatBench corpus)
-yesterday, then v0.1.1 today which closed the "visual fidelity pending"
-gap, wired the viewer SDK end-to-end for the first time, shipped the
-public Astro landing page, drafted SPEC-0011/0012 (OpenUSD), patched CI,
-and stood up the Phase 3 hosted-API + Modal-worker scaffold. Repo is now
-public; pushes auto-deploy via Vercel.
+1. **Open-core split landed.** New private repo
+   `montabano1/splatforge-private` at `~/Desktop/splatforge-private`
+   contains three crates: `splatforge-advanced` (4 proprietary-pass
+   stubs with research notes), `splatforge-fidelity-ml` (splat-aware
+   perceptual metric, validated on real frames), `splatforge-private-cli`
+   (the `splatforge-pro` binary). Three decision docs in `docs/`:
+   saliency-backend (pick: U2-Netp via ONNX), differentiable-repack (pick:
+   gsplat + hard-prune-by-saliency, ~\$0.04-0.11/scene on A100), fidelity
+   validation.
+2. **ML Score column live on SplatBench** — first asymmetrically
+   reproducible column on the public benchmark. Values published on
+   `benches/reports/splatbench-v0.{md,html,json}` and on
+   splatforge.vercel.app; reproducing them requires the proprietary
+   `splatforge-pro`. Current metric: `0.1.1-baseline` (3 features + tightened
+   high-freq normalizer).
+3. **Astro fidelity wiring bug fixed.** Pre-existing — `SceneFidelity`
+   was reading a `deltaE94` field that never matched the v0.1.1 JSON
+   shape; column had been showing "pending" since launch. Now renders
+   real ΔE94 + ML Score values.
+4. **v0.2 learned metric tried twice, didn't ship.** Both attempts
+   (simple linear refit, 15-feature per-quadrant refit) hit the same
+   wall: base features span 0.93-1.0 while training targets span 0.1-1.0,
+   so ridge regression can't find weights that discriminate. Both
+   attempts honestly documented in
+   `splatforge-private/docs/fidelity-ml-validation.md`. **The real
+   v0.2 unlock**: replace theoretical-max normalizers in
+   `color_score`/`edge_score`/`high_freq_score` with empirical-p95
+   normalizers calibrated on the corruption corpus, THEN per-quadrant
+   refit becomes meaningful. Corpus + harness + fit binaries stay in
+   the private repo for that next attempt.
 
-**Where to start tomorrow:** SPEC-0013 (`KHR_mesh_quantization`) has three
-`#[ignore]`'d acceptance tests waiting; implementing them is the single
-highest-leverage piece of work remaining for v0.2. After that, the open
-items are: wire Vercel Blob into apps/api, deploy apps/api to the
-DigitalOcean droplet at `167.99.231.209` (Monte to provide SSH access),
-and run the GPU fidelity rerun once the Modal image build completes.
+**Where to start tomorrow morning:** EITHER (a) take another swing at
+v0.2 with empirical normalizers as above (~1-2 hours, ships a new ML
+Score version), OR (b) scaffold `SaliencyPrune` with the U2-Netp Python
+subprocess per `docs/saliency-backend.md` (~3-4 hours, ships a real
+proprietary pass). Latter is higher-leverage if you want a new product
+line; former is higher-leverage if you want the column values to keep
+moving as a "the moat updates every release" story.
+
+---
+
+## Open from prior session (unchanged)
 
 ---
 
