@@ -65,6 +65,10 @@ export function decodeChunkBytes(
  * disk (POSITION, _ROTATION, _SCALE, _OPACITY, _COLOR_DC) follows
  * `KHR_gaussian_splatting`; we re-interleave to `DecodedSplat`.
  *
+ * Each attribute is decoded according to its accessor `componentType` /
+ * `normalized` / `min` / `max` — SPEC-0013 (`KHR_mesh_quantization`) permits
+ * POSITION → u16, _SCALE/_OPACITY/_COLOR_DC → u8 with normalized=true.
+ *
  * Quaternion convention on the wire is (x, y, z, w) which already matches our
  * runtime convention — no axis flip needed.
  */
@@ -74,15 +78,11 @@ export function decodeSplatsSoa(
   splatCount: number,
 ): DecodedSplat[] {
   if (splatCount === 0) return [];
-  const buf = bytes.buffer;
-  const base = bytes.byteOffset;
-  const view = (slice: { byteOffset: number; byteLength: number }, comps: number): Float32Array =>
-    new Float32Array(buf, base + slice.byteOffset, splatCount * comps);
-  const pos = view(layout.positions, 3);
-  const rot = view(layout.rotations, 4);
-  const scl = view(layout.scales, 3);
-  const op = view(layout.opacities, 1);
-  const dc = view(layout.colorDC, 3);
+  const pos = decodeAttribute(bytes, layout.positions, splatCount, 3);
+  const rot = decodeAttribute(bytes, layout.rotations, splatCount, 4);
+  const scl = decodeAttribute(bytes, layout.scales, splatCount, 3);
+  const op = decodeAttribute(bytes, layout.opacities, splatCount, 1);
+  const dc = decodeAttribute(bytes, layout.colorDC, splatCount, 3);
   const out: DecodedSplat[] = new Array(splatCount);
   for (let i = 0; i < splatCount; i++) {
     out[i] = {
@@ -94,6 +94,84 @@ export function decodeSplatsSoa(
     };
   }
   return out;
+}
+
+const FLOAT_CT = 5126;
+const UBYTE_CT = 5121;
+const USHORT_CT = 5123;
+
+/**
+ * Decode one SoA attribute into a flat `Float32Array` of length
+ * `splatCount * comps`. Handles FLOAT pass-through plus the
+ * `KHR_mesh_quantization` integer variants (UNSIGNED_BYTE, UNSIGNED_SHORT),
+ * dequantizing against the accessor's per-component min/max when normalized.
+ */
+function decodeAttribute(
+  bytes: Uint8Array,
+  slice: {
+    byteOffset: number;
+    byteLength: number;
+    componentType?: number;
+    normalized?: boolean;
+    min?: number[];
+    max?: number[];
+  },
+  splatCount: number,
+  comps: number,
+): Float32Array {
+  const total = splatCount * comps;
+  const buf = bytes.buffer;
+  const base = bytes.byteOffset + slice.byteOffset;
+  const ct = slice.componentType ?? FLOAT_CT;
+
+  if (ct === FLOAT_CT) {
+    // Zero-copy float view when the byte offset is 4-aligned; copy otherwise.
+    if ((base & 3) === 0) {
+      return new Float32Array(buf, base, total);
+    }
+    const dv = new DataView(buf, base, total * 4);
+    const out = new Float32Array(total);
+    for (let i = 0; i < total; i++) out[i] = dv.getFloat32(i * 4, true);
+    return out;
+  }
+
+  if (ct === USHORT_CT) {
+    const src = new Uint16Array(buf, base, total);
+    const out = new Float32Array(total);
+    if (slice.normalized && slice.min && slice.max && slice.min.length === comps) {
+      for (let i = 0; i < total; i++) {
+        const k = i % comps;
+        const lo = slice.min[k]!;
+        const hi = slice.max[k]!;
+        out[i] = lo + (src[i]! / 65535) * (hi - lo);
+      }
+    } else if (slice.normalized) {
+      for (let i = 0; i < total; i++) out[i] = src[i]! / 65535;
+    } else {
+      for (let i = 0; i < total; i++) out[i] = src[i]!;
+    }
+    return out;
+  }
+
+  if (ct === UBYTE_CT) {
+    const src = new Uint8Array(buf, base, total);
+    const out = new Float32Array(total);
+    if (slice.normalized && slice.min && slice.max && slice.min.length === comps) {
+      for (let i = 0; i < total; i++) {
+        const k = i % comps;
+        const lo = slice.min[k]!;
+        const hi = slice.max[k]!;
+        out[i] = lo + (src[i]! / 255) * (hi - lo);
+      }
+    } else if (slice.normalized) {
+      for (let i = 0; i < total; i++) out[i] = src[i]! / 255;
+    } else {
+      for (let i = 0; i < total; i++) out[i] = src[i]!;
+    }
+    return out;
+  }
+
+  throw new Error(`unsupported componentType: ${ct}`);
 }
 
 /**

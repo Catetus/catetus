@@ -16,14 +16,31 @@ export interface Bbox {
 }
 
 /**
+ * glTF accessor component type. Matches the underlying GL enum values so we
+ * can compare directly against the JSON.
+ */
+export const FLOAT_COMPONENT = 5126;
+export const UBYTE_COMPONENT = 5121;
+export const USHORT_COMPONENT = 5123;
+
+/**
  * Per-attribute slice into a structure-of-arrays binary chunk. Offsets are
  * relative to the start of the chunk's `byteOffset`. Component widths follow
  * `KHR_gaussian_splatting`: POSITION/SCALE/COLOR_DC are vec3, ROTATION is vec4,
  * OPACITY is scalar.
+ *
+ * When `componentType` is one of the integer types (5121, 5123) and
+ * `normalized` is true, the SPEC-0013 `KHR_mesh_quantization` extension is in
+ * use and the bytes must be dequantized against `min` / `max` (one entry per
+ * component) before being passed to the renderer.
  */
 export interface SoaAttributeSlice {
   byteOffset: number;
   byteLength: number;
+  componentType?: number;
+  normalized?: boolean;
+  min?: number[];
+  max?: number[];
 }
 
 /**
@@ -78,6 +95,8 @@ interface RawGltf {
   bufferViews?: Array<{ buffer?: number; byteOffset?: number; byteLength?: number }>;
   accessors?: Array<{
     bufferView?: number;
+    componentType?: number;
+    normalized?: boolean;
     count?: number;
     type?: string;
     min?: number[];
@@ -176,7 +195,17 @@ function findStreamingIndex(g: RawGltf): RawStreamingIndex | undefined {
 function accessorSlice(
   g: RawGltf,
   accIdx: number | undefined,
-): { bufferIdx: number; byteOffset: number; byteLength: number } | undefined {
+):
+  | {
+      bufferIdx: number;
+      byteOffset: number;
+      byteLength: number;
+      componentType?: number;
+      normalized?: boolean;
+      min?: number[];
+      max?: number[];
+    }
+  | undefined {
   if (typeof accIdx !== 'number') return undefined;
   const acc = g.accessors?.[accIdx];
   if (!acc || typeof acc.bufferView !== 'number') return undefined;
@@ -186,6 +215,10 @@ function accessorSlice(
     bufferIdx: typeof bv.buffer === 'number' ? bv.buffer : 0,
     byteOffset: typeof bv.byteOffset === 'number' ? bv.byteOffset : 0,
     byteLength: typeof bv.byteLength === 'number' ? bv.byteLength : 0,
+    componentType: typeof acc.componentType === 'number' ? acc.componentType : undefined,
+    normalized: typeof acc.normalized === 'boolean' ? acc.normalized : undefined,
+    min: Array.isArray(acc.min) ? acc.min : undefined,
+    max: Array.isArray(acc.max) ? acc.max : undefined,
   };
 }
 
@@ -301,20 +334,33 @@ export function parseManifest(json: string): Manifest {
  * `chunkByteOffset` is the buffer-relative offset of the chunk; subtracting it
  * yields offsets the renderer can use directly against the fetched bytes.
  */
+type RawSlice = {
+  byteOffset: number;
+  byteLength: number;
+  componentType?: number;
+  normalized?: boolean;
+  min?: number[];
+  max?: number[];
+};
+
 function buildAttributeLayout(
-  positions: { byteOffset: number; byteLength: number } | undefined,
-  rotations: { byteOffset: number; byteLength: number } | undefined,
-  scales: { byteOffset: number; byteLength: number } | undefined,
-  opacities: { byteOffset: number; byteLength: number } | undefined,
-  colorDC: { byteOffset: number; byteLength: number } | undefined,
+  positions: RawSlice | undefined,
+  rotations: RawSlice | undefined,
+  scales: RawSlice | undefined,
+  opacities: RawSlice | undefined,
+  colorDC: RawSlice | undefined,
   chunkByteOffset: number,
 ): SoaAttributeLayout | undefined {
   if (!positions || !rotations || !scales || !opacities || !colorDC) {
     return undefined;
   }
-  const rebase = (s: { byteOffset: number; byteLength: number }): SoaAttributeSlice => ({
+  const rebase = (s: RawSlice): SoaAttributeSlice => ({
     byteOffset: s.byteOffset - chunkByteOffset,
     byteLength: s.byteLength,
+    componentType: s.componentType,
+    normalized: s.normalized,
+    min: s.min,
+    max: s.max,
   });
   return {
     positions: rebase(positions),
