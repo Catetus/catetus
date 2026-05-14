@@ -234,10 +234,24 @@ fn cmd_optimize(input: &Path, preset_name: &str, chunked: bool, out: Option<&Pat
     let out = out
         .map(PathBuf::from)
         .unwrap_or_else(|| input.with_extension("optimized.gltf"));
+    // Per SPEC-0013, the web-targeted presets opt in to `KHR_mesh_quantization`
+    // integer accessors so the glTF wire size lands close to the SPZ payload.
+    // `lossless-repack` and `quality-max` keep f32 accessors so byte-identical
+    // round-trips remain possible.
+    let quantize = matches!(
+        preset_name,
+        "web-mobile"
+            | "web-desktop"
+            | "quest-browser"
+            | "visionos-preview"
+            | "thumbnail-preview"
+            | "size-min"
+    );
     let opts = WriteOpts {
         chunked,
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
+        quantize,
     };
     write_gltf(&scene, &out, &opts)?;
     let report_path = out.with_extension("json");
