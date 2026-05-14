@@ -2,10 +2,10 @@
   "schema": "splatforge.diff-repack-v0",
   "name": "Differentiable repack — premium tier results",
   "description": "PSNR delta of the gsplat-based differentiable repack pass vs naive opacity-prune at the same byte budget. Algorithm lives in splatforge-private; reproducing the numbers requires the proprietary build + ~$0.10/scene of A100 spot time. Values are published; the optimizer is not.",
-  "version": "0.1.0-gsplat-self-distill",
+  "version": "0.1.1-beer-lambert-gated",
   "target_ratio": 0.5,
-  "approach": "gsplat 1.5.3 + self-distillation against 16 inside-the-cloud orbit-camera pseudo-photos; hard-prune by saliency (alpha * |sigma scale|) every N iters",
-  "generated_at": "2026-05-14T14:02:39.596Z",
+  "approach": "gsplat 1.5.3 + self-distillation against 16 inside-the-cloud orbit-camera pseudo-photos; hard-prune by saliency (alpha * |sigma scale|) every N iters; v0.1.1 adds gated Beer-Lambert opacity compensation — when the surviving cohort's mean α < 0.4 we rescale α so (1−α_new) = (1−α_old)^(N_old/N_new), preserving integrated transmittance across viewing rays. This is a no-op on opaque scenes and recovered ~4 dB on splatbench_transparency_proxy.",
+  "generated_at": "2026-05-14T15:31:31.975Z",
   "results": [
     {
       "scene_id": "bonsai_mipnerf360_iter7k",
@@ -169,10 +169,10 @@
       "splats_out": 12503,
       "bytes_in": 6201530,
       "bytes_out": 3102274,
-      "psnr_repack_db": 34.955,
+      "psnr_repack_db": 38.998,
       "psnr_opacity_prune_db": 47.567,
-      "psnr_delta_db": -12.612,
-      "wall_secs": 32.88,
+      "psnr_delta_db": -8.569,
+      "wall_secs": 18.18,
       "image_size": 192,
       "iters": 1000
     },
