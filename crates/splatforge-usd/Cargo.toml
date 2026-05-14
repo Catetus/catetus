@@ -1,0 +1,24 @@
+[package]
+name = "splatforge-usd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OpenUSD I/O for SplatForge — ParticleField3DGaussianSplat writer + USDA reader. Spec: SPEC-0011 + SPEC-0012."
+
+[features]
+# Default feature surface is the lightweight USDA-only path so the crate
+# builds without the OpenUSD C++ toolchain installed. `usdc` brings in
+# the Pixar binary container; `streaming` covers SPEC-0012.
+default = []
+usdc = []
+streaming = []
+
+[dependencies]
+splatforge-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
