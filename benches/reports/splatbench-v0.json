@@ -847,9 +847,9 @@
         "splatsOut": 12503,
         "bytesIn": 6201530,
         "bytesOut": 3102274,
-        "psnrRepackDb": 34.955,
+        "psnrRepackDb": 38.998,
         "psnrOpacityPruneDb": 47.567,
-        "psnrDeltaDb": -12.612
+        "psnrDeltaDb": -8.569
       }
     },
     {
