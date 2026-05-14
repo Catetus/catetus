@@ -11,13 +11,15 @@
 //! stays HTTP-light so we can host it on any standard PaaS without rewriting
 //! handlers.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::Context;
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Request, StatusCode},
+    middleware::{self, Next},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -48,6 +50,9 @@ pub struct AppState {
     /// Publicly addressable base URL for this API (no trailing slash).
     /// Used to build the worker's callback URL so it can POST results back.
     pub public_base_url: String,
+    /// Accepted bearer tokens. Empty means "auth disabled" (dev mode);
+    /// non-empty means every paid route must present one of these.
+    pub api_keys: Arc<HashSet<String>>,
 }
 
 #[tokio::main]
@@ -67,32 +72,63 @@ async fn main() -> anyhow::Result<()> {
     // production behind a proper hostname.
     let public_base_url = std::env::var("SPLATFORGE_PUBLIC_BASE_URL")
         .unwrap_or_else(|_| "http://167.99.231.209:8080".to_string());
+    // Comma-separated list of accepted bearer tokens. Empty = auth disabled
+    // (only acceptable in local dev; the deployed binary should always have
+    // at least one key set).
+    let api_keys: HashSet<String> = std::env::var("SPLATFORGE_API_KEYS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if api_keys.is_empty() {
+        warn!(
+            "SPLATFORGE_API_KEYS is empty — running with NO authentication. \
+             Set this in production to enable bearer-token gating on /v1/jobs."
+        );
+    } else {
+        info!(n_keys = api_keys.len(), "bearer auth enabled");
+    }
 
     let state = AppState {
         jobs: Arc::new(JobStore::default()),
         modal: Arc::new(ModalClient::new(modal_url)),
         blob: Arc::new(store::BlobBackend::new(blob_token)),
         public_base_url: public_base_url.trim_end_matches('/').to_string(),
+        api_keys: Arc::new(api_keys),
     };
 
-    // Two routers so the upload path can run with a 250 MB body cap while
-    // the small JSON routes keep the strict 50 MB default.
-    let small = Router::new()
+    // Three routers:
+    //   - `open`  — always public (healthz, worker callback). The worker
+    //               callback is protected by the per-job UUID, not the
+    //               bearer token, so a worker doesn't need an API key.
+    //   - `paid`  — gated on the bearer token when SPLATFORGE_API_KEYS is set.
+    //               Job creation + GET (clients poll their own job state).
+    //   - `upload`— same auth as `paid` but with a 250 MB body cap.
+    let auth_layer = middleware::from_fn_with_state(state.clone(), require_api_key);
+
+    let open = Router::new()
         .route("/healthz", get(healthz))
-        .route("/v1/jobs", post(create_job))
-        .route("/v1/jobs/:id", get(get_job))
         .route("/v1/jobs/:id/result", post(job_result))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
+
+    let paid = Router::new()
+        .route("/v1/jobs", post(create_job))
+        .route("/v1/jobs/:id", get(get_job))
+        .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
+        .layer(auth_layer.clone());
 
     let upload = Router::new()
         .route("/v1/jobs/:id/upload", post(upload_job))
         // 250 MB — covers the SplatBench indoor proxy (50 MB) with plenty of
         // headroom for typical splats. The body is streamed through to Vercel
         // Blob; we never buffer it in memory.
-        .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024));
+        .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024))
+        .layer(auth_layer);
 
     let app = Router::new()
-        .merge(small)
+        .merge(open)
+        .merge(paid)
         .merge(upload)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -104,6 +140,37 @@ async fn main() -> anyhow::Result<()> {
     info!(%bind, "splatforge-api listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Bearer-token middleware. When `state.api_keys` is non-empty, every
+/// request to a route under this layer must present
+/// `Authorization: Bearer <key>` matching one of the configured keys.
+/// Returns 401 with the canonical error envelope otherwise.
+async fn require_api_key(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<axum::response::Response, ApiError> {
+    if state.api_keys.is_empty() {
+        // Auth disabled — dev mode. Logged once at startup; don't log per
+        // request to avoid spam.
+        return Ok(next.run(req).await);
+    }
+    let auth = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let presented = auth.strip_prefix("Bearer ").unwrap_or_default().trim();
+    if presented.is_empty() {
+        return Err(ApiError::Unauthorized(
+            "missing Authorization: Bearer <key>".to_string(),
+        ));
+    }
+    if !state.api_keys.contains(presented) {
+        return Err(ApiError::Unauthorized("invalid API key".to_string()));
+    }
+    Ok(next.run(req).await)
 }
 
 #[instrument(skip(_state))]
@@ -353,6 +420,8 @@ pub enum ApiError {
     NotFound,
     #[error("bad request: {0}")]
     BadRequest(String),
+    #[error("unauthorized: {0}")]
+    Unauthorized(String),
     #[error("storage error: {0}")]
     Storage(#[from] store::BlobError),
     #[error("modal error: {0}")]
@@ -364,6 +433,7 @@ impl IntoResponse for ApiError {
         let (status, msg) = match &self {
             ApiError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ApiError::Unauthorized(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
             ApiError::Storage(_) | ApiError::Modal(_) => {
                 (StatusCode::BAD_GATEWAY, self.to_string())
             }
