@@ -324,6 +324,86 @@ pub fn predict(
     Prediction { mean, std }
 }
 
+/// Encode a stream of 8-bit attribute codes against per-splat predicted
+/// Gaussian distributions. `codes` is laid out as `[n, d]` row-major
+/// (one splat at a time). `predictions[i]` corresponds to splat `i`.
+///
+/// Returns the compressed bitstream as a `Vec<u32>` (constriction's
+/// native output format).
+pub fn encode_codes(
+    codes: &[u8],
+    n: usize,
+    d: usize,
+    predictions: &[Prediction],
+) -> Result<Vec<u32>, PostHacError> {
+    use constriction::stream::model::{DefaultLeakyQuantizer, LeakyQuantizer};
+    use constriction::stream::queue::DefaultRangeEncoder;
+    use constriction::stream::Encode;
+    use probability::distribution::Gaussian;
+
+    if codes.len() != n * d {
+        return Err(PostHacError::ShapeMismatch {
+            expected: (n as u32, d as u32),
+            got: ((codes.len() / d) as u32, d as u32),
+        });
+    }
+    if predictions.len() != n {
+        return Err(PostHacError::ShapeMismatch {
+            expected: (n as u32, d as u32),
+            got: (predictions.len() as u32, d as u32),
+        });
+    }
+
+    let quantizer: DefaultLeakyQuantizer<f64, i32> = LeakyQuantizer::new(-1..=256);
+    let mut encoder = DefaultRangeEncoder::new();
+
+    // Symbol order matches Python: attr-major (loop attr, then splat), so
+    // when the decoder reverses it gets the same sequence.
+    for c in 0..d {
+        for s in 0..n {
+            let symbol = codes[s * d + c] as i32;
+            let mean = predictions[s].mean[c] as f64;
+            let std = (predictions[s].std[c] as f64).max(0.5);
+            let model = quantizer.quantize(Gaussian::new(mean, std));
+            encoder
+                .encode_symbol(symbol, model)
+                .map_err(|e| PostHacError::RangeCoder(format!("encode {s},{c}: {e:?}")))?;
+        }
+    }
+    Ok(encoder.into_compressed().unwrap())
+}
+
+/// Inverse of `encode_codes`. Returns `[n, d]` codes in row-major order.
+pub fn decode_codes(
+    compressed: &[u32],
+    n: usize,
+    d: usize,
+    predictions: &[Prediction],
+) -> Result<Vec<u8>, PostHacError> {
+    use constriction::stream::model::{DefaultLeakyQuantizer, LeakyQuantizer};
+    use constriction::stream::queue::DefaultRangeDecoder;
+    use constriction::stream::Decode;
+    use probability::distribution::Gaussian;
+
+    let quantizer: DefaultLeakyQuantizer<f64, i32> = LeakyQuantizer::new(-1..=256);
+    let mut decoder = DefaultRangeDecoder::from_compressed(compressed.to_vec())
+        .map_err(|e| PostHacError::RangeCoder(format!("decoder init: {e:?}")))?;
+
+    let mut out = vec![0u8; n * d];
+    for c in 0..d {
+        for s in 0..n {
+            let mean = predictions[s].mean[c] as f64;
+            let std = (predictions[s].std[c] as f64).max(0.5);
+            let model = quantizer.quantize(Gaussian::new(mean, std));
+            let symbol = decoder
+                .decode_symbol(model)
+                .map_err(|e| PostHacError::RangeCoder(format!("decode {s},{c}: {e:?}")))?;
+            out[s * d + c] = symbol.clamp(0, 255) as u8;
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,6 +441,36 @@ mod tests {
         // Negative coordinates should still produce a valid bucket (no panic, in range).
         let c = hash3([-1, 0, 0], 1 << 15);
         assert!(c < (1 << 15));
+    }
+
+    #[test]
+    fn roundtrip_small_scene() {
+        // Encode 100 splats × 4 attrs with random codes + predictions,
+        // then decode and check bit-exact equality.
+        let n = 100;
+        let d = 4;
+        let mut codes = vec![0u8; n * d];
+        for i in 0..codes.len() {
+            codes[i] = ((i * 7 + 13) % 256) as u8;
+        }
+        let predictions: Vec<Prediction> = (0..n)
+            .map(|i| Prediction {
+                mean: (0..d).map(|c| ((i * 17 + c * 23) % 256) as f32).collect(),
+                std: vec![32.0; d],
+            })
+            .collect();
+        let compressed = encode_codes(&codes, n, d, &predictions).unwrap();
+        let decoded = decode_codes(&compressed, n, d, &predictions).unwrap();
+        assert_eq!(codes, decoded);
+        // Compression ratio: 400 bytes raw → ~? compressed
+        let raw_bytes = (n * d) as f64;
+        let comp_bytes = (compressed.len() * 4) as f64;
+        let ratio = raw_bytes / comp_bytes;
+        // With well-predicted means + std=32, we should get some compression.
+        // Don't assert specific ratio (it's small data); just sanity-check
+        // that we didn't *expand* the stream by more than 2×.
+        assert!(comp_bytes < raw_bytes * 2.0,
+                "compression should not balloon: raw={raw_bytes}, comp={comp_bytes}, ratio={ratio}");
     }
 
     #[test]

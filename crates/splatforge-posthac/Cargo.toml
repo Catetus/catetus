@@ -12,6 +12,7 @@ splatforge-core = { workspace = true }
 byteorder       = { workspace = true }
 thiserror       = { workspace = true }
 constriction    = "0.4"
+probability     = "0.20"
 
 [features]
 default = []
