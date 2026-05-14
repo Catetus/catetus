@@ -50,13 +50,15 @@ const clientData = scenes.map((s) => ({
   <h2 id="leaderboard-title" class="section-title">SplatBench · Leaderboard</h2>
 
   <p class="methodology">
-    Seven scenes — two real (Mip-NeRF 360 <code>bonsai</code>, <code>bicycle</code>) and five
-    deterministic synthetics — run through the full <code>analyze → optimize → pack</code>
-    pipeline at each preset. Compression is measured against the raw <code>.ply</code>;
-    fidelity is mean CIE ΔE94 over 8 deterministic orbit frames rendered through
-    <code>@splatforge/viewer</code>, scaled 0–1 against the published <strong>3% perceptibility
-    threshold</strong>. Every scene is identified by a BLAKE3 hash of its canonical IR so
-    runs reproduce byte-for-byte.
+    {splatbench.aggregates.scenesTotal} scenes — {splatbench.aggregates.scenesReal} real
+    (Mip-NeRF 360 <code>bonsai</code>, <code>bicycle</code>) and {splatbench.aggregates.scenesSynthetic}
+    deterministic synthetic probes for per-class failure modes (texture, transparency,
+    motion, depth, banding, foliage, specular, lowlight, portrait, …) — run through the
+    full <code>analyze → optimize → pack</code> pipeline at each preset. Compression is
+    measured against the raw <code>.ply</code>; fidelity is mean CIE ΔE94 over 8
+    deterministic orbit frames rendered through <code>@splatforge/viewer</code>, scaled
+    0–1 against the published <strong>3% perceptibility threshold</strong>. Every scene
+    is identified by a BLAKE3 hash of its canonical IR so runs reproduce byte-for-byte.
   </p>
 
   <div class="kpis">
@@ -103,6 +105,16 @@ const clientData = scenes.map((s) => ({
       <option value="webMobile" selected>web-mobile</option>
       <option value="sizeMin">size-min</option>
     </select>
+
+    <span class="filter-divider" aria-hidden="true"></span>
+    <span class="filter-label">Source</span>
+    <span class="filter-chips" role="group" aria-label="Filter by source">
+      <button type="button" class="chip is-active" data-source-chip="all">all</button>
+      <button type="button" class="chip" data-source-chip="real">real</button>
+      <button type="button" class="chip" data-source-chip="synthetic">synthetic</button>
+    </span>
+    <span class="filter-count tabular" data-filter-count></span>
+
     {!showFidelity && (
       <span class="fidelity-pending">
         fidelity column lights up automatically when v0.1.1 publishes ΔE94/SSIM/PSNR
@@ -225,7 +237,12 @@ const clientData = scenes.map((s) => ({
 
     const select = document.querySelector("[data-preset-select]");
     const tbody = document.querySelector("[data-leaderboard-body]");
+    const chips = document.querySelectorAll("[data-source-chip]");
+    const countEl = document.querySelector("[data-filter-count]");
     if (!(select instanceof HTMLSelectElement) || !(tbody instanceof HTMLElement)) return;
+
+    /** @type {"all"|"real"|"synthetic"} */
+    let sourceFilter = "all";
 
     function fmtBytes(n) {
       if (n < 1024) return n + " B";
@@ -249,15 +266,27 @@ const clientData = scenes.map((s) => ({
     }
     function render() {
       const preset = select.value === "sizeMin" ? "sizeMin" : "webMobile";
-      const rows = DATA.slice().sort(function (a, b) {
+      const filtered = DATA.filter(function (r) {
+        if (sourceFilter === "all") return true;
+        return r.source === sourceFilter;
+      });
+      const rows = filtered.slice().sort(function (a, b) {
         return b[preset].ratio - a[preset].ratio;
       });
-      const maxRatio = Math.max.apply(
-        null,
-        rows.map(function (r) {
-          return r[preset].ratio;
-        }),
-      );
+      const maxRatio = rows.length
+        ? Math.max.apply(
+            null,
+            rows.map(function (r) {
+              return r[preset].ratio;
+            }),
+          )
+        : 1;
+      if (countEl) {
+        countEl.textContent =
+          sourceFilter === "all"
+            ? rows.length + " scenes"
+            : rows.length + " of " + DATA.length + " scenes";
+      }
       tbody.innerHTML = rows
         .map(function (r) {
           const v = r[preset];
@@ -319,5 +348,17 @@ const clientData = scenes.map((s) => ({
         .join("");
     }
     select.addEventListener("change", render);
+    chips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        const next = chip.getAttribute("data-source-chip");
+        if (next !== "all" && next !== "real" && next !== "synthetic") return;
+        sourceFilter = next;
+        chips.forEach(function (c) {
+          c.classList.toggle("is-active", c === chip);
+        });
+        render();
+      });
+    });
+    render();
   })();
 </script>
