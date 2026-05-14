@@ -55,6 +55,13 @@ pub struct WriteOpts {
     pub chunk_target_splats: usize,
     /// Optional LOD splat-fraction levels.
     pub lod_fractions: Vec<f32>,
+    /// Enable `KHR_mesh_quantization` integer accessors for the small,
+    /// quantization-friendly attributes (POSITION → u16, _SCALE/_OPACITY/_COLOR_DC
+    /// → u8). See SPEC-0013 for the wire format and rationale.
+    ///
+    /// Defaults to `false` so the lossless / quality-max paths stay byte-stable.
+    /// The `splatforge optimize` CLI flips this on for the web-targeted presets.
+    pub quantize: bool,
 }
 
 impl Default for WriteOpts {
@@ -63,6 +70,7 @@ impl Default for WriteOpts {
             chunked: false,
             chunk_target_splats: 100_000,
             lod_fractions: vec![1.0],
+            quantize: false,
         }
     }
 }
@@ -111,16 +119,26 @@ struct GltfAccessor {
     #[serde(rename = "bufferView")]
     buffer_view: usize,
     #[serde(rename = "componentType")]
-    component_type: u32, // 5126 = FLOAT
+    component_type: u32, // 5126 = FLOAT, 5121 = UBYTE, 5123 = USHORT
     count: usize,
     #[serde(rename = "type")]
     accessor_type: String,
+    /// Whether the integer accessor should be interpreted as a normalized
+    /// floating-point value in `[0, 1]` (signed integers map to `[-1, 1]`).
+    /// Required for `KHR_mesh_quantization` integer accessors.
+    #[serde(default, skip_serializing_if = "is_false")]
+    normalized: bool,
     /// Per-component minima. Required on POSITION per glTF 2.0 §3.6.2.4.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     min: Option<Vec<f32>>,
     /// Per-component maxima.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     max: Option<Vec<f32>>,
+}
+
+#[inline]
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -152,7 +170,10 @@ struct GltfRoot {
 
 const KHR: &str = "KHR_gaussian_splatting";
 const SF_INDEX: &str = "SF_spatial_streaming_index";
+const KHR_QUANT: &str = "KHR_mesh_quantization";
 const FLOAT: u32 = 5126;
+const UBYTE: u32 = 5121;
+const USHORT: u32 = 5123;
 
 fn add_view_acc(
     root: &mut GltfRoot,
@@ -161,6 +182,26 @@ fn add_view_acc(
     count: usize,
     byte_len: usize,
     accessor_ty: &str,
+) -> usize {
+    add_view_acc_typed(
+        root,
+        buffer_idx,
+        offset,
+        count,
+        byte_len,
+        accessor_ty,
+        FLOAT,
+    )
+}
+
+fn add_view_acc_typed(
+    root: &mut GltfRoot,
+    buffer_idx: usize,
+    offset: &mut usize,
+    count: usize,
+    byte_len: usize,
+    accessor_ty: &str,
+    component_type: u32,
 ) -> usize {
     let bv = root.buffer_views.len();
     root.buffer_views.push(GltfBufferView {
@@ -171,9 +212,10 @@ fn add_view_acc(
     let acc = root.accessors.len();
     root.accessors.push(GltfAccessor {
         buffer_view: bv,
-        component_type: FLOAT,
+        component_type,
         count,
         accessor_type: accessor_ty.to_string(),
+        normalized: false,
         min: None,
         max: None,
     });
@@ -186,6 +228,74 @@ fn set_accessor_minmax(root: &mut GltfRoot, acc: usize, mn: [f32; 3], mx: [f32; 
         a.min = Some(mn.to_vec());
         a.max = Some(mx.to_vec());
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_quantized_accessors(
+    root: &mut GltfRoot,
+    buffer_idx: usize,
+    n: usize,
+    pos_min: &[f32; 3],
+    pos_max: &[f32; 3],
+    scale_min: &[f32; 3],
+    scale_max: &[f32; 3],
+    has_sh: bool,
+) -> (usize, usize, usize, usize, usize, Option<usize>) {
+    let mut offset = 0usize;
+    // POSITION — u16 normalized VEC3, padded to 4-byte alignment.
+    let pos_acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 6, "VEC3", USHORT);
+    if let Some(a) = root.accessors.get_mut(pos_acc) {
+        a.normalized = true;
+        a.min = Some(pos_min.to_vec());
+        a.max = Some(pos_max.to_vec());
+    }
+    offset = align_up(offset, 4);
+
+    // _ROTATION — FLOAT VEC4.
+    let rot_acc = add_view_acc(root, buffer_idx, &mut offset, n, n * 16, "VEC4");
+
+    // _SCALE — u8 normalized VEC3.
+    let scale_acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 3, "VEC3", UBYTE);
+    if let Some(a) = root.accessors.get_mut(scale_acc) {
+        a.normalized = true;
+        a.min = Some(scale_min.to_vec());
+        a.max = Some(scale_max.to_vec());
+    }
+    offset = align_up(offset, 4);
+
+    // _OPACITY — u8 normalized scalar.
+    let op_acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n, "SCALAR", UBYTE);
+    if let Some(a) = root.accessors.get_mut(op_acc) {
+        a.normalized = true;
+        a.min = Some(vec![0.0]);
+        a.max = Some(vec![1.0]);
+    }
+    offset = align_up(offset, 4);
+
+    // _COLOR_DC — u8 normalized VEC3 in [0, 1].
+    let dc_acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 3, "VEC3", UBYTE);
+    if let Some(a) = root.accessors.get_mut(dc_acc) {
+        a.normalized = true;
+        a.min = Some(vec![0.0, 0.0, 0.0]);
+        a.max = Some(vec![1.0, 1.0, 1.0]);
+    }
+    offset = align_up(offset, 4);
+
+    // _COLOR_SH — FLOAT SCALAR (45 per splat) when present.
+    let sh_acc_opt = if has_sh {
+        Some(add_view_acc(
+            root,
+            buffer_idx,
+            &mut offset,
+            n,
+            n * 45 * 4,
+            "SCALAR",
+        ))
+    } else {
+        None
+    };
+
+    (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt)
 }
 
 /// Write a scene as `<dir>/scene.gltf` plus one or more `.bin` files under
@@ -221,6 +331,11 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
     if opts.chunked {
         root.extensions_used.push(SF_INDEX.to_string());
     }
+    if opts.quantize {
+        // Non-required: viewers that don't implement the extension still load
+        // the asset, just with un-dequantized integer values. See SPEC-0013.
+        root.extensions_used.push(KHR_QUANT.to_string());
+    }
 
     let mut chunk_records: Vec<serde_json::Value> = Vec::new();
     let mut primitives: Vec<serde_json::Value> = Vec::new();
@@ -231,7 +346,14 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
     let mut total_splat_count: usize = 0;
 
     for (chunk_idx, chunk) in chunks.iter().enumerate() {
-        let buf_bytes = pack_chunk(chunk);
+        let (chunk_min, chunk_max) = chunk_bbox(chunk);
+        let (scale_min, scale_max) = chunk_scale_bbox(chunk);
+        let layout = if opts.quantize {
+            QuantizeLayout::quantized()
+        } else {
+            QuantizeLayout::float_only()
+        };
+        let buf_bytes = pack_chunk_with(chunk, &layout, &chunk_min, &chunk_max);
         let buf_name = format!("buffers/chunk_{chunk_idx:04}.bin");
         let buf_path = dir.join(&buf_name);
         fs::write(&buf_path, &buf_bytes)?;
@@ -243,16 +365,41 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
 
         // accessors: POSITION, _ROTATION, _SCALE, _OPACITY, _COLOR_DC, optional _COLOR_SH
         let n = chunk.len();
-        let mut offset = 0usize;
-        let pos_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
-        let rot_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 16, "VEC4");
-        let scale_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
-        let op_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 4, "SCALAR");
-        let dc_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
+        let (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt) = if opts.quantize {
+            emit_quantized_accessors(
+                &mut root,
+                buffer_idx,
+                n,
+                &chunk_min,
+                &chunk_max,
+                &scale_min,
+                &scale_max,
+                chunk.iter().any(|s| matches!(s.color, Color::Sh { .. })),
+            )
+        } else {
+            let mut offset = 0usize;
+            let pos_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
+            let rot_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 16, "VEC4");
+            let scale_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
+            let op_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 4, "SCALAR");
+            let dc_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
+            set_accessor_minmax(&mut root, pos_acc, chunk_min, chunk_max);
+            let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
+            let sh_acc_opt = if has_sh {
+                Some(add_view_acc(
+                    &mut root,
+                    buffer_idx,
+                    &mut offset,
+                    n,
+                    n * 45 * 4,
+                    "SCALAR",
+                ))
+            } else {
+                None
+            };
+            (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt)
+        };
 
-        // glTF 2.0 §3.6.2.4 requires POSITION accessors to publish min/max.
-        let (chunk_min, chunk_max) = chunk_bbox(chunk);
-        set_accessor_minmax(&mut root, pos_acc, chunk_min, chunk_max);
         if !chunk.is_empty() {
             for i in 0..3 {
                 if chunk_min[i] < scene_min[i] {
@@ -265,8 +412,8 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
             total_splat_count += n;
         }
 
-        // SH: emit only if any splat carries SH.
-        let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
+        // SH attribute mapping: only present when any splat carried SH.
+        let has_sh = sh_acc_opt.is_some();
         let mut khr_attrs = serde_json::json!({
             "POSITION": pos_acc,
             "_ROTATION": rot_acc,
@@ -275,22 +422,14 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
             "_COLOR_DC": dc_acc,
         });
         let mut sh_degree = 0u8;
-        if has_sh {
-            let coeffs_per_splat = 45;
-            let sh_acc = add_view_acc(
-                &mut root,
-                buffer_idx,
-                &mut offset,
-                n,
-                n * coeffs_per_splat * 4,
-                "SCALAR",
-            );
+        if let Some(sh_acc) = sh_acc_opt {
             khr_attrs
                 .as_object_mut()
                 .unwrap()
                 .insert("_COLOR_SH".to_string(), serde_json::json!(sh_acc));
             sh_degree = chunk.iter().map(|s| s.color.degree()).max().unwrap_or(0);
         }
+        let _ = has_sh;
 
         primitives.push(serde_json::json!({
             "extensions": {
@@ -367,45 +506,203 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
     Ok(())
 }
 
-fn pack_chunk(chunk: &[Splat]) -> Vec<u8> {
+/// Per-attribute quantization plan for a chunk. When `quantize` is false on
+/// the writer, all fields default to FLOAT and the bbox/max fields are unused.
+#[derive(Debug, Clone)]
+struct QuantizeLayout {
+    /// True when any attribute is integer-quantized; controls byte alignment +
+    /// `KHR_mesh_quantization` extension declaration.
+    enabled: bool,
+}
+
+impl QuantizeLayout {
+    fn float_only() -> Self {
+        Self { enabled: false }
+    }
+    fn quantized() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// Round `x` up to the next multiple of `align`. `align` must be a power of two.
+#[inline]
+fn align_up(x: usize, align: usize) -> usize {
+    (x + align - 1) & !(align - 1)
+}
+
+/// Encode one f32 component into a u16 normalized integer (`[min, max]` → `[0, 65535]`).
+#[inline]
+fn quantize_u16(v: f32, lo: f32, hi: f32) -> u16 {
+    let span = (hi - lo).max(f32::EPSILON);
+    let t = ((v - lo) / span).clamp(0.0, 1.0);
+    (t * 65535.0 + 0.5) as u16
+}
+
+#[inline]
+fn dequantize_u16(q: u16, lo: f32, hi: f32) -> f32 {
+    let t = q as f32 / 65535.0;
+    lo + t * (hi - lo)
+}
+
+/// Encode one f32 component into a u8 normalized integer (`[min, max]` → `[0, 255]`).
+#[inline]
+fn quantize_u8(v: f32, lo: f32, hi: f32) -> u8 {
+    let span = (hi - lo).max(f32::EPSILON);
+    let t = ((v - lo) / span).clamp(0.0, 1.0);
+    (t * 255.0 + 0.5) as u8
+}
+
+#[inline]
+fn dequantize_u8(q: u8, lo: f32, hi: f32) -> f32 {
+    let t = q as f32 / 255.0;
+    lo + t * (hi - lo)
+}
+
+/// Compute per-axis min/max of `scale` over the chunk. Returns `[0,0,0]` /
+/// `[1,1,1]` for an empty chunk so the dequantized range remains well defined.
+fn chunk_scale_bbox(chunk: &[Splat]) -> ([f32; 3], [f32; 3]) {
+    if chunk.is_empty() {
+        return ([0.0; 3], [1.0; 3]);
+    }
+    let mut mn = [f32::INFINITY; 3];
+    let mut mx = [f32::NEG_INFINITY; 3];
+    for s in chunk {
+        for i in 0..3 {
+            if s.scale[i] < mn[i] {
+                mn[i] = s.scale[i];
+            }
+            if s.scale[i] > mx[i] {
+                mx[i] = s.scale[i];
+            }
+        }
+    }
+    // Guarantee mx > mn so the dequant span is non-zero.
+    for i in 0..3 {
+        if mx[i] <= mn[i] {
+            mx[i] = mn[i] + f32::EPSILON;
+        }
+    }
+    (mn, mx)
+}
+
+fn pack_chunk_with(
+    chunk: &[Splat],
+    layout: &QuantizeLayout,
+    pos_min: &[f32; 3],
+    pos_max: &[f32; 3],
+) -> Vec<u8> {
     let n = chunk.len();
     let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
     let coeffs_per_splat = if has_sh { 45 } else { 0 };
-    let cap = n * (12 + 16 + 12 + 4 + 12 + coeffs_per_splat * 4);
-    let mut out = Vec::with_capacity(cap);
-    // POSITION VEC3
+
+    if !layout.enabled {
+        // FLOAT path — unchanged from v0.1.x.
+        let cap = n * (12 + 16 + 12 + 4 + 12 + coeffs_per_splat * 4);
+        let mut out = Vec::with_capacity(cap);
+        for s in chunk {
+            for v in s.position {
+                out.write_f32::<LittleEndian>(v).unwrap();
+            }
+        }
+        for s in chunk {
+            for v in s.rotation {
+                out.write_f32::<LittleEndian>(v).unwrap();
+            }
+        }
+        for s in chunk {
+            for v in s.scale {
+                out.write_f32::<LittleEndian>(v).unwrap();
+            }
+        }
+        for s in chunk {
+            out.write_f32::<LittleEndian>(s.opacity).unwrap();
+        }
+        for s in chunk {
+            let dc = match &s.color {
+                Color::Rgb(c) => *c,
+                Color::Sh { coeffs, .. } => [coeffs[0], coeffs[1], coeffs[2]],
+            };
+            for v in dc {
+                out.write_f32::<LittleEndian>(v).unwrap();
+            }
+        }
+        if has_sh {
+            for s in chunk {
+                match &s.color {
+                    Color::Sh { coeffs, .. } => {
+                        for i in 0..45 {
+                            let v = if i + 3 < coeffs.len() {
+                                coeffs[i + 3]
+                            } else {
+                                0.0
+                            };
+                            out.write_f32::<LittleEndian>(v).unwrap();
+                        }
+                    }
+                    Color::Rgb(_) => {
+                        for _ in 0..45 {
+                            out.write_f32::<LittleEndian>(0.0).unwrap();
+                        }
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    // KHR_mesh_quantization path. Each bufferView's byteOffset must align with
+    // both its component size and the 4-byte buffer-wide alignment glTF
+    // validators expect for binary buffers.
+    let (scale_min, scale_max) = chunk_scale_bbox(chunk);
+    let mut out: Vec<u8> = Vec::new();
+
+    // POSITION — u16 normalized VEC3, padded to a multiple of 4 bytes per splat
+    // is unnecessary because we put each attribute in its own bufferView, but
+    // we DO pad the running offset to 4 bytes before the next bufferView.
     for s in chunk {
-        for v in s.position {
-            out.write_f32::<LittleEndian>(v).unwrap();
+        for i in 0..3 {
+            let q = quantize_u16(s.position[i], pos_min[i], pos_max[i]);
+            out.write_u16::<LittleEndian>(q).unwrap();
         }
     }
-    // _ROTATION VEC4
+    pad_to(&mut out, 4);
+
+    // _ROTATION — stays FLOAT VEC4.
     for s in chunk {
         for v in s.rotation {
             out.write_f32::<LittleEndian>(v).unwrap();
         }
     }
-    // _SCALE VEC3
+
+    // _SCALE — u8 normalized VEC3.
     for s in chunk {
-        for v in s.scale {
-            out.write_f32::<LittleEndian>(v).unwrap();
+        for i in 0..3 {
+            let q = quantize_u8(s.scale[i], scale_min[i], scale_max[i]);
+            out.push(q);
         }
     }
-    // _OPACITY scalar
+    pad_to(&mut out, 4);
+
+    // _OPACITY — u8 normalized scalar.
     for s in chunk {
-        out.write_f32::<LittleEndian>(s.opacity).unwrap();
+        let q = quantize_u8(s.opacity, 0.0, 1.0);
+        out.push(q);
     }
-    // _COLOR_DC VEC3
+    pad_to(&mut out, 4);
+
+    // _COLOR_DC — u8 normalized VEC3 (DC lives in [0, 1]).
     for s in chunk {
         let dc = match &s.color {
             Color::Rgb(c) => *c,
             Color::Sh { coeffs, .. } => [coeffs[0], coeffs[1], coeffs[2]],
         };
         for v in dc {
-            out.write_f32::<LittleEndian>(v).unwrap();
+            out.push(quantize_u8(v, 0.0, 1.0));
         }
     }
-    // optional SH
+    pad_to(&mut out, 4);
+
+    // _COLOR_SH — stays FLOAT (45 scalars per splat) when present.
     if has_sh {
         for s in chunk {
             match &s.color {
@@ -428,6 +725,85 @@ fn pack_chunk(chunk: &[Splat]) -> Vec<u8> {
         }
     }
     out
+}
+
+#[inline]
+fn pad_to(buf: &mut Vec<u8>, align: usize) {
+    let target = align_up(buf.len(), align);
+    while buf.len() < target {
+        buf.push(0);
+    }
+}
+
+/// Decode an accessor's raw byte range into a flat `Vec<f32>` of length
+/// `accessor.count * comps`. Handles both FLOAT and the `KHR_mesh_quantization`
+/// integer accessor variants (UNSIGNED_BYTE / UNSIGNED_SHORT, normalized).
+fn decode_accessor(bytes: &[u8], acc: &GltfAccessor, comps: usize) -> Result<Vec<f32>, GltfError> {
+    let total = acc.count * comps;
+    match acc.component_type {
+        FLOAT => {
+            if bytes.len() < total * 4 {
+                return Err(GltfError::Malformed("accessor under-sized".to_string()));
+            }
+            let mut out = Vec::with_capacity(total);
+            for i in 0..total {
+                let c = &bytes[i * 4..i * 4 + 4];
+                out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+            }
+            Ok(out)
+        }
+        USHORT => {
+            if bytes.len() < total * 2 {
+                return Err(GltfError::Malformed("u16 accessor under-sized".to_string()));
+            }
+            let lo = acc.min.clone();
+            let hi = acc.max.clone();
+            let mut out = Vec::with_capacity(total);
+            for i in 0..total {
+                let c = &bytes[i * 2..i * 2 + 2];
+                let q = u16::from_le_bytes([c[0], c[1]]);
+                let comp = i % comps;
+                let v = if acc.normalized {
+                    match (&lo, &hi) {
+                        (Some(lo), Some(hi)) if lo.len() == comps && hi.len() == comps => {
+                            dequantize_u16(q, lo[comp], hi[comp])
+                        }
+                        _ => q as f32 / 65535.0,
+                    }
+                } else {
+                    q as f32
+                };
+                out.push(v);
+            }
+            Ok(out)
+        }
+        UBYTE => {
+            if bytes.len() < total {
+                return Err(GltfError::Malformed("u8 accessor under-sized".to_string()));
+            }
+            let lo = acc.min.clone();
+            let hi = acc.max.clone();
+            let mut out = Vec::with_capacity(total);
+            for (i, &q) in bytes.iter().take(total).enumerate() {
+                let comp = i % comps;
+                let v = if acc.normalized {
+                    match (&lo, &hi) {
+                        (Some(lo), Some(hi)) if lo.len() == comps && hi.len() == comps => {
+                            dequantize_u8(q, lo[comp], hi[comp])
+                        }
+                        _ => q as f32 / 255.0,
+                    }
+                } else {
+                    q as f32
+                };
+                out.push(v);
+            }
+            Ok(out)
+        }
+        other => Err(GltfError::Malformed(format!(
+            "unsupported componentType {other}"
+        ))),
+    }
 }
 
 fn chunk_bbox(chunk: &[Splat]) -> ([f32; 3], [f32; 3]) {
@@ -505,31 +881,22 @@ fn read_gltf_str(raw: &str, base_dir: &Path) -> Result<SplatScene, GltfError> {
         buffers_bytes.push(data);
     }
 
-    let read_floats = |acc_idx: usize, comps: usize| -> Result<Vec<f32>, GltfError> {
+    let read_attr = |acc_idx: usize, comps: usize| -> Result<Vec<f32>, GltfError> {
         let acc = &root.accessors[acc_idx];
         let bv = &root.buffer_views[acc.buffer_view];
         let data = &buffers_bytes[bv.buffer];
         let bytes = &data[bv.byte_offset..bv.byte_offset + bv.byte_length];
-        let n = acc.count * comps;
-        if bytes.len() < n * 4 {
-            return Err(GltfError::Malformed("accessor out of range".to_string()));
-        }
-        let mut out = Vec::with_capacity(n);
-        for i in 0..n {
-            let chunk = &bytes[i * 4..i * 4 + 4];
-            out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-        }
-        Ok(out)
+        decode_accessor(bytes, acc, comps)
     };
 
-    let positions = read_floats(pos_acc, 3)?;
-    let rotations = read_floats(rot_acc, 4)?;
-    let scales = read_floats(scale_acc, 3)?;
-    let opacities = read_floats(op_acc, 1)?;
-    let dc = read_floats(dc_acc, 3)?;
+    let positions = read_attr(pos_acc, 3)?;
+    let rotations = read_attr(rot_acc, 4)?;
+    let scales = read_attr(scale_acc, 3)?;
+    let opacities = read_attr(op_acc, 1)?;
+    let dc = read_attr(dc_acc, 3)?;
     let n = opacities.len();
     let sh = if let Some(idx) = sh_acc {
-        Some(read_floats(idx, 45)?)
+        Some(read_attr(idx, 45)?)
     } else {
         None
     };
@@ -714,16 +1081,30 @@ const GLB_BIN: u32 = 0x004E_4942; // "BIN\0"
 /// Build the JSON document plus a single in-memory binary blob for GLB output.
 /// All buffer URIs are dropped — the resulting glTF references buffer 0 with no
 /// URI, which is the GLB-embedded buffer.
-fn build_single_buffer_gltf(scene: &SplatScene) -> Result<(GltfRoot, Vec<u8>), GltfError> {
+fn build_single_buffer_gltf(
+    scene: &SplatScene,
+    quantize: bool,
+) -> Result<(GltfRoot, Vec<u8>), GltfError> {
     let chunk: &[Splat] = scene.splats.as_slice();
-    let buf_bytes = pack_chunk(chunk);
+    let (chunk_min, chunk_max) = chunk_bbox(chunk);
+    let (scale_min, scale_max) = chunk_scale_bbox(chunk);
+    let layout = if quantize {
+        QuantizeLayout::quantized()
+    } else {
+        QuantizeLayout::float_only()
+    };
+    let buf_bytes = pack_chunk_with(chunk, &layout, &chunk_min, &chunk_max);
 
+    let mut extensions_used = vec![KHR.to_string()];
+    if quantize {
+        extensions_used.push(KHR_QUANT.to_string());
+    }
     let mut root = GltfRoot {
         asset: GltfAsset {
             version: "2.0".to_string(),
             generator: Some("splatforge-gltf".to_string()),
         },
-        extensions_used: vec![KHR.to_string()],
+        extensions_used,
         extensions_required: vec![KHR.to_string()],
         buffers: vec![GltfBuffer {
             byte_length: buf_bytes.len(),
@@ -736,17 +1117,34 @@ fn build_single_buffer_gltf(scene: &SplatScene) -> Result<(GltfRoot, Vec<u8>), G
     };
 
     let n = chunk.len();
-    let mut offset = 0usize;
-    let pos_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
-    let rot_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 16, "VEC4");
-    let scale_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
-    let op_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 4, "SCALAR");
-    let dc_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
-
-    let (chunk_min, chunk_max) = chunk_bbox(chunk);
-    set_accessor_minmax(&mut root, pos_acc, chunk_min, chunk_max);
-
     let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
+    let (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt) = if quantize {
+        emit_quantized_accessors(
+            &mut root, 0, n, &chunk_min, &chunk_max, &scale_min, &scale_max, has_sh,
+        )
+    } else {
+        let mut offset = 0usize;
+        let pos_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
+        let rot_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 16, "VEC4");
+        let scale_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
+        let op_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 4, "SCALAR");
+        let dc_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
+        set_accessor_minmax(&mut root, pos_acc, chunk_min, chunk_max);
+        let sh_acc_opt = if has_sh {
+            Some(add_view_acc(
+                &mut root,
+                0,
+                &mut offset,
+                n,
+                n * 45 * 4,
+                "SCALAR",
+            ))
+        } else {
+            None
+        };
+        (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt)
+    };
+
     let mut khr_attrs = serde_json::json!({
         "POSITION": pos_acc,
         "_ROTATION": rot_acc,
@@ -755,16 +1153,7 @@ fn build_single_buffer_gltf(scene: &SplatScene) -> Result<(GltfRoot, Vec<u8>), G
         "_COLOR_DC": dc_acc,
     });
     let mut sh_degree = 0u8;
-    if has_sh {
-        let coeffs_per_splat = 45;
-        let sh_acc = add_view_acc(
-            &mut root,
-            0,
-            &mut offset,
-            n,
-            n * coeffs_per_splat * 4,
-            "SCALAR",
-        );
+    if let Some(sh_acc) = sh_acc_opt {
         khr_attrs
             .as_object_mut()
             .ok_or_else(|| GltfError::Malformed("attrs not object".to_string()))?
@@ -813,7 +1202,7 @@ pub fn write_glb(scene: &SplatScene, path: &Path, opts: &WriteOptions) -> Result
     if opts.chunked {
         return Err(GltfError::GlbChunkedUnsupported);
     }
-    let (root, bin) = build_single_buffer_gltf(scene)?;
+    let (root, bin) = build_single_buffer_gltf(scene, opts.quantize)?;
     let json_str = serde_json::to_string(&root)?;
 
     // Chunk payloads padded to 4-byte alignment.
@@ -950,7 +1339,7 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
     let dc_acc = get_idx("_COLOR_DC").ok_or(GltfError::MissingExtension)?;
     let sh_acc = get_idx("_COLOR_SH");
 
-    let read_floats = |acc_idx: usize, comps: usize| -> Result<Vec<f32>, GltfError> {
+    let read_attr = |acc_idx: usize, comps: usize| -> Result<Vec<f32>, GltfError> {
         let acc = &root.accessors[acc_idx];
         let bv = &root.buffer_views[acc.buffer_view];
         if bv.buffer != 0 {
@@ -962,26 +1351,17 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
             return Err(GltfError::Malformed("accessor out of range".to_string()));
         }
         let bytes = &bin[bv.byte_offset..bv.byte_offset + bv.byte_length];
-        let n = acc.count * comps;
-        if bytes.len() < n * 4 {
-            return Err(GltfError::Malformed("accessor under-sized".to_string()));
-        }
-        let mut out = Vec::with_capacity(n);
-        for i in 0..n {
-            let c = &bytes[i * 4..i * 4 + 4];
-            out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
-        }
-        Ok(out)
+        decode_accessor(bytes, acc, comps)
     };
 
-    let positions = read_floats(pos_acc, 3)?;
-    let rotations = read_floats(rot_acc, 4)?;
-    let scales = read_floats(scale_acc, 3)?;
-    let opacities = read_floats(op_acc, 1)?;
-    let dc = read_floats(dc_acc, 3)?;
+    let positions = read_attr(pos_acc, 3)?;
+    let rotations = read_attr(rot_acc, 4)?;
+    let scales = read_attr(scale_acc, 3)?;
+    let opacities = read_attr(op_acc, 1)?;
+    let dc = read_attr(dc_acc, 3)?;
     let n = opacities.len();
     let sh = if let Some(idx) = sh_acc {
-        Some(read_floats(idx, 45)?)
+        Some(read_attr(idx, 45)?)
     } else {
         None
     };

@@ -48,6 +48,7 @@ fn chunked_export_has_streaming_index() {
         chunked: true,
         chunk_target_splats: 1,
         lod_fractions: vec![1.0],
+        ..Default::default()
     };
     write_gltf(&scene, &path, &opts).expect("write");
     let report = inspect_gltf(&path).expect("inspect");
@@ -86,6 +87,7 @@ fn glb_rejects_chunked() {
         chunked: true,
         chunk_target_splats: 1,
         lod_fractions: vec![1.0],
+        ..Default::default()
     };
     let err = write_glb(&scene, &path, &opts).unwrap_err();
     assert!(matches!(err, GltfError::GlbChunkedUnsupported));
@@ -100,6 +102,7 @@ fn corrupted_chunk_fails_checksum() {
         chunked: true,
         chunk_target_splats: 2,
         lod_fractions: vec![1.0],
+        ..Default::default()
     };
     write_gltf(&scene, &path, &opts).expect("write");
     // Flip one byte in the first chunk's bin file.
