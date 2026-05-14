@@ -64,7 +64,7 @@ for (const scene of splatbench.scenes) {
   const presetSummary = (presetName) => {
     const m = presets[presetName];
     if (!m) return null;
-    return {
+    const out = {
       meanDeltaE94: round4(m.deltaE94.mean),
       maxDeltaE94: round4(m.deltaE94.max),
       p95DeltaE94: round4(m.deltaE94.p95),
@@ -73,6 +73,15 @@ for (const scene of splatbench.scenes) {
       status: m.status,
       passed: m.passed,
     };
+    if (m.mlScore) {
+      // splatforge-pro splat-aware perceptual metric (proprietary; private
+      // companion build). The metric values land in the public benchmark so
+      // visitors can read them, but only `splatforge-pro` reproduces them.
+      out.mlScore = round4(m.mlScore.mean);
+      out.mlScoreMax = round4(m.mlScore.max);
+      out.mlScoreVersion = m.mlScoreVersion;
+    }
+    return out;
   };
   scene.fidelity = {
     baseline: 'lossless-repack',
@@ -117,8 +126,15 @@ const newDataLines = dataLines.map((line) => {
   if (!presets) return line;
   const f = presets['web-mobile'];
   const g = presets['size-min'];
-  const fidelityField = `, fidelity:{ webMobile:{ mean:${f.deltaE94.mean.toFixed(4)}, max:${f.deltaE94.max.toFixed(4)}, status:"${f.status}" }, sizeMin:{ mean:${g.deltaE94.mean.toFixed(4)}, max:${g.deltaE94.max.toFixed(4)}, status:"${g.status}" } }`;
-  const updated = line.replace(/(\s*}\s*,?\s*)$/, (_, tail) => `${fidelityField} ${tail.trimStart()}`);
+  const mlField = (m) => (m?.mlScore ? `, ml:${m.mlScore.mean.toFixed(4)}` : '');
+  const fidelityField = `, fidelity:{ webMobile:{ mean:${f.deltaE94.mean.toFixed(4)}, max:${f.deltaE94.max.toFixed(4)}, status:"${f.status}"${mlField(f)} }, sizeMin:{ mean:${g.deltaE94.mean.toFixed(4)}, max:${g.deltaE94.max.toFixed(4)}, status:"${g.status}"${mlField(g)} } }`;
+  // Strip any prior `, fidelity:{ webMobile:{...}, sizeMin:{...} }` block so
+  // re-runs don't duplicate the field. Matches exactly two levels of nesting.
+  const stripped = line.replace(
+    /,\s*fidelity:\{\s*webMobile:\{[^}]*\},\s*sizeMin:\{[^}]*\}\s*\}/g,
+    '',
+  );
+  const updated = stripped.replace(/(\s*}\s*,?\s*)$/, (_, tail) => `${fidelityField} ${tail.trimStart()}`);
   return updated;
 });
 
@@ -132,19 +148,39 @@ html = html.slice(0, dataStart) + newDataBlock + html.slice(dataEnd + 2);
 
 // Add a Fidelity column to the leaderboard table and a fidelity cell to each
 // rendered row.
-html = html.replace(
-  /<th>Ratio<\/th>\s*<th>analyze<\/th>/,
-  '<th>Ratio</th>\n        <th>Fidelity (ΔE94)</th>\n        <th>analyze</th>',
-);
-html = html.replace(
-  /(<td><span class="ratio \$\{cls\}">[^]*?<\/td>)\s*\n\s*<td>\$\{fmtMs\(r\.analyze\)\}<\/td>/,
-  (whole) => {
-    return whole.replace(
-      /<td>\$\{fmtMs\(r\.analyze\)\}<\/td>/,
-      `<td>\${fmtFidelity(r, preset)}</td>\n      <td>\${fmtMs(r.analyze)}</td>`,
+// Match either the original `Ratio → analyze` or the v0.1.1 `Ratio → Fidelity
+// → analyze` and upgrade to `Ratio → Fidelity → ML Score → analyze`.
+if (!html.includes('<th>ML Score')) {
+  if (html.match(/<th>Fidelity \(ΔE94\)<\/th>\s*<th>analyze<\/th>/)) {
+    html = html.replace(
+      /<th>Fidelity \(ΔE94\)<\/th>\s*<th>analyze<\/th>/,
+      '<th>Fidelity (ΔE94)</th>\n        <th>ML Score <span class="ml-tag">pro</span></th>\n        <th>analyze</th>',
     );
-  },
-);
+  } else {
+    html = html.replace(
+      /<th>Ratio<\/th>\s*<th>analyze<\/th>/,
+      '<th>Ratio</th>\n        <th>Fidelity (ΔE94)</th>\n        <th>ML Score <span class="ml-tag">pro</span></th>\n        <th>analyze</th>',
+    );
+  }
+}
+if (!html.includes('fmtMlScore(r, preset)')) {
+  if (html.includes('${fmtFidelity(r, preset)}')) {
+    // Fidelity cell already present — insert ML cell after it.
+    html = html.replace(
+      /<td>\$\{fmtFidelity\(r, preset\)\}<\/td>\s*\n\s*<td>\$\{fmtMs\(r\.analyze\)\}<\/td>/,
+      `<td>\${fmtFidelity(r, preset)}</td>\n      <td>\${fmtMlScore(r, preset)}</td>\n      <td>\${fmtMs(r.analyze)}</td>`,
+    );
+  } else {
+    html = html.replace(
+      /(<td><span class="ratio \$\{cls\}">[^]*?<\/td>)\s*\n\s*<td>\$\{fmtMs\(r\.analyze\)\}<\/td>/,
+      (whole) =>
+        whole.replace(
+          /<td>\$\{fmtMs\(r\.analyze\)\}<\/td>/,
+          `<td>\${fmtFidelity(r, preset)}</td>\n      <td>\${fmtMlScore(r, preset)}</td>\n      <td>\${fmtMs(r.analyze)}</td>`,
+        ),
+    );
+  }
+}
 
 // Inject helper functions ahead of `function renderTable()`. We insert a small
 // block once, keyed by a marker comment for idempotency.
@@ -152,10 +188,14 @@ if (!html.includes('// fidelity-helper-injected')) {
   const helpers = `// fidelity-helper-injected\nfunction fidelityKey(preset) {\n  return preset === "webMobile" ? "webMobile" : "sizeMin";\n}\nfunction fidelityClass(status) {\n  if (status === "pass") return "fid-pass";\n  if (status === "borderline") return "fid-borderline";\n  if (status === "fail") return "fid-fail";\n  return "fid-na";\n}\nfunction fmtFidelity(r, preset) {\n  if (!r.fidelity) return "<span class=\\"fid-na\\">—</span>";\n  const f = r.fidelity[fidelityKey(preset)];\n  if (!f) return "<span class=\\"fid-na\\">—</span>";\n  const cls = fidelityClass(f.status);\n  const pct = (v) => (v * 100).toFixed(2) + "%";\n  return '<span class="fid ' + cls + '">' + pct(f.mean) + ' / ' + pct(f.max) + '</span>';\n}\n`;
   html = html.replace(/function renderTable\(\)/, `${helpers}function renderTable()`);
 }
+if (!html.includes('// ml-helper-injected')) {
+  const mlHelpers = `// ml-helper-injected\nfunction fmtMlScore(r, preset) {\n  if (!r.fidelity) return "<span class=\\"ml-na\\">—</span>";\n  const f = r.fidelity[fidelityKey(preset)];\n  if (!f || typeof f.ml !== "number") return "<span class=\\"ml-na\\">—</span>";\n  return '<span class="ml">' + (f.ml * 100).toFixed(2) + '%</span>';\n}\n`;
+  html = html.replace(/function renderTable\(\)/, `${mlHelpers}function renderTable()`);
+}
 
 // Add styles for the fidelity pills if not already present.
 if (!html.includes('.fid-pass')) {
-  const fidStyles = `\n  .fid { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 4px; }\n  .fid-pass { background: rgba(52, 211, 153, 0.18); color: var(--good); }\n  .fid-borderline { background: rgba(251, 191, 36, 0.18); color: var(--warn); }\n  .fid-fail { background: rgba(248, 113, 113, 0.18); color: var(--bad); }\n  .fid-na { color: var(--fg-dim); }\n`;
+  const fidStyles = `\n  .fid { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 4px; }\n  .fid-pass { background: rgba(52, 211, 153, 0.18); color: var(--good); }\n  .fid-borderline { background: rgba(251, 191, 36, 0.18); color: var(--warn); }\n  .fid-fail { background: rgba(248, 113, 113, 0.18); color: var(--bad); }\n  .fid-na { color: var(--fg-dim); }\n  .ml { font-variant-numeric: tabular-nums; color: var(--fg); }\n  .ml-na { color: var(--fg-dim); }\n  .ml-tag { font-size: 0.7em; padding: 1px 4px; border-radius: 3px; background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%); color: white; margin-left: 4px; vertical-align: middle; }\n`;
   html = html.replace(/(\.ratio-low \{[^}]*\}\s*)/m, `$1${fidStyles}`);
   // Fallback if the .ratio-low rule wasn't found — append before </style>.
   if (!html.includes('.fid-pass')) {
@@ -192,17 +232,29 @@ const fidelityRows = splatbench.scenes
   .filter(Boolean)
   .sort((a, b) => a.f.meanDeltaE94 - b.f.meanDeltaE94);
 
+const hasMl = fidelityRows.some((r) => typeof r.f.mlScore === 'number');
+const mlHeader = hasMl ? ' web-mobile ML | size-min ML |' : '';
+const mlAlign = hasMl ? ' ---: | ---: |' : '';
+const mlVersion = splatbench.scenes.find((s) => s.fidelity?.webMobile?.mlScoreVersion)?.fidelity
+  ?.webMobile?.mlScoreVersion;
+
 const fidelitySection = `## Leaderboard — visual fidelity (v0.1.1)
 
-Frames captured via \`@splatforge/viewer\` in headless Chromium (SwiftShader software-rendered WebGL2), 8 deterministic orbit poses at 512×512. \`lossless-repack\` is the per-scene baseline. ΔE94 is normalized to 0..1 (i.e. \`3%\` = 3 absolute ΔE94 units, the perceptibility threshold of an attentive observer).
+Frames captured via \`@splatforge/viewer\` in headless Chromium (SwiftShader software-rendered WebGL2), 8 deterministic orbit poses at 512×512. \`lossless-repack\` is the per-scene baseline. ΔE94 is normalized to 0..1 (i.e. \`3%\` = 3 absolute ΔE94 units, the perceptibility threshold of an attentive observer).${
+    hasMl
+      ? `\n\n**ML Score** is the splat-aware perceptual metric from \`splatforge-pro\` (version \`${mlVersion}\`), a proprietary build that scores rendered vs baseline frames with a model tuned for Gaussian-splat failure modes. Higher is better; 100% means visually identical. ML Score values are published; reproducing them requires the \`splatforge-pro\` binary.`
+      : ''
+  }
 
-| Rank | Scene | web-mobile ΔE94 mean / max | status | size-min ΔE94 mean / max | status |
-| ---: | ----- | ---: | :---: | ---: | :---: |
+| Rank | Scene | web-mobile ΔE94 mean / max | status | size-min ΔE94 mean / max | status |${mlHeader}
+| ---: | ----- | ---: | :---: | ---: | :---: |${mlAlign}
 ${fidelityRows
-  .map(
-    (r, i) =>
-      `| ${i + 1} | \`${r.id}\` | ${pct(r.f.meanDeltaE94)} / ${pct(r.f.maxDeltaE94)} | **${r.f.status}** | ${pct(r.g.meanDeltaE94)} / ${pct(r.g.maxDeltaE94)} | **${r.g.status}** |`,
-  )
+  .map((r, i) => {
+    const ml = hasMl
+      ? ` ${pct(r.f.mlScore ?? 0)} | ${pct(r.g.mlScore ?? 0)} |`
+      : '';
+    return `| ${i + 1} | \`${r.id}\` | ${pct(r.f.meanDeltaE94)} / ${pct(r.f.maxDeltaE94)} | **${r.f.status}** | ${pct(r.g.meanDeltaE94)} / ${pct(r.g.maxDeltaE94)} | **${r.g.status}** |${ml}`;
+  })
   .join('\n')}
 
 **Pass criterion:** mean ΔE94 < 3% AND max ΔE94 < 8%. **Borderline:** mean 2–3% or max 5–8%. **Pass:** mean < 2% AND max < 5%.
@@ -217,8 +269,14 @@ md = md.replace(
   '',
 );
 
-// Insert the fidelity section before "## Corpus composition" if not already present.
-if (!md.includes('Leaderboard — visual fidelity')) {
+// Always rewrite the fidelity section so updates (e.g., new ML Score column)
+// land idempotently. We delimit it by the next "## " header.
+if (md.includes('Leaderboard — visual fidelity')) {
+  md = md.replace(
+    /## Leaderboard — visual fidelity[^]*?(?=\n## )/,
+    fidelitySection.trimEnd() + '\n\n',
+  );
+} else {
   md = md.replace(/## Corpus composition/, `${fidelitySection}## Corpus composition`);
 }
 
