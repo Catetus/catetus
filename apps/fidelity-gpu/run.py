@@ -52,6 +52,10 @@ image = (
         "libpango-1.0-0", "libpangocairo-1.0-0", "libcairo2",
         "fonts-liberation", "xvfb",
         # Vulkan loader + Mesa fallback (for `vulkaninfo` to work as a probe).
+        # NOTE: NVIDIA Vulkan ICD needs `libnvidia-gl-XXX` from the host driver
+        # bundle; that's only present when Modal mounts the right GPU driver
+        # at runtime. We install the userland loader here and trust the GPU
+        # mount to supply the ICD JSON pointer at /usr/share/vulkan/icd.d/.
         "libvulkan1", "vulkan-tools", "mesa-vulkan-drivers",
         # Node 20 (used by the fidelity runner).
         "gnupg",
@@ -69,10 +73,12 @@ image = (
         "/root/.cargo/bin/cargo build --release "
         "--manifest-path /opt/splatforge/Cargo.toml -p splatforge-cli",
         "ln -s /opt/splatforge/target/release/splatforge /usr/local/bin/splatforge",
-        # Install fidelity-runner JS deps. The script lives under tests/visual
-        # in the cloned repo; resolve playwright-core + pngjs + pixelmatch via
-        # tests/visual/package.json so versions match the committed lockfile.
-        "cd /opt/splatforge/tests/visual && pnpm install --frozen-lockfile=false",
+        # Install ALL workspace JS deps so we can build the viewer dist
+        # (the harness page imports /viewer/index.js, which the fidelity
+        # script's in-process server resolves to packages/viewer/dist).
+        "cd /opt/splatforge && pnpm install --frozen-lockfile=false",
+        "cd /opt/splatforge && pnpm -F @splatforge/viewer run build",
+        "cd /opt/splatforge && pnpm -F @splatforge/report-ui run build",
         # Pull Playwright's Chromium so we don't depend on the apt one.
         "cd /opt/splatforge/tests/visual && "
         "pnpm exec playwright install chromium --with-deps",
@@ -102,7 +108,13 @@ results_volume = modal.Volume.from_name(
     timeout=3600,
     volumes={"/results": results_volume},
 )
-def run_corpus(skip_bicycle: bool = False) -> dict:
+def run_corpus(skip_bicycle: bool = False, gpu_mode: str = "auto") -> dict:
+    """
+    gpu_mode:
+      "vulkan" — Chromium uses ANGLE→Vulkan, talks to the NVIDIA ICD if present
+      "swiftshader" — force CPU rasterizer (useful as a Linux-vs-Mac control)
+      "auto" — probe vulkaninfo at startup and pick the best option
+    """
     """Run the full SplatBench corpus through the existing fidelity script
     on a real T4 GPU. Writes the result JSON to /results/fidelity-v0-hwaccel.json
     (mounted volume) so the caller can pull it down with `modal volume get`.
@@ -121,25 +133,31 @@ def run_corpus(skip_bicycle: bool = False) -> dict:
             shutil.rmtree(tmp_scenes)
     tmp_scenes.symlink_to(scenes_dir)
 
-    # Tell the script to use Chromium with hardware-accelerated GL.
-    env = os.environ.copy()
-    env["SBENCH_RENDERER"] = "webgl2"
-    # Long timeout — first cold renders on a fresh GPU container can be
-    # slow on the first few frames while the ANGLE shader cache warms up.
-    env["SBENCH_RENDER_TIMEOUT_MS"] = "1800000"
-    # Surface a flag set that forces Chromium to use the GPU instead of
-    # SwiftShader. The fidelity script reads SBENCH_CHROME_FLAGS and appends
-    # to Playwright's launch args.
-    env["SBENCH_CHROME_FLAGS"] = (
-        "--use-gl=angle --use-angle=vulkan "
-        "--enable-features=Vulkan,UseSkiaRenderer "
-        "--disable-software-rasterizer "
-        "--ignore-gpu-blocklist "
-        "--no-sandbox"
-    )
-
     # Probe what GPU we actually got (logs into the result for transparency).
     gpu_probe = _gpu_probe()
+
+    # Pick the right Chromium GL backend based on what's actually available.
+    has_nvidia_icd = "NVIDIA" in gpu_probe.get("vulkaninfo", "")
+    effective_mode = gpu_mode
+    if gpu_mode == "auto":
+        effective_mode = "vulkan" if has_nvidia_icd else "swiftshader"
+
+    env = os.environ.copy()
+    env["SBENCH_RENDERER"] = "webgl2"
+    env["SBENCH_RENDER_TIMEOUT_MS"] = "1800000"
+    if effective_mode == "vulkan":
+        env["SBENCH_CHROME_FLAGS"] = (
+            "--use-gl=angle --use-angle=vulkan "
+            "--enable-features=Vulkan,UseSkiaRenderer "
+            "--disable-software-rasterizer "
+            "--ignore-gpu-blocklist "
+            "--no-sandbox"
+        )
+    else:
+        # SwiftShader fallback — Chromium's built-in software path so the
+        # script still runs end-to-end on a Linux container without an
+        # NVIDIA Vulkan ICD. Useful as a Linux-vs-Mac SwiftShader control.
+        env["SBENCH_CHROME_FLAGS"] = "--enable-unsafe-swiftshader --no-sandbox"
 
     if skip_bicycle:
         env["SBENCH_SCENES"] = ",".join(
@@ -170,9 +188,10 @@ def run_corpus(skip_bicycle: bool = False) -> dict:
     if src_json.exists():
         data = json.loads(src_json.read_text())
         # Stamp the GPU + renderer choice so the JSON is self-describing.
-        data["renderer"] = "webgl2-hwaccel"
+        data["renderer"] = f"webgl2-{effective_mode}"
         data["hwaccel_probe"] = gpu_probe
         data["modal_gpu"] = "T4"
+        data["gpu_mode"] = effective_mode
         dest_json.write_text(json.dumps(data, indent=2) + "\n")
         results_volume.commit()
         return {
@@ -181,6 +200,7 @@ def run_corpus(skip_bicycle: bool = False) -> dict:
             "scenes": len(data.get("scenes", [])),
             "errors": data.get("errors", []),
             "gpu_probe": gpu_probe,
+            "gpu_mode": effective_mode,
             "result_path": str(dest_json),
         }
     return {
@@ -219,9 +239,9 @@ def _tail(path: Path, n: int) -> str:
 
 
 @app.local_entrypoint()
-def main(skip_bicycle: bool = False) -> None:
+def main(skip_bicycle: bool = False, gpu_mode: str = "auto") -> None:
     """Local entrypoint — runs the corpus on Modal, prints the result summary.
     The committed JSON is pulled separately via `modal volume get`.
     """
-    result = run_corpus.remote(skip_bicycle=skip_bicycle)
+    result = run_corpus.remote(skip_bicycle=skip_bicycle, gpu_mode=gpu_mode)
     print(json.dumps(result, indent=2)[:8000])
