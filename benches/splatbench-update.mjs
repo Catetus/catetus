@@ -232,28 +232,90 @@ if (!html.includes('fmtRepack(r)')) {
 
 // Inject helper functions ahead of `function renderTable()`. We insert a small
 // block once, keyed by a marker comment for idempotency.
-if (!html.includes('// fidelity-helper-injected')) {
-  const helpers = `// fidelity-helper-injected\nfunction fidelityKey(preset) {\n  return preset === "webMobile" ? "webMobile" : "sizeMin";\n}\nfunction fidelityClass(status) {\n  if (status === "pass") return "fid-pass";\n  if (status === "borderline") return "fid-borderline";\n  if (status === "fail") return "fid-fail";\n  return "fid-na";\n}\nfunction fmtFidelity(r, preset) {\n  if (!r.fidelity) return "<span class=\\"fid-na\\">—</span>";\n  const f = r.fidelity[fidelityKey(preset)];\n  if (!f) return "<span class=\\"fid-na\\">—</span>";\n  const cls = fidelityClass(f.status);\n  const pct = (v) => (v * 100).toFixed(2) + "%";\n  return '<span class="fid ' + cls + '">' + pct(f.mean) + ' / ' + pct(f.max) + '</span>';\n}\n`;
-  html = html.replace(/function renderTable\(\)/, `${helpers}function renderTable()`);
+// Helper injection is idempotent: each block is delimited by a
+// `// <name>-helper-injected` opening marker and a `// <name>-helper-end`
+// closing marker so we can rewrite the body unconditionally on every run.
+// (The previous "only inject if marker missing" pattern silently froze old
+// helper bodies — e.g. an updated fmtRepack that styles negative deltas in
+// red never took effect because the marker was already there.)
+const fidelityHelper = `// fidelity-helper-injected
+function fidelityKey(preset) {
+  return preset === "webMobile" ? "webMobile" : "sizeMin";
 }
-if (!html.includes('// ml-helper-injected')) {
-  const mlHelpers = `// ml-helper-injected\nfunction fmtMlScore(r, preset) {\n  if (!r.fidelity) return "<span class=\\"ml-na\\">—</span>";\n  const f = r.fidelity[fidelityKey(preset)];\n  if (!f || typeof f.ml !== "number") return "<span class=\\"ml-na\\">—</span>";\n  return '<span class="ml">' + (f.ml * 100).toFixed(2) + '%</span>';\n}\n`;
-  html = html.replace(/function renderTable\(\)/, `${mlHelpers}function renderTable()`);
+function fidelityClass(status) {
+  if (status === "pass") return "fid-pass";
+  if (status === "borderline") return "fid-borderline";
+  if (status === "fail") return "fid-fail";
+  return "fid-na";
 }
-if (!html.includes('// repack-helper-injected')) {
-  const repackHelpers = `// repack-helper-injected\nfunction fmtRepack(r) {\n  if (!r.repack || typeof r.repack.deltaDb !== "number") return "<span class=\\"ml-na\\">—</span>";\n  const d = r.repack.deltaDb;\n  const sign = d >= 0 ? "+" : "";\n  const cls = d >= 0 ? "repack-win" : "repack-loss";\n  const title = d < 0 ? ' title="Repack loses to opacity-prune on this scene. Translucent volumes are a structural failure mode for saliency-based hard-pruning."' : "";\n  return '<span class="' + cls + '"' + title + '>' + sign + d.toFixed(2) + ' dB</span>';\n}\n`;
-  html = html.replace(/function renderTable\(\)/, `${repackHelpers}function renderTable()`);
+function fmtFidelity(r, preset) {
+  if (!r.fidelity) return "<span class=\\"fid-na\\">—</span>";
+  const f = r.fidelity[fidelityKey(preset)];
+  if (!f) return "<span class=\\"fid-na\\">—</span>";
+  const cls = fidelityClass(f.status);
+  const pct = (v) => (v * 100).toFixed(2) + "%";
+  return '<span class="fid ' + cls + '">' + pct(f.mean) + ' / ' + pct(f.max) + '</span>';
 }
-
-// Add styles for the fidelity pills if not already present.
-if (!html.includes('.fid-pass')) {
-  const fidStyles = `\n  .fid { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 4px; }\n  .fid-pass { background: rgba(52, 211, 153, 0.18); color: var(--good); }\n  .fid-borderline { background: rgba(251, 191, 36, 0.18); color: var(--warn); }\n  .fid-fail { background: rgba(248, 113, 113, 0.18); color: var(--bad); }\n  .fid-na { color: var(--fg-dim); }\n  .ml { font-variant-numeric: tabular-nums; color: var(--fg); }\n  .ml-na { color: var(--fg-dim); }\n  .ml-tag { font-size: 0.7em; padding: 1px 4px; border-radius: 3px; background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%); color: white; margin-left: 4px; vertical-align: middle; }\n  .repack-win { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--good); padding: 2px 6px; border-radius: 4px; background: rgba(52, 211, 153, 0.12); }\n  .repack-loss { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--bad); padding: 2px 6px; border-radius: 4px; background: rgba(248, 113, 113, 0.12); border-bottom: 1px dotted rgba(248,113,113,0.55); cursor: help; }\n`;
-  html = html.replace(/(\.ratio-low \{[^}]*\}\s*)/m, `$1${fidStyles}`);
-  // Fallback if the .ratio-low rule wasn't found — append before </style>.
-  if (!html.includes('.fid-pass')) {
-    html = html.replace('</style>', `${fidStyles}</style>`);
+// fidelity-helper-end
+`;
+const mlHelper = `// ml-helper-injected
+function fmtMlScore(r, preset) {
+  if (!r.fidelity) return "<span class=\\"ml-na\\">—</span>";
+  const f = r.fidelity[fidelityKey(preset)];
+  if (!f || typeof f.ml !== "number") return "<span class=\\"ml-na\\">—</span>";
+  return '<span class="ml">' + (f.ml * 100).toFixed(2) + '%</span>';
+}
+// ml-helper-end
+`;
+const repackHelper = `// repack-helper-injected
+function fmtRepack(r) {
+  if (!r.repack || typeof r.repack.deltaDb !== "number") return "<span class=\\"ml-na\\">—</span>";
+  const d = r.repack.deltaDb;
+  const sign = d >= 0 ? "+" : "";
+  const cls = d >= 0 ? "repack-win" : "repack-loss";
+  const title = d < 0 ? ' title="Repack loses to opacity-prune on this scene. Translucent volumes are a structural failure mode for saliency-based hard-pruning."' : "";
+  return '<span class="' + cls + '"' + title + '>' + sign + d.toFixed(2) + ' dB</span>';
+}
+// repack-helper-end
+`;
+function upsertHelper(name, body) {
+  const re = new RegExp(`// ${name}-helper-injected[\\s\\S]*?// ${name}-helper-end\\n`);
+  if (re.test(html)) {
+    html = html.replace(re, body);
+  } else {
+    html = html.replace(/function renderTable\(\)/, `${body}function renderTable()`);
   }
 }
+upsertHelper('fidelity', fidelityHelper);
+upsertHelper('ml', mlHelper);
+upsertHelper('repack', repackHelper);
+
+// Idempotent style upsert — same delimiter pattern as the helpers.
+const fidStyles = `/* fid-styles-injected */
+  .fid { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 4px; }
+  .fid-pass { background: rgba(52, 211, 153, 0.18); color: var(--good); }
+  .fid-borderline { background: rgba(251, 191, 36, 0.18); color: var(--warn); }
+  .fid-fail { background: rgba(248, 113, 113, 0.18); color: var(--bad); }
+  .fid-na { color: var(--fg-dim); }
+  .ml { font-variant-numeric: tabular-nums; color: var(--fg); }
+  .ml-na { color: var(--fg-dim); }
+  .ml-tag { font-size: 0.7em; padding: 1px 4px; border-radius: 3px; background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%); color: white; margin-left: 4px; vertical-align: middle; }
+  .repack-win { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--good); padding: 2px 6px; border-radius: 4px; background: rgba(52, 211, 153, 0.12); }
+  .repack-loss { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--bad); padding: 2px 6px; border-radius: 4px; background: rgba(248, 113, 113, 0.12); border-bottom: 1px dotted rgba(248,113,113,0.55); cursor: help; }
+  /* fid-styles-end */
+`;
+const fidStylesRe = /\/\* fid-styles-injected \*\/[\s\S]*?\/\* fid-styles-end \*\/\n/;
+if (fidStylesRe.test(html)) {
+  html = html.replace(fidStylesRe, fidStyles);
+} else if (html.match(/\.ratio-low \{[^}]*\}\s*/m)) {
+  html = html.replace(/(\.ratio-low \{[^}]*\}\s*)/m, `$1${fidStyles}`);
+} else {
+  html = html.replace('</style>', `${fidStyles}</style>`);
+}
+// Older runs may have left an undelimited copy of these style rules in
+// the file. They use the same class names as the delimited copy above,
+// so the cascade keeps the (later) delimited copy in effect; we leave
+// the dupes alone rather than risk an over-eager regex.
 
 // Cross out the "Visual fidelity" pending row in the "What v0 doesn't yet measure" table.
 html = html.replace(
