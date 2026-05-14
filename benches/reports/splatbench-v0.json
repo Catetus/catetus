@@ -147,7 +147,9 @@
         "psnrDeltaDbStdev": 1.104,
         "psnrDeltaDbMin": 4.864,
         "psnrDeltaDbMax": 7.497
-      }
+      },
+      "webMobileZstdBytes": 44752657,
+      "webMobileZstdRatio": 20.04
     },
     {
       "id": "splatbench_product_proxy",
@@ -1177,8 +1179,8 @@
     "fidelityWebMobilePass": 16,
     "fidelitySizeMinPass": 16,
     "webMobileZstdRatioMin": 10.25,
-    "webMobileZstdRatioMedian": 20.21,
+    "webMobileZstdRatioMedian": 20.12,
     "webMobileZstdRatioMax": 29.17,
-    "webMobileZstdScenesCovered": 15
+    "webMobileZstdScenesCovered": 16
   }
 }
