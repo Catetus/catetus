@@ -100,14 +100,25 @@ const clientData = scenes.map((s) => ({
         fidelity column lights up automatically when v0.1.1 publishes ΔE94/SSIM/PSNR
       </span>
     )}
-    {showMlScore && (
-      <span class="ml-note">
-        <span class="ml-tag">pro</span>
-        ML Score column scored by <code>splatforge-pro</code> — values are
-        published, reproducing them requires the proprietary build.
-      </span>
-    )}
   </div>
+  {(showMlScore || showRepack) && (
+    <p class="leaderboard-note">
+      {showMlScore && (
+        <span>
+          <span class="ml-tag">pro</span> — splat-aware perceptual score
+          (catches floater + edge-loss artifacts ΔE94 misses).
+        </span>
+      )}
+      {showRepack && (
+        <span>
+          <span class="ml-tag">premium</span> — differentiable repack
+          PSNR delta vs naive opacity-prune at the same byte budget.
+        </span>
+      )}
+      Values are published; both columns require <code>splatforge-pro</code> to
+      reproduce.
+    </p>
+  )}
 
   <div class="leaderboard-wrap">
     <table class="leaderboard" data-leaderboard>

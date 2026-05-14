@@ -15,9 +15,14 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     <h2 id="try-title" class="section-title">Try it on your splat</h2>
     <p class="section-sub">
       Drop a Gaussian-splat scene and we'll register an optimize job against the
-      hosted API. The end-to-end upload→optimize→download flow is in
-      design-partner alpha — for now the drop returns a real job ID + API
-      response so you can see the pipeline is live.
+      hosted API
+      <span class="api-status" data-api-status>
+        <span class="status-dot" aria-hidden="true"></span>
+        <span data-api-status-label>live</span>
+      </span>.
+      The end-to-end upload → optimize → download flow is in design-partner
+      alpha — for now the drop returns a real job ID so you can see the
+      pipeline is wired.
     </p>
   </div>
 
@@ -42,8 +47,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       Drop a splat or click to choose a file
     </div>
     <div class="dropzone-body" data-uploader-body>
-      Files stay local until you confirm. The hosted API runs at
-      <code data-api-base>{apiBase}</code>.
+      Files stay local until you confirm. Supported formats below.
     </div>
 
     <label for="splat-file-input" class="btn btn-primary dropzone-cta">
@@ -139,7 +143,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       }
       headline.textContent = "Reaching the hosted API…";
       body.innerHTML =
-        "POST <code>" + apiBase + "/v1/jobs</code> for <code>" + file.name + "</code>";
+        "Registering <code>" + file.name + "</code> with the optimize queue";
       out.hidden = true;
 
       try {
@@ -154,11 +158,15 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       } catch (err) {
         headline.textContent = "Hosted API unreachable.";
         body.innerHTML =
-          "Falling back to the design-partner intake. The API at <code>" +
-          apiBase +
-          "</code> may be cold. (" +
+          "Falling back to the design-partner intake — the API may be cold. (" +
           (err && err.message ? err.message : String(err)) +
           ")";
+        const status = document.querySelector("[data-api-status]");
+        const statusLbl = document.querySelector("[data-api-status-label]");
+        if (status && statusLbl) {
+          status.classList.add("offline");
+          statusLbl.textContent = "offline";
+        }
         const a = document.createElement("a");
         a.href = partnerHref;
         a.target = "_blank";
