@@ -54,6 +54,18 @@ export interface SplatBenchScene {
   sizeMinRatio: number;
   /** Optional — populated once v0.1.1 fidelity benchmark lands. */
   fidelity?: SceneFidelity;
+  /** Optional — populated only for scenes scored by splatforge-pro
+   *  `DifferentiableRepack` (proprietary premium-tier pass). */
+  repack?: {
+    targetRatio: number;
+    splatsIn: number;
+    splatsOut: number;
+    bytesIn: number;
+    bytesOut: number;
+    psnrRepackDb: number;
+    psnrOpacityPruneDb: number;
+    psnrDeltaDb: number;
+  };
 }
 
 export interface SplatBenchAggregates {
@@ -149,4 +161,9 @@ export function fidelityFor(
   preset: Preset,
 ): PresetFidelity | undefined {
   return preset === "webMobile" ? scene.fidelity?.webMobile : scene.fidelity?.sizeMin;
+}
+
+/** True if any scene carries a splatforge-pro DifferentiableRepack result. */
+export function hasAnyRepack(scenes: SplatBenchScene[]): boolean {
+  return scenes.some((s) => typeof s.repack?.psnrDeltaDb === "number");
 }

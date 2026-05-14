@@ -9,6 +9,7 @@ import {
   fmtInt,
   hasAnyFidelity,
   hasAnyMlScore,
+  hasAnyRepack,
   fidelityFor,
   type Preset,
   type SplatBenchScene,
@@ -21,6 +22,7 @@ const ordered = sortedScenes(scenes, defaultPreset);
 const maxRatio = Math.max(...ordered.map((s) => presetView(s, defaultPreset).ratio));
 const showFidelity = hasAnyFidelity(scenes);
 const showMlScore = hasAnyMlScore(scenes);
+const showRepack = hasAnyRepack(scenes);
 
 // Serialize once for the client island so we don't pay a fetch.
 const clientData = scenes.map((s) => ({
@@ -40,6 +42,7 @@ const clientData = scenes.map((s) => ({
     ratio: s.sizeMinRatio,
     fid: s.fidelity?.sizeMin ?? null,
   },
+  repack: s.repack ?? null,
 }));
 ---
 
@@ -121,6 +124,9 @@ const clientData = scenes.map((s) => ({
           {showMlScore && (
             <th>ML Score <span class="ml-tag">pro</span></th>
           )}
+          {showRepack && (
+            <th>Repack ΔPSNR <span class="ml-tag">premium</span></th>
+          )}
           <th>analyze</th>
         </tr>
       </thead>
@@ -166,6 +172,17 @@ const clientData = scenes.map((s) => ({
                     })()}
                   </td>
                 )}
+                {showRepack && (
+                  <td>
+                    {(() => {
+                      if (!s.repack) return <span class="fidelity-pending">—</span>;
+                      const d = s.repack.psnrDeltaDb;
+                      return (
+                        <span class="repack-win">{d >= 0 ? "+" : ""}{d.toFixed(2)} dB</span>
+                      );
+                    })()}
+                  </td>
+                )}
                 <td>{fmtMs(s.analyzeMs)}</td>
               </tr>
             );
@@ -176,7 +193,7 @@ const clientData = scenes.map((s) => ({
   </div>
 </section>
 
-<script is:inline define:vars={{ clientData, showMlScore }}>
+<script is:inline define:vars={{ clientData, showMlScore, showRepack }}>
   // Tiny client island: preset toggle re-renders the table body in place.
   // No framework. Mirrors the renderer in benches/reports/splatbench-v0.html.
   (function () {
@@ -250,6 +267,19 @@ const clientData = scenes.map((s) => ({
               mlCell = '<td><span class="fidelity-pending">—</span></td>';
             }
           }
+          let repackCell = "";
+          if (showRepack) {
+            if (r.repack && typeof r.repack.psnrDeltaDb === "number") {
+              const d = r.repack.psnrDeltaDb;
+              repackCell =
+                '<td><span class="repack-win">' +
+                (d >= 0 ? "+" : "") +
+                d.toFixed(2) +
+                " dB</span></td>";
+            } else {
+              repackCell = '<td><span class="fidelity-pending">—</span></td>';
+            }
+          }
           return (
             "<tr>" +
             "<td><strong>" + escapeHtml(r.id) + "</strong></td>" +
@@ -262,6 +292,7 @@ const clientData = scenes.map((s) => ({
             '<span class="bar"><span class="bar-fill" style="width:' + w + '%"></span></span></td>' +
             "<td>" + fid + "</td>" +
             mlCell +
+            repackCell +
             "<td>" + fmtMs(r.analyzeMs) + "</td>" +
             "</tr>"
           );

@@ -20,6 +20,8 @@
 | `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
 | `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
+| `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
+| `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
 | `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |

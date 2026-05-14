@@ -1,0 +1,24 @@
+{
+  "schema": "splatforge.diff-repack-v0",
+  "name": "Differentiable repack — premium tier results",
+  "description": "PSNR delta of the gsplat-based differentiable repack pass vs naive opacity-prune at the same byte budget. Algorithm lives in splatforge-private; reproducing the numbers requires the proprietary build + ~$0.10/scene of A100 spot time. Values are published; the optimizer is not.",
+  "version": "0.1.0-gsplat-self-distill",
+  "target_ratio": 0.5,
+  "approach": "gsplat 1.5.3 + self-distillation against 16 inside-the-cloud orbit-camera pseudo-photos; hard-prune by saliency (alpha * |sigma scale|) every N iters",
+  "generated_at": "2026-05-14T12:30:00Z",
+  "results": [
+    {
+      "scene_id": "bonsai_mipnerf360_iter7k",
+      "splats_in": 1157141,
+      "splats_out": 578573,
+      "bytes_in": 286972500,
+      "bytes_out": 143487635,
+      "psnr_repack_db": 38.316,
+      "psnr_opacity_prune_db": 31.918,
+      "psnr_delta_db": 6.398,
+      "wall_secs": 49.82,
+      "image_size": 192,
+      "iters": 1000
+    }
+  ]
+}
