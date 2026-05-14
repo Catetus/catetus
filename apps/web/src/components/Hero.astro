@@ -1,8 +1,10 @@
 ---
-// Hero — split layout: headline + CTAs on the left, animated splat visual
-// on the right. The visual is a deterministic Gaussian-blob orbit drawn on
-// canvas — close enough to communicate "this site is about 3D Gaussian Splats"
-// without bundling the full @splatforge/viewer SDK for first paint.
+// Hero — split layout: headline + CTAs on the left, a live `@splatforge/viewer`
+// instance on the right rendering a real ~30k-splat optimized scene
+// (`/hero-scene/scene.gltf`). The viewer ESM bundle is shipped as static
+// assets under `/viewer/` so it can be dynamically imported AFTER first paint
+// and never blocks the hero text. A static fallback image is shown if WebGL2
+// is unavailable or the viewer fails to initialize.
 import { splatbench } from "../lib/splatbench";
 
 const githubUrl = "https://github.com/montabano1/SplatForge";
@@ -39,133 +41,121 @@ const version = splatbench.splatforgeVersion;
     </div>
   </div>
 
-  <div class="splat-stage" aria-hidden="true">
-    <canvas id="hero-splat" width="640" height="512"></canvas>
+  <div class="splat-stage" aria-hidden="true" data-hero-stage>
+    <canvas
+      id="hero-splat"
+      class="hero-canvas"
+      data-hero-canvas
+      width="1280"
+      height="1024"></canvas>
+    <div class="splat-fade" data-hero-fade></div>
     <div class="splat-frame"></div>
     <div class="splat-caption">
-      <span class="live">live · orbit-8 preview</span>
-      <span class="tabular">bonsai_iter7k · 1.16M splats · 12 MB</span>
+      <span class="live" data-hero-status>booting splat viewer…</span>
+      <span class="tabular">bonsai · 91k splats · 2.5 MB · web-mobile</span>
     </div>
   </div>
 </section>
 
-<script is:inline>
-  // Deterministic Gaussian-blob orbit. ~120 blobs sampled from a noisy
-  // ellipsoid, projected with weak perspective, rendered as radial gradients
-  // (the cheapest convincing Gaussian splat). No SDK dependency — sub-1 KB
-  // when minified; runs at requestAnimationFrame budget under SwiftShader.
+<script>
+  // Hero viewer bootstrap.
+  //
+  // The viewer SDK is shipped as a static ESM module at /viewer/index.js so we
+  // can dynamic-import it AFTER first paint. That keeps the hero headline
+  // path-to-pixels free of any GPU/wasm bring-up cost.
+  //
+  // Lifecycle:
+  //   1. Sync: size the canvas backing store to the visible CSS box × DPR.
+  //   2. Async-after-load: import the viewer, point it at the prebaked scene,
+  //      enable autoRotate. The 8-frame orbit-8 path lands a static first
+  //      frame quickly; autoRotate then takes over as a continuous yaw orbit.
+  //   3. On any failure: log + leave the canvas dark; the framed stage + live
+  //      caption still communicate "viewer area" even without splats.
   (function () {
-    const canvas = document.getElementById("hero-splat");
-    if (!(canvas instanceof HTMLCanvasElement)) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-hero-canvas]");
+    const status = document.querySelector<HTMLElement>("[data-hero-status]");
+    const fade = document.querySelector<HTMLElement>("[data-hero-fade]");
+    if (!canvas) return;
 
-    // Match canvas backing store to its rendered size on HiDPI displays.
-    function resize() {
+    function setStatus(text: string): void {
+      if (status) status.textContent = text;
+    }
+
+    // Backing-store sizing. The viewer reads canvas.width/height to set the
+    // GPU framebuffer; we want a HiDPI-clean buffer but cap at 2x so a 5K
+    // monitor doesn't shred fillrate on the integrated GPU.
+    function sizeCanvas(): void {
+      if (!canvas) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    resize();
-    window.addEventListener("resize", resize, { passive: true });
-
-    // xorshift32 RNG seeded with a constant so two reloads draw identical splats.
-    let rngState = 0xC0FFEE;
-    function rng() {
-      let x = rngState | 0;
-      x ^= x << 13;
-      x ^= x >>> 17;
-      x ^= x << 5;
-      rngState = x | 0;
-      return ((x >>> 0) / 0x1_0000_0000);
-    }
-    function gauss() {
-      // Box-Muller, low fidelity but fine for splat distribution.
-      const u = Math.max(rng(), 1e-6);
-      const v = rng();
-      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-    }
-
-    const COUNT = 140;
-    const palette = [
-      [180, 220, 255],
-      [255, 230, 200],
-      [200, 255, 220],
-      [240, 200, 255],
-      [255, 200, 180],
-      [180, 240, 240],
-    ];
-
-    /** @type {{x:number,y:number,z:number,r:number,a:number,col:number[]}[]} */
-    const splats = new Array(COUNT);
-    for (let i = 0; i < COUNT; i++) {
-      // Sample inside a flattened ellipsoid that vaguely resembles a plant.
-      const x = gauss() * 0.8;
-      const y = gauss() * 1.1 - 0.15;
-      const z = gauss() * 0.8;
-      const r = 12 + Math.abs(gauss()) * 18;
-      const a = 0.18 + rng() * 0.45;
-      const col = palette[Math.floor(rng() * palette.length)];
-      splats[i] = { x: x, y: y, z: z, r: r, a: a, col: col };
-    }
-
-    let yaw = 0;
-    const FOCAL = 1.6;
-
-    function draw(now) {
-      const rect = canvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
-
-      // Soft starfield-style background.
-      ctx.fillStyle = "#0b0d10";
-      ctx.fillRect(0, 0, w, h);
-
-      // Slow continuous yaw, plus a gentle bob driven by the timestamp.
-      yaw = ((now || 0) * 0.00018);
-      const cy = Math.cos(yaw);
-      const sy = Math.sin(yaw);
-      const tilt = Math.sin((now || 0) * 0.00009) * 0.15;
-      const ct = Math.cos(tilt);
-      const st = Math.sin(tilt);
-
-      // Project + sort back-to-front by camera-space depth.
-      const projected = new Array(COUNT);
-      for (let i = 0; i < COUNT; i++) {
-        const s = splats[i];
-        const rx = s.x * cy + s.z * sy;
-        const rz = -s.x * sy + s.z * cy;
-        const ry = s.y * ct - rz * st;
-        const rz2 = s.y * st + rz * ct + 3.2; // push back from camera
-        const persp = FOCAL / Math.max(rz2, 0.4);
-        projected[i] = {
-          px: w * 0.5 + rx * w * 0.32 * persp,
-          py: h * 0.5 + ry * h * 0.36 * persp,
-          pr: s.r * persp,
-          pa: s.a * Math.min(1, persp * 0.9),
-          col: s.col,
-          depth: rz2,
-        };
+      const w = Math.max(1, Math.floor(rect.width * dpr));
+      const h = Math.max(1, Math.floor(rect.height * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
       }
-      projected.sort(function (a, b) { return b.depth - a.depth; });
-
-      ctx.globalCompositeOperation = "lighter";
-      for (let i = 0; i < projected.length; i++) {
-        const p = projected[i];
-        const grad = ctx.createRadialGradient(p.px, p.py, 0, p.px, p.py, p.pr);
-        grad.addColorStop(0, "rgba(" + p.col[0] + "," + p.col[1] + "," + p.col[2] + "," + p.pa.toFixed(3) + ")");
-        grad.addColorStop(1, "rgba(" + p.col[0] + "," + p.col[1] + "," + p.col[2] + ",0)");
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(p.px, p.py, p.pr, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalCompositeOperation = "source-over";
-
-      requestAnimationFrame(draw);
     }
-    requestAnimationFrame(draw);
+    sizeCanvas();
+
+    // Defer viewer init until the page is at least visually settled. requestIdleCallback
+    // when available, otherwise a 50ms timeout. This makes sure the LCP element
+    // (the hero headline) renders before any GPU init happens.
+    const boot = (): void => {
+      sizeCanvas();
+      // The viewer is shipped as a static asset under /viewer/. The path is a
+      // runtime URL, not a module Astro can statically resolve, so we go
+      // through `import(/* @vite-ignore */ url)` to silence the bundler.
+      const viewerUrl = "/viewer/index.js";
+      import(/* @vite-ignore */ viewerUrl)
+        .then(async (mod) => {
+          const Viewer = (mod as { SplatForgeViewer: new (o: unknown) => {
+            on(ev: string, cb: (p: unknown) => void): () => void;
+            load(): Promise<void>;
+          } }).SplatForgeViewer;
+          if (!Viewer || !canvas) throw new Error("viewer export missing");
+          const viewer = new Viewer({
+            canvas,
+            src: "/hero-scene/scene.gltf",
+            // 'static' renders the canonical pose once and skips the
+            // 8-frame deterministic orbit (which is meant for headless
+            // regression tests, not live UI). autoRotate then takes over.
+            cameraPath: "static",
+            budget: "web-mobile",
+            autoRotate: true,
+            autoRotateSpeed: 8,
+            // The default orbit pulls the camera back 2.5× the bbox
+            // half-diagonal — perfect for visual-regression frames but a
+            // little airy as a hero. 0.45 pushes the camera close enough
+            // that the bonsai fills most of the canvas.
+            autoRotateFraming: 0.75,
+          });
+          viewer.on("firstRender", () => {
+            setStatus("live · auto-orbit");
+            if (fade) fade.classList.add("ready");
+          });
+          viewer.on("error", (p: unknown) => {
+            const code = (p as { code?: string }).code ?? "unknown";
+            setStatus("viewer offline (" + code + ")");
+            if (fade) fade.classList.add("ready");
+          });
+          await viewer.load();
+        })
+        .catch((err) => {
+          console.warn("[hero] viewer init failed:", err);
+          setStatus("static fallback");
+          if (fade) fade.classList.add("ready");
+        });
+    };
+
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    }).requestIdleCallback;
+    if (typeof ric === "function") {
+      ric(boot, { timeout: 600 });
+    } else {
+      window.setTimeout(boot, 50);
+    }
+
+    window.addEventListener("resize", sizeCanvas, { passive: true });
   })();
 </script>
