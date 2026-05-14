@@ -22,6 +22,8 @@
 | `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
 | `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
+| `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
+| `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
 | `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
@@ -85,21 +87,21 @@ The two real scenes top the `size-min` chart because their opacity distribution 
 
 Frames captured via `@splatforge/viewer` in headless Chromium (SwiftShader software-rendered WebGL2), 8 deterministic orbit poses at 512×512. `lossless-repack` is the per-scene baseline. ΔE94 is normalized to 0..1 (i.e. `3%` = 3 absolute ΔE94 units, the perceptibility threshold of an attentive observer).
 
-**ML Score** is the splat-aware perceptual metric from `splatforge-pro` (version `0.2.0-empirical`), a proprietary build that scores rendered vs baseline frames with a model tuned for Gaussian-splat failure modes. Higher is better; 100% means visually identical. ML Score values are published; reproducing them requires the `splatforge-pro` binary.
+**ML Score** is the splat-aware perceptual metric from `splatforge-pro` (version `0.3.0-perkind`), a proprietary build that scores rendered vs baseline frames with a model tuned for Gaussian-splat failure modes. Higher is better; 100% means visually identical. ML Score values are published; reproducing them requires the `splatforge-pro` binary.
 
 | Rank | Scene | web-mobile ΔE94 mean / max | status | size-min ΔE94 mean / max | status | web-mobile ML | size-min ML |
 | ---: | ----- | ---: | :---: | ---: | :---: | ---: | ---: |
-| 1 | `splatbench_dense_proxy` | 0.00% / 0.01% | **pass** | 0.02% / 0.03% | **pass** | 99.66% | 99.11% |
-| 2 | `splatbench_product_proxy` | 0.02% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 99.44% | 99.28% |
-| 3 | `splatbench_outdoor_proxy` | 0.02% / 0.04% | **pass** | 0.09% / 0.14% | **pass** | 99.35% | 98.40% |
-| 4 | `splatbench_indoor_proxy` | 0.03% / 0.04% | **pass** | 0.10% / 0.11% | **pass** | 99.31% | 98.56% |
-| 5 | `splatbench_lowlight_proxy` | 0.03% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 99.43% | 99.37% |
-| 6 | `splatbench_specular_proxy` | 0.04% / 0.04% | **pass** | 0.05% / 0.05% | **pass** | 99.33% | 99.20% |
-| 7 | `splatbench_portrait_proxy` | 0.04% / 0.08% | **pass** | 0.06% / 0.11% | **pass** | 99.31% | 99.02% |
-| 8 | `splatbench_floater_proxy` | 0.09% / 0.09% | **pass** | 14.48% / 14.73% | **fail** | 95.79% | 45.93% |
-| 9 | `splatbench_foliage_proxy` | 0.09% / 0.09% | **pass** | 0.10% / 0.10% | **pass** | 98.37% | 98.20% |
-| 10 | `bonsai_mipnerf360_iter7k` | 0.60% / 0.84% | **pass** | 0.64% / 0.87% | **pass** | 60.69% | 58.63% |
-| 11 | `bicycle_mipnerf360_iter7k` | 2.86% / 3.56% | **borderline** | 2.60% / 3.33% | **borderline** | 3.89% | 4.53% |
+| 1 | `splatbench_dense_proxy` | 0.00% / 0.01% | **pass** | 0.02% / 0.03% | **pass** | 95.54% | 94.87% |
+| 2 | `splatbench_product_proxy` | 0.02% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 95.28% | 95.09% |
+| 3 | `splatbench_outdoor_proxy` | 0.02% / 0.04% | **pass** | 0.09% / 0.14% | **pass** | 95.16% | 94.00% |
+| 4 | `splatbench_indoor_proxy` | 0.03% / 0.04% | **pass** | 0.10% / 0.11% | **pass** | 95.12% | 94.19% |
+| 5 | `splatbench_lowlight_proxy` | 0.03% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 95.27% | 95.19% |
+| 6 | `splatbench_specular_proxy` | 0.04% / 0.04% | **pass** | 0.05% / 0.05% | **pass** | 95.14% | 94.97% |
+| 7 | `splatbench_portrait_proxy` | 0.04% / 0.08% | **pass** | 0.06% / 0.11% | **pass** | 95.12% | 94.76% |
+| 8 | `splatbench_floater_proxy` | 0.09% / 0.09% | **pass** | 14.48% / 14.73% | **fail** | 90.82% | 37.17% |
+| 9 | `splatbench_foliage_proxy` | 0.09% / 0.09% | **pass** | 0.10% / 0.10% | **pass** | 93.96% | 93.74% |
+| 10 | `bonsai_mipnerf360_iter7k` | 0.60% / 0.84% | **pass** | 0.64% / 0.87% | **pass** | 46.51% | 43.84% |
+| 11 | `bicycle_mipnerf360_iter7k` | 2.86% / 3.56% | **borderline** | 2.60% / 3.33% | **borderline** | 0.00% | 0.00% |
 
 **Pass criterion:** mean ΔE94 < 3% AND max ΔE94 < 8%. **Borderline:** mean 2–3% or max 5–8%. **Pass:** mean < 2% AND max < 5%.
 
