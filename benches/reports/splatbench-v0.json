@@ -44,9 +44,9 @@
           "meanSsimLoss": 0.021123,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.96018,
-          "mlScoreMax": 0.980341,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.939779,
+          "mlScoreMax": 0.96878,
+          "mlScoreVersion": "0.1.1-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.006406,
@@ -56,9 +56,9 @@
           "meanSsimLoss": 0.023345,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.958101,
-          "mlScoreMax": 0.977371,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.937248,
+          "mlScoreMax": 0.964422,
+          "mlScoreVersion": "0.1.1-baseline"
         }
       }
     },
@@ -99,9 +99,9 @@
           "meanSsimLoss": 0.082897,
           "status": "borderline",
           "passed": true,
-          "mlScore": 0.886393,
-          "mlScoreMax": 0.898563,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.847604,
+          "mlScoreMax": 0.866832,
+          "mlScoreVersion": "0.1.1-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.026016,
@@ -111,9 +111,9 @@
           "meanSsimLoss": 0.073273,
           "status": "borderline",
           "passed": true,
-          "mlScore": 0.890111,
-          "mlScoreMax": 0.902736,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.851979,
+          "mlScoreMax": 0.871059,
+          "mlScoreVersion": "0.1.1-baseline"
         }
       }
     },
@@ -154,9 +154,9 @@
           "meanSsimLoss": 0.000072,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.999425,
-          "mlScoreMax": 0.99946,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.999088,
+          "mlScoreMax": 0.999138,
+          "mlScoreVersion": "0.1.1-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000351,
@@ -166,9 +166,9 @@
           "meanSsimLoss": 0.000121,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.999257,
-          "mlScoreMax": 0.999309,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.998827,
+          "mlScoreMax": 0.998899,
+          "mlScoreVersion": "0.1.1-baseline"
         }
       }
     },
@@ -209,9 +209,9 @@
           "meanSsimLoss": 0.000073,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.999292,
-          "mlScoreMax": 0.999326,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.998915,
+          "mlScoreMax": 0.998963,
+          "mlScoreVersion": "0.1.1-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.00101,
@@ -221,9 +221,9 @@
           "meanSsimLoss": 0.000331,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.998516,
-          "mlScoreMax": 0.998568,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.997774,
+          "mlScoreMax": 0.997911,
+          "mlScoreVersion": "0.1.1-baseline"
         }
       }
     },
@@ -264,9 +264,9 @@
           "meanSsimLoss": 0.007589,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.9957,
-          "mlScoreMax": 0.996918,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.993094,
+          "mlScoreMax": 0.995242,
+          "mlScoreVersion": "0.1.1-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.144802,
@@ -276,9 +276,9 @@
           "meanSsimLoss": 0.283179,
           "status": "fail",
           "passed": false,
-          "mlScore": 0.886541,
-          "mlScoreMax": 0.888261,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.880029,
+          "mlScoreMax": 0.881954,
+          "mlScoreVersion": "0.1.1-baseline"
         }
       }
     },
@@ -319,9 +319,9 @@
           "meanSsimLoss": 0.000063,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.999336,
-          "mlScoreMax": 0.999456,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.99894,
+          "mlScoreMax": 0.999134,
+          "mlScoreVersion": "0.1.1-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000908,
@@ -331,9 +331,9 @@
           "meanSsimLoss": 0.000339,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.998366,
-          "mlScoreMax": 0.998662,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.9974,
+          "mlScoreMax": 0.997883,
+          "mlScoreVersion": "0.1.1-baseline"
         }
       }
     },
@@ -374,9 +374,9 @@
           "meanSsimLoss": 0.000021,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.999655,
-          "mlScoreMax": 0.999672,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.999445,
+          "mlScoreMax": 0.99947,
+          "mlScoreVersion": "0.1.1-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000244,
@@ -386,9 +386,9 @@
           "meanSsimLoss": 0.000136,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.999092,
-          "mlScoreMax": 0.999169,
-          "mlScoreVersion": "0.1.0-baseline"
+          "mlScore": 0.998535,
+          "mlScoreMax": 0.998662,
+          "mlScoreVersion": "0.1.1-baseline"
         }
       }
     }
