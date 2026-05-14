@@ -36,6 +36,8 @@ import {
   existsSync,
   mkdtempSync,
   copyFileSync,
+  readdirSync,
+  statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, basename, extname } from 'node:path';
@@ -430,8 +432,20 @@ async function main() {
   copyFileSync(afterGltf, resolve(tmp, 'after', basename(afterGltf)));
   for (const side of ['before', 'after']) {
     const gltfPath = side === 'before' ? beforeGltf : afterGltf;
+    // Legacy single-sibling .bin (used by older fixtures).
     const bin = gltfPath.replace(/\.gltf$/i, '.bin');
     if (existsSync(bin)) copyFileSync(bin, resolve(tmp, side, basename(bin)));
+    // splatforge-emitted chunked layout: `<gltfDir>/buffers/chunk_XXXX.bin`.
+    // Stage the whole directory so URIs like `buffers/chunk_0000.bin` resolve.
+    const gltfDir = dirname(gltfPath);
+    const buffersDir = resolve(gltfDir, 'buffers');
+    if (existsSync(buffersDir) && statSync(buffersDir).isDirectory()) {
+      const sideBuffers = resolve(tmp, side, 'buffers');
+      mkdirSync(sideBuffers, { recursive: true });
+      for (const entry of readdirSync(buffersDir)) {
+        copyFileSync(resolve(buffersDir, entry), resolve(sideBuffers, entry));
+      }
+    }
   }
 
   const port = 4000 + Math.floor(Math.random() * 1000);

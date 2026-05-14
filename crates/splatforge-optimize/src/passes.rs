@@ -19,16 +19,10 @@ pub struct PassStats {
 }
 
 /// Mutable context carried through a pipeline run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PassContext {
     /// Deterministic seed for any pass that needs pseudo-randomness.
     pub seed: u64,
-}
-
-impl Default for PassContext {
-    fn default() -> Self {
-        Self { seed: 0 }
-    }
 }
 
 /// Pass trait: every optimization pass implements this.
@@ -125,8 +119,8 @@ impl Pass for FloaterPrune {
         let n = scene.splats.len() as f64;
         let mut centroid = [0.0f64; 3];
         for s in &scene.splats {
-            for i in 0..3 {
-                centroid[i] += s.position[i] as f64;
+            for (i, c) in centroid.iter_mut().enumerate() {
+                *c += s.position[i] as f64;
             }
         }
         for c in centroid.iter_mut() {
@@ -314,16 +308,10 @@ impl Pass for QuantizeRotation {
 }
 
 /// Truncate SH coefficients to the requested degree.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ReduceSHDegree {
     /// Target SH degree (0 collapses to plain RGB).
     pub target_degree: u8,
-}
-
-impl Default for ReduceSHDegree {
-    fn default() -> Self {
-        Self { target_degree: 0 }
-    }
 }
 
 impl Pass for ReduceSHDegree {
@@ -468,7 +456,10 @@ impl Pass for BuildLOD {
                 i + 1,
                 indices.len()
             ));
-            levels.push(LodLevel { fraction: frac, indices });
+            levels.push(LodLevel {
+                fraction: frac,
+                indices,
+            });
         }
         scene.lods = Some(levels);
         Ok(PassStats {
@@ -541,7 +532,7 @@ impl Pass for ObjectAwarePruneExperimental {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then(a.0.cmp(&b.0))
         });
-        let decile = (n + 9) / 10;
+        let decile = n.div_ceil(10);
         let sparsest_set: std::collections::HashSet<usize> =
             by_score.iter().take(decile).map(|(i, _)| *i).collect();
         let threshold_score = by_score

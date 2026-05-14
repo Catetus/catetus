@@ -12,8 +12,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p splatforge-cli
-      - run: ./target/release/splatforge corpus run smoke
+      # `corpus run` prints the suite JSON to stdout; capture it into the
+      # reports dir so the upload-artifact step has something to publish.
+      - run: mkdir -p benches/reports
+      - run: ./target/release/splatforge corpus run smoke | tee benches/reports/corpus-smoke.json
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: bench-report
           path: benches/reports/

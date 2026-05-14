@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-14
+
+Closes the v0.1.0 "visual fidelity pending" gap and ships the public landing page.
+
+### Added
+
+- **Visual-fidelity benchmark** — every scene in SplatBench is now measured for
+  perceptual degradation (CIE ΔE94 / pixelmatch / per-block SSIM) by rendering
+  8 deterministic orbit frames through `@splatforge/viewer` in headless
+  Chromium and comparing each non-baseline preset to `lossless-repack`. New
+  runner at `tests/visual/scripts/splatbench-fidelity.mjs`, new report at
+  `benches/reports/fidelity-v0.json`. The SplatBench leaderboard
+  (`benches/reports/splatbench-v0.{md,html,json}`) gains a Fidelity column
+  with pass / borderline / fail buckets.
+- **`@splatforge/viewer` is now actually runnable** — previously the SDK was
+  tsc-clean but had never been exercised against a real splatforge-emitted
+  glTF in a browser. v0.1.1 fixes the structural wire-format mismatches:
+  the Rust glTF writer now emits top-level `KHR_gaussian_splatting.splatCount`
+  + `bbox`, POSITION accessor `min`/`max` (glTF 2.0 §3.6.2.4), and a `uri`
+  field on each `SF_spatial_streaming_index` chunk record. The JS viewer
+  learns to (a) decode structure-of-arrays attribute buffers (one bufferView
+  per attribute) by re-interleaving them at decode time, (b) derive scene
+  splatCount + bbox from accessor metadata when the extension lacks them,
+  and (c) resolve chunk URIs against the manifest's anchored location.
+  The viewer's `cameraPath: 'orbit-8'` mode now actually drives 8 orbit poses
+  and emits a per-frame `frameRendered` event, used by the visual harness.
+- **`apps/web`** — Astro 4 static landing page at the repo's first deployable
+  site. Composes a hero + headline-stat triptych + tabbed install snippet +
+  embedded leaderboard + drag-drop placeholder. Reads the SplatBench JSON at
+  build time so future fidelity-runner updates land automatically.
+- **SPEC-0011** (`OpenUSD ParticleField3DGaussianSplat round-trip`) and
+  **SPEC-0012** (`OpenUSD streaming via payload + variant sets`) — draft
+  specs covering the v0.2 OpenUSD interop work. Both flagged `Status: Draft`
+  pending validation against a real USD toolchain.
+
+### Fixed
+
+- Insertion sort in the WebGL2 renderer's per-frame draw path was O(n²)
+  and didn't scale past ~10K splats. Replaced with a stable O(n log n)
+  paired-index sort so the renderer handles the SplatBench corpus.
+- `tests/visual/scripts/diff-cli.mjs` now stages the `buffers/` directory
+  alongside the staged `.gltf` so chunk-URI fetches resolve in the harness.
+- Three GitHub Actions workflows (`test.yml`, `visual.yml`, `benchmark.yml`)
+  had latent first-run failures: `pnpm -r run lint/test` would invoke the
+  Playwright project's `tsc --noEmit` without the viewer dist available, the
+  visual workflow never built the viewer before running Playwright, and the
+  benchmark workflow wrote results to stdout rather than `benches/reports/`.
+  All three patched for green first run.
+
+### Notes
+
+- Fidelity numbers were captured on macOS aarch64 with SwiftShader; relative
+  degradation between presets is the load-bearing signal, not absolute pixel
+  identity to a hardware GPU.
+
 ## [0.1.0] — 2026-05-14
 
 Initial public release. Phase 0 + Phase 1 + Phase 2 of the PRD roadmap, plus
@@ -68,5 +123,6 @@ v1 tightening and the first SplatBench leaderboard.
 - Pre-built binary is Linux aarch64 only — `cargo build` locally for other
   platforms (instructions in [`INSTALL.md`](./INSTALL.md)).
 
-[Unreleased]: https://github.com/montabano1/SplatForge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/montabano1/SplatForge/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/montabano1/SplatForge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/montabano1/SplatForge/releases/tag/v0.1.0

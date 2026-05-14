@@ -1,0 +1,45 @@
+---
+// Three big numbers under the hero, each justified with a one-line blurb.
+// Pattern lifted from GitHub `/about` and Linear — stats live BELOW the hero
+// claim, not as the hero itself. Values are baked at build time from
+// splatbench-v0.json so they stay honest with the leaderboard.
+import { splatbench } from "../lib/splatbench";
+
+// Pull the bonsai scene out of the report for the headline numbers.
+const bonsai = splatbench.scenes.find((s) => s.id === "bonsai_mipnerf360_iter7k");
+const ratio = bonsai ? bonsai.webMobileRatio : splatbench.aggregates.webMobileRatioMax;
+const deltaE = bonsai?.fidelity?.deltaE94;
+
+// `analyzeMs` is the analyze pass alone — for the optimize-+-pack story we
+// quote the bonsai-demo number explicitly (730 ms wall-clock on aarch64).
+const optimizeMs = 730;
+---
+
+<section class="stat-strip" aria-label="Headline numbers">
+  <div class="stat">
+    <div class="stat-label">Compression</div>
+    <div class="stat-value tabular">{ratio.toFixed(2)}<span class="unit">×</span></div>
+    <p class="stat-blurb">
+      Bonsai scene · 1.16M splats · <span class="tabular">273 MB → 12 MB</span> at the
+      <code>web-mobile</code> preset.
+    </p>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Perceptual fidelity</div>
+    <div class="stat-value tabular">
+      {deltaE !== undefined ? `ΔE94 ${(deltaE * 100).toFixed(2)}` : "ΔE94 —"}<span class="unit">%</span>
+    </div>
+    <p class="stat-blurb">
+      Mean colour distance vs. the lossless baseline across 8 orbit frames. Below the
+      <span class="tabular">3%</span> attentive-observer threshold.
+    </p>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Wall clock</div>
+    <div class="stat-value tabular">{optimizeMs}<span class="unit">ms</span></div>
+    <p class="stat-blurb">
+      Full <code>optimize&nbsp;+&nbsp;pack</code> pipeline on bonsai. Single-threaded Rust;
+      releases tagged with a deterministic BLAKE3 corpus hash.
+    </p>
+  </div>
+</section>

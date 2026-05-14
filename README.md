@@ -43,6 +43,10 @@ make bench-splatbench
 Median compression across 7 scenes: **21.75× (web-mobile)** / **24.24× (size-min)**.
 Median analyze wall time on real splats: **~1 µs/splat**.
 
+**v0.1.1** adds a Fidelity column to the leaderboard: every preset is now measured for perceptual degradation (CIE ΔE94 + pixelmatch + per-block SSIM) against the lossless baseline using deterministic 8-orbit-frame renders through `@splatforge/viewer`. Bonsai passes the 3% attentive-observer threshold with ΔE94 mean **0.6%**; bicycle is borderline (mean ~2.9%, max ~3.6%).
+
+Public landing page (Astro static, Vercel-deployed): [`apps/web/`](./apps/web).
+
 ## Layout
 
 ```
@@ -104,8 +108,8 @@ SPZ is a first-class compressed format. **No proprietary `.sfz` package format.*
 | ----- | ------------- | ------ |
 | Phase 0 — technical spike + design partners | (PRD §) | ✓ proven on real Inria 3DGS data |
 | Phase 1 — CLI alpha + standards I/O | SPEC-0001..0007 | ✓ shipped in v0.1.0 |
-| Phase 2 — viewer SDK + visual diff + benchmark runner | SPEC-0008..0010 | ✓ shipped in v0.1.0 |
-| Phase 3 — hosted API + OpenUSD + partnerships | SPEC-0011, 0012 | planned |
+| Phase 2 — viewer SDK + visual diff + benchmark runner | SPEC-0008..0010 | ✓ shipped in v0.1.0; fidelity column added v0.1.1 |
+| Phase 3 — hosted API + OpenUSD + partnerships | SPEC-0011, 0012 (draft) | in flight |
 | Phase 4 — advanced compression + enterprise pipeline | (PRD §) | planned |
 
 ## License

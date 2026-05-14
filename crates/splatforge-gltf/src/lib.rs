@@ -115,12 +115,22 @@ struct GltfAccessor {
     count: usize,
     #[serde(rename = "type")]
     accessor_type: String,
+    /// Per-component minima. Required on POSITION per glTF 2.0 §3.6.2.4.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    min: Option<Vec<f32>>,
+    /// Per-component maxima.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max: Option<Vec<f32>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct GltfRoot {
     asset: GltfAsset,
-    #[serde(rename = "extensionsUsed", skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(
+        rename = "extensionsUsed",
+        skip_serializing_if = "Vec::is_empty",
+        default
+    )]
     extensions_used: Vec<String>,
     #[serde(
         rename = "extensionsRequired",
@@ -164,15 +174,27 @@ fn add_view_acc(
         component_type: FLOAT,
         count,
         accessor_type: accessor_ty.to_string(),
+        min: None,
+        max: None,
     });
     *offset += byte_len;
     acc
 }
 
+fn set_accessor_minmax(root: &mut GltfRoot, acc: usize, mn: [f32; 3], mx: [f32; 3]) {
+    if let Some(a) = root.accessors.get_mut(acc) {
+        a.min = Some(mn.to_vec());
+        a.max = Some(mx.to_vec());
+    }
+}
+
 /// Write a scene as `<dir>/scene.gltf` plus one or more `.bin` files under
 /// `<dir>/buffers/`. `path` is the output `.gltf` path.
 pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(), GltfError> {
-    let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let dir = path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     let buffers_dir = dir.join("buffers");
     fs::create_dir_all(&buffers_dir)?;
 
@@ -202,6 +224,11 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
 
     let mut chunk_records: Vec<serde_json::Value> = Vec::new();
     let mut primitives: Vec<serde_json::Value> = Vec::new();
+    // Scene-wide bbox spans all chunks. Initialized to ±infinity so the union
+    // converges to the empty-scene fallback when no splats are present.
+    let mut scene_min = [f32::INFINITY; 3];
+    let mut scene_max = [f32::NEG_INFINITY; 3];
+    let mut total_splat_count: usize = 0;
 
     for (chunk_idx, chunk) in chunks.iter().enumerate() {
         let buf_bytes = pack_chunk(chunk);
@@ -222,6 +249,21 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
         let scale_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
         let op_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 4, "SCALAR");
         let dc_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
+
+        // glTF 2.0 §3.6.2.4 requires POSITION accessors to publish min/max.
+        let (chunk_min, chunk_max) = chunk_bbox(chunk);
+        set_accessor_minmax(&mut root, pos_acc, chunk_min, chunk_max);
+        if !chunk.is_empty() {
+            for i in 0..3 {
+                if chunk_min[i] < scene_min[i] {
+                    scene_min[i] = chunk_min[i];
+                }
+                if chunk_max[i] > scene_max[i] {
+                    scene_max[i] = chunk_max[i];
+                }
+            }
+            total_splat_count += n;
+        }
 
         // SH: emit only if any splat carries SH.
         let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
@@ -260,15 +302,16 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
         }));
 
         if opts.chunked {
-            // bbox
-            let (mn, mx) = chunk_bbox(chunk);
+            // Per-chunk record. `uri` mirrors `buffers[buffer_idx].uri` so JS
+            // consumers that key off chunk.uri can resolve without indirection.
             let hash = blake3::hash(&buf_bytes).to_hex().to_string();
             chunk_records.push(serde_json::json!({
+                "uri": buf_name,
                 "buffer": buffer_idx,
                 "byteOffset": 0,
                 "byteLength": buf_bytes.len(),
                 "splatCount": chunk.len(),
-                "bbox": { "min": mn, "max": mx },
+                "bbox": { "min": chunk_min, "max": chunk_max },
                 "lod": 0,
                 "checksum": format!("blake3:{hash}"),
                 "loadPriority": chunk_idx,
@@ -276,7 +319,30 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
         }
     }
 
-    root.meshes.push(serde_json::json!({ "primitives": primitives }));
+    root.meshes
+        .push(serde_json::json!({ "primitives": primitives }));
+
+    // Top-level KHR extension carries scene-wide splatCount + bbox so viewers
+    // can frame the asset without walking every primitive.
+    let scene_bbox = if total_splat_count == 0 {
+        ([0.0f32; 3], [0.0f32; 3])
+    } else {
+        (scene_min, scene_max)
+    };
+    let scene_sh_degree: u8 = scene
+        .splats
+        .iter()
+        .map(|s| s.color.degree())
+        .max()
+        .unwrap_or(0);
+    root.extensions.insert(
+        KHR.to_string(),
+        serde_json::json!({
+            "splatCount": total_splat_count,
+            "bbox": { "min": scene_bbox.0, "max": scene_bbox.1 },
+            "shDegree": scene_sh_degree,
+        }),
+    );
 
     if opts.chunked {
         let lods: Vec<serde_json::Value> = opts
@@ -387,7 +453,10 @@ fn chunk_bbox(chunk: &[Splat]) -> ([f32; 3], [f32; 3]) {
 /// Read a glTF file produced by `write_gltf` back into an IR scene.
 pub fn read_gltf(path: &Path) -> Result<SplatScene, GltfError> {
     let raw = fs::read_to_string(path)?;
-    let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let dir = path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     read_gltf_str(&raw, &dir)
 }
 
@@ -431,8 +500,8 @@ fn read_gltf_str(raw: &str, base_dir: &Path) -> Result<SplatScene, GltfError> {
             .as_ref()
             .ok_or_else(|| GltfError::BufferNotFound("no uri".to_string()))?;
         let bp = base_dir.join(uri);
-        let data = fs::read(&bp)
-            .map_err(|_| GltfError::BufferNotFound(bp.display().to_string()))?;
+        let data =
+            fs::read(&bp).map_err(|_| GltfError::BufferNotFound(bp.display().to_string()))?;
         buffers_bytes.push(data);
     }
 
@@ -471,10 +540,7 @@ fn read_gltf_str(raw: &str, base_dir: &Path) -> Result<SplatScene, GltfError> {
             let mut coeffs = Vec::with_capacity(48);
             coeffs.extend_from_slice(&dc[i * 3..i * 3 + 3]);
             coeffs.extend_from_slice(&sh[i * 45..i * 45 + 45]);
-            Color::Sh {
-                degree: 3,
-                coeffs,
-            }
+            Color::Sh { degree: 3, coeffs }
         } else {
             Color::Rgb([dc[i * 3], dc[i * 3 + 1], dc[i * 3 + 2]])
         };
@@ -505,12 +571,19 @@ fn read_gltf_str(raw: &str, base_dir: &Path) -> Result<SplatScene, GltfError> {
 /// checksums when the spatial-streaming-index extension is present.
 pub fn inspect_gltf(path: &Path) -> Result<InspectReport, GltfError> {
     let raw = fs::read_to_string(path)?;
-    let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let dir = path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     let value: serde_json::Value = serde_json::from_str(&raw)?;
     let used: Vec<String> = value
         .get("extensionsUsed")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     let has_khr = used.iter().any(|e| e == KHR);
     if !has_khr {
@@ -537,7 +610,9 @@ pub fn inspect_gltf(path: &Path) -> Result<InspectReport, GltfError> {
 
     let has_spatial_index = used.iter().any(|e| e == SF_INDEX);
     let mut chunk_count = 0usize;
-    let mut checksum_ok = true;
+    // Checksum mismatches bail out with an early `Err` rather than flagging
+    // here, so the report just records the success state.
+    let checksum_ok = true;
     let mut splat_count = 0usize;
     if has_spatial_index {
         let chunks = value
@@ -568,10 +643,7 @@ pub fn inspect_gltf(path: &Path) -> Result<InspectReport, GltfError> {
                 .get("byteLength")
                 .and_then(|b| b.as_u64())
                 .unwrap_or(0) as usize;
-            let expected = chunk
-                .get("checksum")
-                .and_then(|c| c.as_str())
-                .unwrap_or("");
+            let expected = chunk.get("checksum").and_then(|c| c.as_str()).unwrap_or("");
             let buf = buffers.get(buffer_idx).ok_or_else(|| {
                 GltfError::Malformed(format!("chunk {i} references missing buffer"))
             })?;
@@ -579,12 +651,13 @@ pub fn inspect_gltf(path: &Path) -> Result<InspectReport, GltfError> {
                 .get("uri")
                 .and_then(|u| u.as_str())
                 .ok_or_else(|| GltfError::Malformed("buffer has no uri".to_string()))?;
-            let data = fs::read(dir.join(uri))
-                .map_err(|_| GltfError::BufferNotFound(uri.to_string()))?;
+            let data =
+                fs::read(dir.join(uri)).map_err(|_| GltfError::BufferNotFound(uri.to_string()))?;
             let slice = &data[byte_offset..byte_offset + byte_length];
             let actual = format!("blake3:{}", blake3::hash(slice).to_hex());
             if actual != expected {
-                checksum_ok = false;
+                // Function returns before `checksum_ok` could ever be read,
+                // so just propagate the error.
                 return Err(GltfError::ChecksumMismatch(i));
             }
             splat_count += chunk
@@ -670,6 +743,9 @@ fn build_single_buffer_gltf(scene: &SplatScene) -> Result<(GltfRoot, Vec<u8>), G
     let op_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 4, "SCALAR");
     let dc_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
 
+    let (chunk_min, chunk_max) = chunk_bbox(chunk);
+    set_accessor_minmax(&mut root, pos_acc, chunk_min, chunk_max);
+
     let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
     let mut khr_attrs = serde_json::json!({
         "POSITION": pos_acc,
@@ -706,6 +782,20 @@ fn build_single_buffer_gltf(scene: &SplatScene) -> Result<(GltfRoot, Vec<u8>), G
             }
         }]
     }));
+
+    let scene_bbox = if chunk.is_empty() {
+        ([0.0f32; 3], [0.0f32; 3])
+    } else {
+        (chunk_min, chunk_max)
+    };
+    root.extensions.insert(
+        KHR.to_string(),
+        serde_json::json!({
+            "splatCount": n,
+            "bbox": { "min": scene_bbox.0, "max": scene_bbox.1 },
+            "shDegree": sh_degree,
+        }),
+    );
 
     Ok((root, buf_bytes))
 }
@@ -779,11 +869,15 @@ pub fn read_glb_bytes(bytes: &[u8]) -> Result<SplatScene, GltfError> {
     }
     let version = read_u32_le(bytes, 4)?;
     if version != 2 {
-        return Err(GltfError::Malformed(format!("unsupported GLB version {version}")));
+        return Err(GltfError::Malformed(format!(
+            "unsupported GLB version {version}"
+        )));
     }
     let total = read_u32_le(bytes, 8)? as usize;
     if bytes.len() < total {
-        return Err(GltfError::Malformed("GLB length exceeds buffer".to_string()));
+        return Err(GltfError::Malformed(
+            "GLB length exceeds buffer".to_string(),
+        ));
     }
 
     let mut offset = 12usize;
@@ -806,8 +900,10 @@ pub fn read_glb_bytes(bytes: &[u8]) -> Result<SplatScene, GltfError> {
         }
         offset = data_end;
     }
-    let json_bytes = json_bytes.ok_or_else(|| GltfError::Malformed("missing JSON chunk".to_string()))?;
-    let bin_bytes = bin_bytes.ok_or_else(|| GltfError::Malformed("missing BIN chunk".to_string()))?;
+    let json_bytes =
+        json_bytes.ok_or_else(|| GltfError::Malformed("missing JSON chunk".to_string()))?;
+    let bin_bytes =
+        bin_bytes.ok_or_else(|| GltfError::Malformed("missing BIN chunk".to_string()))?;
 
     // Trim trailing whitespace padding from the JSON chunk before parsing.
     let json_trimmed = {
@@ -858,7 +954,9 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
         let acc = &root.accessors[acc_idx];
         let bv = &root.buffer_views[acc.buffer_view];
         if bv.buffer != 0 {
-            return Err(GltfError::Malformed("GLB only supports buffer 0".to_string()));
+            return Err(GltfError::Malformed(
+                "GLB only supports buffer 0".to_string(),
+            ));
         }
         if bin.len() < bv.byte_offset + bv.byte_length {
             return Err(GltfError::Malformed("accessor out of range".to_string()));

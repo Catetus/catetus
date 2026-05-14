@@ -1,0 +1,59 @@
+---
+// Drag-drop affordance for an eventual hosted optimize pipeline. Today the
+// backend doesn't exist, but showing the drop zone communicates intent and
+// gives stakeholders a shareable artifact. Drops are intercepted client-side
+// and routed to a GitHub issue (design-partner program).
+const partnerHref =
+  "https://github.com/montabano1/SplatForge/issues/new?title=design-partner-interest&body=Hi%20%E2%80%94%20I%27d%20like%20to%20run%20a%20splat%20through%20SplatForge";
+const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
+---
+
+<section id="try" aria-labelledby="try-title">
+  <h2 id="try-title" class="section-title">Try it on your splat</h2>
+  <div class="uploader" data-uploader>
+    <span class="pill">Design-partner alpha</span>
+    <div class="icon-stack" aria-hidden="true">
+      <span></span><span></span><span></span>
+    </div>
+    <div class="headline">Drop a splat to get a SplatBench-style report.</div>
+    <div class="body">
+      The hosted optimize pipeline is in flight for the design-partner program. In the
+      meantime everything the leaderboard shows is reproducible locally —
+      <code>make bench-splatbench</code> regenerates it byte-for-byte on Linux and macOS,
+      and the CLI is one <code>cargo install</code> away.
+    </div>
+    <div class="format-chips" aria-label="Supported input formats">
+      {supported.map((ext) => <span class="chip">{ext}</span>)}
+    </div>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href={partnerHref} target="_blank" rel="noreferrer noopener">
+        Apply as a design partner →
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/montabano1/SplatForge#getting-started"
+        >Read the docs →</a
+      >
+    </div>
+  </div>
+</section>
+
+<script is:inline define:vars={{ partnerHref }}>
+  (function () {
+    const zone = document.querySelector("[data-uploader]");
+    if (!(zone instanceof HTMLElement)) return;
+    const hot = function (e) {
+      e.preventDefault();
+      zone.classList.add("drag-hover");
+    };
+    const cool = function () { zone.classList.remove("drag-hover"); };
+    zone.addEventListener("dragenter", hot);
+    zone.addEventListener("dragover", hot);
+    zone.addEventListener("dragleave", cool);
+    zone.addEventListener("drop", function (e) {
+      e.preventDefault();
+      cool();
+      // Backend not wired — route to the design-partner intake so the gesture
+      // still produces *some* outcome rather than a dead air drop.
+      window.open(partnerHref, "_blank", "noopener");
+    });
+  })();
+</script>

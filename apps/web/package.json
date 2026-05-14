@@ -1,0 +1,19 @@
+{
+  "name": "@splatforge/web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Public landing page + SplatBench leaderboard for SplatForge.",
+  "scripts": {
+    "dev": "node scripts/sync-data.mjs && astro dev",
+    "build": "node scripts/sync-data.mjs && astro check && astro build",
+    "preview": "astro preview",
+    "lint": "node scripts/sync-data.mjs && astro check"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "astro": "^4.16.0",
+    "typescript": "^5.4.0"
+  }
+}

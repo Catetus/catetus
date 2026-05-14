@@ -28,11 +28,20 @@ fn writer_then_reader_preserves_ir() {
     for i in 0..3u32 {
         let f = i as f32;
         let record = [
-            f, f * 0.5, -f, // pos
-            0.0, 0.0, 0.0, // log-scale 0 -> 1
-            1.0, 0.0, 0.0, 0.0, // identity quat (w, x, y, z)
+            f,
+            f * 0.5,
+            -f, // pos
+            0.0,
+            0.0,
+            0.0, // log-scale 0 -> 1
+            1.0,
+            0.0,
+            0.0,
+            0.0, // identity quat (w, x, y, z)
             0.0, // opacity logit 0 -> 0.5
-            0.1, 0.2, 0.3,
+            0.1,
+            0.2,
+            0.3,
         ];
         for v in record {
             buf.extend_from_slice(&v.to_le_bytes());

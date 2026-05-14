@@ -24,14 +24,29 @@ export type ChecksumResult =
  * Resolve a chunk URI against the manifest's own URL.
  *
  * Absolute URLs pass through. Relative URLs are resolved using the standard
- * `URL` constructor when a base is provided.
+ * `URL` constructor, anchoring against `globalThis.location` when `baseHref`
+ * is itself a relative path (the common case in a static server harness).
  */
 export function resolveChunkUri(baseHref: string, uri: string): string {
+  // Try `baseHref` directly first — works when it's already absolute.
   try {
     return new URL(uri, baseHref).toString();
   } catch {
-    return uri;
+    // Fall through.
   }
+  // Anchor a relative baseHref against the current document.
+  const pageHref =
+    typeof globalThis !== 'undefined' &&
+    (globalThis as { location?: { href?: string } }).location?.href;
+  if (typeof pageHref === 'string' && pageHref.length > 0) {
+    try {
+      const absoluteBase = new URL(baseHref, pageHref).toString();
+      return new URL(uri, absoluteBase).toString();
+    } catch {
+      /* fall through */
+    }
+  }
+  return uri;
 }
 
 /**

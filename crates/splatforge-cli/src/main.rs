@@ -153,7 +153,8 @@ fn detect_format(path: &Path) -> Result<&'static str> {
         return Ok(fmt);
     }
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    format_from_magic(&bytes).ok_or_else(|| anyhow!("could not detect format of {}", path.display()))
+    format_from_magic(&bytes)
+        .ok_or_else(|| anyhow!("could not detect format of {}", path.display()))
 }
 
 fn load_scene(path: &Path) -> Result<(SplatScene, &'static str)> {
@@ -251,10 +252,9 @@ fn cmd_optimize(input: &Path, preset_name: &str, chunked: bool, out: Option<&Pat
 }
 
 fn cmd_preview(input: &Path, port: u16) -> Result<()> {
-    use std::io::Read;
     let bind = format!("0.0.0.0:{port}");
-    let server = tiny_http::Server::http(&bind)
-        .map_err(|e| anyhow!("failed to bind {bind}: {e}"))?;
+    let server =
+        tiny_http::Server::http(&bind).map_err(|e| anyhow!("failed to bind {bind}: {e}"))?;
     let shell_path = Path::new("packages/viewer/preview-shell.html");
     let shell = std::fs::read_to_string(shell_path).unwrap_or_else(|_| {
         format!(
@@ -265,19 +265,24 @@ fn cmd_preview(input: &Path, port: u16) -> Result<()> {
         )
     });
     let src_path = input.canonicalize().unwrap_or_else(|_| input.to_path_buf());
-    println!("serving preview on http://localhost:{port}/ (src={})", src_path.display());
+    println!(
+        "serving preview on http://localhost:{port}/ (src={})",
+        src_path.display()
+    );
     for mut request in server.incoming_requests() {
         let url = request.url().to_string();
         if url == "/" || url.starts_with("/?") {
             let mut body = shell.clone();
-            body = body.replace(
-                "{{SPLATFORGE_SRC}}",
-                &src_path.display().to_string(),
-            );
-            let _ = request.respond(tiny_http::Response::from_string(body).with_header(
-                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+            body = body.replace("{{SPLATFORGE_SRC}}", &src_path.display().to_string());
+            let _ = request.respond(
+                tiny_http::Response::from_string(body).with_header(
+                    tiny_http::Header::from_bytes(
+                        &b"Content-Type"[..],
+                        &b"text/html; charset=utf-8"[..],
+                    )
                     .unwrap(),
-            ));
+                ),
+            );
             continue;
         }
         if url.starts_with("/splat") {
@@ -288,7 +293,8 @@ fn cmd_preview(input: &Path, port: u16) -> Result<()> {
         }
         let mut buf = Vec::new();
         let _ = request.as_reader().read_to_end(&mut buf);
-        let _ = request.respond(tiny_http::Response::from_string("not found").with_status_code(404));
+        let _ =
+            request.respond(tiny_http::Response::from_string("not found").with_status_code(404));
     }
     Ok(())
 }
@@ -374,29 +380,6 @@ fn locate_helper() -> Result<PathBuf> {
     ))
 }
 
-#[cfg(test)]
-mod diff_tests {
-    use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn locate_helper_honors_env_var() {
-        let dir = std::env::temp_dir().join(format!(
-            "splatforge-diff-helper-{}.mjs",
-            std::process::id()
-        ));
-        let mut f = std::fs::File::create(&dir).unwrap();
-        writeln!(f, "// stub").unwrap();
-        // SAFETY: tests in this crate are not run in parallel with anything
-        // else mutating SPLATFORGE_DIFF_HELPER.
-        std::env::set_var("SPLATFORGE_DIFF_HELPER", &dir);
-        let resolved = locate_helper().expect("env override resolves");
-        assert_eq!(resolved, dir);
-        std::env::remove_var("SPLATFORGE_DIFF_HELPER");
-        let _ = std::fs::remove_file(&dir);
-    }
-}
-
 fn cmd_benchmark(path: &Path, _device_profile: Option<&str>) -> Result<()> {
     let start = std::time::Instant::now();
     let (scene, fmt) = load_scene(path)?;
@@ -423,4 +406,25 @@ fn cmd_corpus_run(name: &str) -> Result<()> {
     };
     println!("{}", splatforge_bench::to_json(&suite)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod diff_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn locate_helper_honors_env_var() {
+        let dir =
+            std::env::temp_dir().join(format!("splatforge-diff-helper-{}.mjs", std::process::id()));
+        let mut f = std::fs::File::create(&dir).unwrap();
+        writeln!(f, "// stub").unwrap();
+        // SAFETY: tests in this crate are not run in parallel with anything
+        // else mutating SPLATFORGE_DIFF_HELPER.
+        std::env::set_var("SPLATFORGE_DIFF_HELPER", &dir);
+        let resolved = locate_helper().expect("env override resolves");
+        assert_eq!(resolved, dir);
+        std::env::remove_var("SPLATFORGE_DIFF_HELPER");
+        let _ = std::fs::remove_file(&dir);
+    }
 }

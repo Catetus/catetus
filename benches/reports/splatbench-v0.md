@@ -2,7 +2,7 @@
 
 > The initial public benchmark corpus for SplatForge — a real Mip-NeRF360 anchor scene plus deterministic synthetic scenes covering five PRD corpus classes.
 
-**SplatForge version:** `0.1.0`
+**SplatForge version:** `0.1.1`
 **Platform:** linux-aarch64, single-core processing
 **Run date:** 2026-05-14
 **Reproducibility:** every scene is identified by a BLAKE3 hash of its canonical IR. Synthetic scenes regenerate byte-identically from `benches/synth_scenes.py`.
@@ -16,6 +16,8 @@
 | Input total | **1.89 GB** raw PLY |
 | `web-mobile` ratio (min / median / max) | **19.67× / 21.75× / 25.84×** |
 | `size-min` ratio (min / median / max) | **20.49× / 24.24× / 38.92×** |
+| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
+| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
 
 Every scene exceeds the PRD's stated bar of "median 8–20× compression vs raw PLY." The lowest ratio in the corpus (`outdoor_proxy` at 19.67× web-mobile) is still right at the top of the PRD's target range.
 
@@ -44,6 +46,24 @@ Every scene exceeds the PRD's stated bar of "median 8–20× compression vs raw 
 | 7 | `splatbench_product_proxy`  | ~8K | 119 KB | **20.49×** |
 
 The two real scenes top the `size-min` chart because their opacity distribution is heavy-tailed (median opacity ≈ 0.16 on bonsai) — opacity-prune is dramatically more effective on trained 3DGS data than on uniform synthetic scenes.
+
+## Leaderboard — visual fidelity (v0.1.1)
+
+Frames captured via `@splatforge/viewer` in headless Chromium (SwiftShader software-rendered WebGL2), 8 deterministic orbit poses at 512×512. `lossless-repack` is the per-scene baseline. ΔE94 is normalized to 0..1 (i.e. `3%` = 3 absolute ΔE94 units, the perceptibility threshold of an attentive observer).
+
+| Rank | Scene | web-mobile ΔE94 mean / max | status | size-min ΔE94 mean / max | status |
+| ---: | ----- | ---: | :---: | ---: | :---: |
+| 1 | `splatbench_dense_proxy` | 0.00% / 0.01% | **pass** | 0.02% / 0.03% | **pass** |
+| 2 | `splatbench_product_proxy` | 0.02% / 0.03% | **pass** | 0.04% / 0.04% | **pass** |
+| 3 | `splatbench_outdoor_proxy` | 0.02% / 0.04% | **pass** | 0.09% / 0.14% | **pass** |
+| 4 | `splatbench_indoor_proxy` | 0.03% / 0.04% | **pass** | 0.10% / 0.11% | **pass** |
+| 5 | `splatbench_floater_proxy` | 0.09% / 0.09% | **pass** | 14.48% / 14.73% | **fail** |
+| 6 | `bonsai_mipnerf360_iter7k` | 0.60% / 0.84% | **pass** | 0.64% / 0.87% | **pass** |
+| 7 | `bicycle_mipnerf360_iter7k` | 2.86% / 3.56% | **borderline** | 2.60% / 3.33% | **borderline** |
+
+**Pass criterion:** mean ΔE94 < 3% AND max ΔE94 < 8%. **Borderline:** mean 2–3% or max 5–8%. **Pass:** mean < 2% AND max < 5%.
+
+Software-rendered numbers may differ slightly from hardware-accelerated chromium; see `fidelity-v0.json` for per-frame raw metrics and `benches/reports/frames/<scene>/<preset>/0001.png` etc. for the actual frames.
 
 ## Corpus composition
 
@@ -107,8 +127,6 @@ The full table is also available as machine-readable JSON: [splatbench-v0.json](
 
 ## What's intentionally missing from v0
 
-* **Visual-fidelity scores** (ΔE94, SSIM, PSNR) — requires running `splatforge diff` with `playwright-core + chromium` against each scene. Tracked under [SPEC-0009](../../specs/0009-visual-diff.md). Once we have those numbers, every leaderboard row will include a "visual passed at 3% threshold" badge.
-* **Viewer parity matrix** — per-scene cross-renderer scores across `chrome-webgpu`, `chrome-webgl2`, `webkit-webgl2`, `firefox-webgl2`. Tracked under [SPEC-0010](../../specs/0010-viewer-parity.md).
 * **FPS / first-meaningful-paint** — needs a real-device matrix (mobile Safari, Chrome on Android, Quest Browser, desktop WebGPU). Will be added once the viewer dist is built and deployed.
 * **Real design-partner assets** — Phase 0 of the PRD explicitly calls for 5 design partners with real captures. Synthetic scenes are placeholders for those slots; the corpus structure (the JSON manifest) accepts real assets without schema changes.
 

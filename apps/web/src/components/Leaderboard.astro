@@ -1,0 +1,234 @@
+---
+import {
+  splatbench,
+  sortedScenes,
+  presetView,
+  ratioClass,
+  fmtBytes,
+  fmtMs,
+  fmtInt,
+  hasAnyFidelity,
+  type Preset,
+  type SplatBenchScene,
+} from "../lib/splatbench";
+
+// Default preset rendered server-side. Client-side toggle re-renders to size-min.
+const defaultPreset: Preset = "webMobile";
+const scenes: SplatBenchScene[] = splatbench.scenes;
+const ordered = sortedScenes(scenes, defaultPreset);
+const maxRatio = Math.max(...ordered.map((s) => presetView(s, defaultPreset).ratio));
+const showFidelity = hasAnyFidelity(scenes);
+
+// Serialize once for the client island so we don't pay a fetch.
+const clientData = scenes.map((s) => ({
+  id: s.id,
+  cls: s.class,
+  source: s.source,
+  splats: s.splatCount,
+  bytesIn: s.bytesIn,
+  analyzeMs: s.analyzeMs,
+  webMobile: { spz: s.webMobileSpzBytes, ratio: s.webMobileRatio },
+  sizeMin: { spz: s.sizeMinSpzBytes, ratio: s.sizeMinRatio },
+  fidelity: s.fidelity ?? null,
+}));
+---
+
+<section id="leaderboard" aria-labelledby="leaderboard-title">
+  <h2 id="leaderboard-title" class="section-title">SplatBench · Leaderboard</h2>
+
+  <p class="methodology">
+    Seven scenes — two real (Mip-NeRF 360 <code>bonsai</code>, <code>bicycle</code>) and five
+    deterministic synthetics — run through the full <code>analyze → optimize → pack</code>
+    pipeline at each preset. Compression is measured against the raw <code>.ply</code>;
+    fidelity is mean CIE ΔE94 over 8 deterministic orbit frames rendered through
+    <code>@splatforge/viewer</code>, scaled 0–1 against the published <strong>3% perceptibility
+    threshold</strong>. Every scene is identified by a BLAKE3 hash of its canonical IR so
+    runs reproduce byte-for-byte.
+  </p>
+
+  <div class="kpis">
+    <div class="kpi">
+      <div class="kpi-label">Scenes</div>
+      <div class="kpi-value">
+        {splatbench.aggregates.scenesTotal}
+        <span class="unit"
+          >({splatbench.aggregates.scenesReal} real + {splatbench.aggregates.scenesSynthetic} synthetic)</span
+        >
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">web-mobile median</div>
+      <div class="kpi-value">
+        {splatbench.aggregates.webMobileRatioMedian.toFixed(2)}<span class="unit">×</span>
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">size-min median</div>
+      <div class="kpi-value">
+        {splatbench.aggregates.sizeMinRatioMedian.toFixed(2)}<span class="unit">×</span>
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Best ratio</div>
+      <div class="kpi-value">
+        {splatbench.aggregates.sizeMinRatioMax.toFixed(2)}<span class="unit">× (size-min)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <label for="preset-select">Preset</label>
+    <select id="preset-select" data-preset-select>
+      <option value="webMobile" selected>web-mobile</option>
+      <option value="sizeMin">size-min</option>
+    </select>
+    {
+      !showFidelity && (
+        <span class="fidelity-pending">
+          fidelity column lights up automatically when v0.1.1 publishes ΔE94/SSIM/PSNR
+        </span>
+      )
+    }
+  </div>
+
+  <div class="leaderboard-wrap">
+    <table class="leaderboard" data-leaderboard>
+      <thead>
+        <tr>
+          <th>Scene</th>
+          <th>Class</th>
+          <th>Source</th>
+          <th>Splats</th>
+          <th>Input</th>
+          <th>SPZ out</th>
+          <th>Ratio</th>
+          <th>Fidelity</th>
+          <th>analyze</th>
+        </tr>
+      </thead>
+      <tbody data-leaderboard-body>
+        {
+          ordered.map((s) => {
+            const view = presetView(s, defaultPreset);
+            const rc = ratioClass(view.ratio);
+            const w = Math.round((view.ratio / maxRatio) * 100);
+            return (
+              <tr>
+                <td><strong>{s.id}</strong></td>
+                <td>{s.class}</td>
+                <td>
+                  {s.source === "real" ? (
+                    <span class="badge badge-real">REAL</span>
+                  ) : (
+                    <span class="badge badge-synth">synth</span>
+                  )}
+                </td>
+                <td>{fmtInt(s.splatCount)}</td>
+                <td>{fmtBytes(s.bytesIn)}</td>
+                <td>{fmtBytes(view.spz)}</td>
+                <td>
+                  <span class={`ratio ${rc}`}>{view.ratio.toFixed(2)}×</span>
+                  <span class="bar"><span class="bar-fill" style={`width:${w}%`} /></span>
+                </td>
+                <td>
+                  {s.fidelity?.deltaE94 !== undefined ? (() => {
+                    const pct = s.fidelity.deltaE94 * 100;
+                    const cls = pct < 2 ? "pass" : pct < 3 ? "borderline" : "fail";
+                    return <span class={`fidelity-cell ${cls}`}>{pct.toFixed(2)}%</span>;
+                  })() : (
+                    <span class="fidelity-pending">pending</span>
+                  )}
+                </td>
+                <td>{fmtMs(s.analyzeMs)}</td>
+              </tr>
+            );
+          })
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script is:inline define:vars={{ clientData }}>
+  // Tiny client island: preset toggle re-renders the table body in place.
+  // No framework. Mirrors the renderer in benches/reports/splatbench-v0.html.
+  (function () {
+    /** @typedef {{spz:number, ratio:number}} View */
+    /** @typedef {{deltaE94?:number, ssim?:number, psnr?:number}} Fidelity */
+    /** @typedef {{id:string, cls:string, source:"real"|"synthetic", splats:number, bytesIn:number, analyzeMs:number, webMobile:View, sizeMin:View, fidelity:Fidelity|null}} Row */
+
+    /** @type {Row[]} */
+    const DATA = clientData;
+
+    const select = document.querySelector("[data-preset-select]");
+    const tbody = document.querySelector("[data-leaderboard-body]");
+    if (!(select instanceof HTMLSelectElement) || !(tbody instanceof HTMLElement)) return;
+
+    function fmtBytes(n) {
+      if (n < 1024) return n + " B";
+      if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+      if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+      return (n / 1073741824).toFixed(2) + " GB";
+    }
+    function fmtMs(ms) {
+      if (ms < 1000) return ms + " ms";
+      return (ms / 1000).toFixed(2) + " s";
+    }
+    function ratioClass(r) {
+      if (r >= 25) return "ratio-high";
+      if (r >= 21) return "ratio-mid";
+      return "ratio-low";
+    }
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+    function render() {
+      const preset = select.value === "sizeMin" ? "sizeMin" : "webMobile";
+      const rows = DATA.slice().sort(function (a, b) {
+        return b[preset].ratio - a[preset].ratio;
+      });
+      const maxRatio = Math.max.apply(
+        null,
+        rows.map(function (r) {
+          return r[preset].ratio;
+        }),
+      );
+      tbody.innerHTML = rows
+        .map(function (r) {
+          const v = r[preset];
+          const rc = ratioClass(v.ratio);
+          const w = Math.round((v.ratio / maxRatio) * 100);
+          const srcBadge =
+            r.source === "real"
+              ? '<span class="badge badge-real">REAL</span>'
+              : '<span class="badge badge-synth">synth</span>';
+          let fid;
+          if (r.fidelity && typeof r.fidelity.deltaE94 === "number") {
+            const pct = r.fidelity.deltaE94 * 100;
+            const fcls = pct < 2 ? "pass" : pct < 3 ? "borderline" : "fail";
+            fid = '<span class="fidelity-cell ' + fcls + '">' + pct.toFixed(2) + "%</span>";
+          } else {
+            fid = '<span class="fidelity-pending">pending</span>';
+          }
+          return (
+            "<tr>" +
+            "<td><strong>" + escapeHtml(r.id) + "</strong></td>" +
+            "<td>" + escapeHtml(r.cls) + "</td>" +
+            "<td>" + srcBadge + "</td>" +
+            "<td>" + r.splats.toLocaleString() + "</td>" +
+            "<td>" + fmtBytes(r.bytesIn) + "</td>" +
+            "<td>" + fmtBytes(v.spz) + "</td>" +
+            '<td><span class="ratio ' + rc + '">' + v.ratio.toFixed(2) + "×</span>" +
+            '<span class="bar"><span class="bar-fill" style="width:' + w + '%"></span></span></td>' +
+            "<td>" + fid + "</td>" +
+            "<td>" + fmtMs(r.analyzeMs) + "</td>" +
+            "</tr>"
+          );
+        })
+        .join("");
+    }
+    select.addEventListener("change", render);
+  })();
+</script>

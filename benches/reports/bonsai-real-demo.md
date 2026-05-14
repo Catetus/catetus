@@ -61,13 +61,26 @@ From `bonsai-web-mobile-passes.json`:
 
 `splatforge analyze` produces a stable BLAKE3 hash regardless of run count or wall-clock. Two consecutive runs of `splatforge analyze bonsai.ply` produced byte-identical JSON output, hash `blake3:26d535…`. Optimization output is similarly deterministic given the same preset + version.
 
-## 5. What we *haven't* yet measured
+## 5. Visual fidelity (added in v0.1.1)
 
-These are honest gaps the v1 numbers don't yet cover:
+Eight deterministic orbit-8 frames rendered through `@splatforge/viewer` in headless Chromium (SwiftShader software WebGL2, 512×512), then compared to the `lossless-repack` baseline using CIE ΔE94 / pixelmatch / per-block SSIM.
 
-* **Visual fidelity vs lossless** — `splatforge diff` runs but needs `playwright-core + chromium` installed to capture real frames. The v1 pipeline preserves geometric structure (OpacityPrune is conservative at τ=0.02), but ΔE94 / SSIM numbers are pending a CI run on a workstation with browsers.
-* **First-meaningful-paint and FPS** — these need the viewer SDK running in a real browser against the chunked glTF output. The PRD targets <1.5 s FMP and 300–500 MB peak mobile memory; both will be measured in the next round.
-* **glTF compressed accessor types** — our glTF writer keeps positions/scales as f32 accessors. With `KHR_mesh_quantization`-style integer accessors, the glTF buffer itself would shrink to roughly the SPZ payload size. That's a wire-quantization upgrade tracked under SPEC-0007 polish.
+| Preset      | ΔE94 mean | ΔE94 max | ΔE94 p95 | Status |
+| ----------- | --------: | -------: | -------: | :----: |
+| `lossless-repack` | 0.00% | 0.00% | 0.00% | baseline |
+| `web-mobile`      | 0.60% | 0.84% | 0.83% | **pass** |
+| `size-min`        | 0.64% | 0.87% | 0.86% | **pass** |
+
+Pass criterion: mean ΔE94 below 3% AND max below 8% (the PRD's "attentive observer" perceptibility threshold). Bonsai clears it with **comfortable margin** — the SH-rest coefficients we strip at `web-mobile` and the splats we prune at `size-min` carry almost no perceptible color information at orbit distance.
+
+Frames are stored under `benches/reports/frames/bonsai_mipnerf360_iter7k/<preset>/`. Raw per-frame numbers (including pixelmatch and SSIM) live in `benches/reports/fidelity-v0.json`.
+
+### Caveats
+
+* **Software-rendered** — SwiftShader chromium is reproducible but not pixel-identical to a real GPU; the numbers track relative degradation between presets, which is what the pass/fail criterion cares about.
+* **Camera path is deterministic, not exhaustive** — `orbit-8` samples 8 yaw positions at fixed elevation. Worst-case fidelity at extreme angles or close-up could be higher.
+* **No FPS / first-meaningful-paint** yet — the PRD targets <1.5 s FMP and 300–500 MB peak mobile memory; both still need real-device measurement.
+* **glTF compressed accessor types** — our writer keeps positions/scales as f32. With `KHR_mesh_quantization`-style integer accessors, the glTF buffer itself would shrink to roughly the SPZ payload size; tracked under SPEC-0007 polish.
 
 ## 6. Reproducing this run
 

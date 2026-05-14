@@ -16,6 +16,30 @@ export interface Bbox {
 }
 
 /**
+ * Per-attribute slice into a structure-of-arrays binary chunk. Offsets are
+ * relative to the start of the chunk's `byteOffset`. Component widths follow
+ * `KHR_gaussian_splatting`: POSITION/SCALE/COLOR_DC are vec3, ROTATION is vec4,
+ * OPACITY is scalar.
+ */
+export interface SoaAttributeSlice {
+  byteOffset: number;
+  byteLength: number;
+}
+
+/**
+ * SoA buffer layout for a single chunk. Present when the source glTF stores
+ * splats attribute-by-attribute (one bufferView per attribute), which is what
+ * `splatforge-gltf` emits. Absent for legacy interleaved AoS test fixtures.
+ */
+export interface SoaAttributeLayout {
+  positions: SoaAttributeSlice;
+  rotations: SoaAttributeSlice;
+  scales: SoaAttributeSlice;
+  opacities: SoaAttributeSlice;
+  colorDC: SoaAttributeSlice;
+}
+
+/**
  * Streaming chunk descriptor. One entry per binary tile of splats.
  *
  * `loadPriority` is an integer where lower values load first.
@@ -30,6 +54,8 @@ export interface ChunkDescriptor {
   /** Hex BLAKE3 digest, or empty string if absent. */
   checksum: string;
   loadPriority: number;
+  /** Optional SoA layout — see {@link SoaAttributeLayout}. */
+  attributeLayout?: SoaAttributeLayout;
 }
 
 /** Fully-parsed manifest produced by {@link parseManifest}. */
@@ -49,6 +75,14 @@ export interface Manifest {
 interface RawGltf {
   asset?: { version?: string };
   buffers?: Array<{ uri?: string; byteLength?: number }>;
+  bufferViews?: Array<{ buffer?: number; byteOffset?: number; byteLength?: number }>;
+  accessors?: Array<{
+    bufferView?: number;
+    count?: number;
+    type?: string;
+    min?: number[];
+    max?: number[];
+  }>;
   extensionsUsed?: string[];
   extensions?: Record<string, unknown>;
   meshes?: Array<{
@@ -58,15 +92,26 @@ interface RawGltf {
   }>;
 }
 
+interface RawGaussianAttributes {
+  POSITION?: number;
+  _ROTATION?: number;
+  _SCALE?: number;
+  _OPACITY?: number;
+  _COLOR_DC?: number;
+  _COLOR_SH?: number;
+}
+
 interface RawGaussianSplatting {
   splatCount?: number;
   shDegree?: number;
   bbox?: { min?: number[]; max?: number[] };
+  attributes?: RawGaussianAttributes;
 }
 
 interface RawStreamingIndex {
   chunks?: Array<{
     uri?: string;
+    buffer?: number;
     byteOffset?: number;
     byteLength?: number;
     splatCount?: number;
@@ -95,12 +140,19 @@ function asVec3(x: unknown, fallback: Vec3): Vec3 {
 }
 
 /**
- * Locate the `KHR_gaussian_splatting` extension block, searching first the
- * top-level `extensions` object, then mesh-primitive extensions.
+ * Locate the top-level `KHR_gaussian_splatting` extension (scene-wide
+ * splatCount + bbox), if any. The Rust writer emits this since v0.1.1.
  */
-function findGaussianExt(g: RawGltf): RawGaussianSplatting | undefined {
+function findSceneGaussianExt(g: RawGltf): RawGaussianSplatting | undefined {
   const top = g.extensions?.[GS_EXT];
-  if (isObject(top)) return top as RawGaussianSplatting;
+  return isObject(top) ? (top as RawGaussianSplatting) : undefined;
+}
+
+/**
+ * Locate the per-primitive `KHR_gaussian_splatting` extension which carries
+ * the attribute → accessor table needed to decode binary chunks.
+ */
+function findPrimitiveGaussianExt(g: RawGltf): RawGaussianSplatting | undefined {
   for (const mesh of g.meshes ?? []) {
     for (const prim of mesh.primitives ?? []) {
       const e = prim.extensions?.[GS_EXT];
@@ -114,6 +166,27 @@ function findStreamingIndex(g: RawGltf): RawStreamingIndex | undefined {
   const top = g.extensions?.[SF_EXT];
   if (isObject(top)) return top as RawStreamingIndex;
   return undefined;
+}
+
+/**
+ * Resolve a single attribute accessor index into a slice into the chunk's
+ * binary payload. Offsets here are relative to the buffer (chunk-relative
+ * conversion happens at chunk-construction time).
+ */
+function accessorSlice(
+  g: RawGltf,
+  accIdx: number | undefined,
+): { bufferIdx: number; byteOffset: number; byteLength: number } | undefined {
+  if (typeof accIdx !== 'number') return undefined;
+  const acc = g.accessors?.[accIdx];
+  if (!acc || typeof acc.bufferView !== 'number') return undefined;
+  const bv = g.bufferViews?.[acc.bufferView];
+  if (!bv) return undefined;
+  return {
+    bufferIdx: typeof bv.buffer === 'number' ? bv.buffer : 0,
+    byteOffset: typeof bv.byteOffset === 'number' ? bv.byteOffset : 0,
+    byteLength: typeof bv.byteLength === 'number' ? bv.byteLength : 0,
+  };
 }
 
 /**
@@ -136,29 +209,67 @@ export function parseManifest(json: string): Manifest {
   }
   const g = raw as RawGltf;
 
-  const gs = findGaussianExt(g);
-  if (!gs) {
+  const primExt = findPrimitiveGaussianExt(g);
+  const sceneExt = findSceneGaussianExt(g);
+  if (!primExt && !sceneExt) {
     throw new Error(`manifest_invalid: missing ${GS_EXT} extension`);
   }
 
-  const splatCount = typeof gs.splatCount === 'number' ? gs.splatCount : 0;
-  const shDegree = typeof gs.shDegree === 'number' ? gs.shDegree : 0;
-  const bbox: Bbox = {
-    min: asVec3(gs.bbox?.min, [-1, -1, -1]),
-    max: asVec3(gs.bbox?.max, [1, 1, 1]),
+  // Resolve attribute → SoA byte-slice (relative to its buffer's start).
+  const attrs = primExt?.attributes ?? {};
+  const posSlice = accessorSlice(g, attrs.POSITION);
+  const rotSlice = accessorSlice(g, attrs._ROTATION);
+  const sclSlice = accessorSlice(g, attrs._SCALE);
+  const opSlice = accessorSlice(g, attrs._OPACITY);
+  const dcSlice = accessorSlice(g, attrs._COLOR_DC);
+
+  // splatCount: prefer scene-level extension; fall back to POSITION accessor
+  // count; fall back to streaming-index records (handled below).
+  let splatCount = typeof sceneExt?.splatCount === 'number' ? sceneExt.splatCount : 0;
+  if (splatCount === 0 && typeof attrs.POSITION === 'number') {
+    const posAcc = g.accessors?.[attrs.POSITION];
+    if (posAcc && typeof posAcc.count === 'number') splatCount = posAcc.count;
+  }
+
+  // shDegree: scene-level wins, else primitive-level.
+  const shDegree =
+    typeof sceneExt?.shDegree === 'number'
+      ? sceneExt.shDegree
+      : typeof primExt?.shDegree === 'number'
+        ? primExt.shDegree
+        : 0;
+
+  // bbox: prefer scene-level; else POSITION accessor's min/max; else unit cube.
+  let bbox: Bbox = {
+    min: asVec3(sceneExt?.bbox?.min, [-1, -1, -1]),
+    max: asVec3(sceneExt?.bbox?.max, [1, 1, 1]),
   };
+  if (!sceneExt?.bbox && typeof attrs.POSITION === 'number') {
+    const posAcc = g.accessors?.[attrs.POSITION];
+    if (posAcc?.min && posAcc.max) {
+      bbox = {
+        min: asVec3(posAcc.min, bbox.min),
+        max: asVec3(posAcc.max, bbox.max),
+      };
+    }
+  }
 
   const index = findStreamingIndex(g);
   let chunks: ChunkDescriptor[];
 
   if (index && Array.isArray(index.chunks) && index.chunks.length > 0) {
-    chunks = index.chunks.map((c, i) => normalizeChunk(c, i, bbox, splatCount));
+    chunks = index.chunks.map((c, i) =>
+      normalizeChunk(c, i, bbox, splatCount, g, attrs),
+    );
   } else {
-    // Synthetic single chunk pointing at the primary buffer.
+    // Synthetic single chunk pointing at the primary buffer. The SoA layout is
+    // derived from the per-primitive attribute accessors so the renderer can
+    // re-interleave bytes at decode time.
     const buf = g.buffers?.[0];
     if (!buf?.uri) {
       throw new Error('manifest_invalid: no streaming index and no primary buffer uri');
     }
+    const layout = buildAttributeLayout(posSlice, rotSlice, sclSlice, opSlice, dcSlice, 0);
     chunks = [
       {
         uri: buf.uri,
@@ -169,6 +280,7 @@ export function parseManifest(json: string): Manifest {
         lod: 0,
         checksum: '',
         loadPriority: 0,
+        attributeLayout: layout,
       },
     ];
   }
@@ -181,18 +293,87 @@ export function parseManifest(json: string): Manifest {
   return { splatCount, bbox, chunks, shDegree };
 }
 
+/**
+ * Combine five per-attribute accessor slices into a chunk-relative layout.
+ * Returns `undefined` if any required attribute is missing (caller falls back
+ * to the legacy interleaved AoS path).
+ *
+ * `chunkByteOffset` is the buffer-relative offset of the chunk; subtracting it
+ * yields offsets the renderer can use directly against the fetched bytes.
+ */
+function buildAttributeLayout(
+  positions: { byteOffset: number; byteLength: number } | undefined,
+  rotations: { byteOffset: number; byteLength: number } | undefined,
+  scales: { byteOffset: number; byteLength: number } | undefined,
+  opacities: { byteOffset: number; byteLength: number } | undefined,
+  colorDC: { byteOffset: number; byteLength: number } | undefined,
+  chunkByteOffset: number,
+): SoaAttributeLayout | undefined {
+  if (!positions || !rotations || !scales || !opacities || !colorDC) {
+    return undefined;
+  }
+  const rebase = (s: { byteOffset: number; byteLength: number }): SoaAttributeSlice => ({
+    byteOffset: s.byteOffset - chunkByteOffset,
+    byteLength: s.byteLength,
+  });
+  return {
+    positions: rebase(positions),
+    rotations: rebase(rotations),
+    scales: rebase(scales),
+    opacities: rebase(opacities),
+    colorDC: rebase(colorDC),
+  };
+}
+
 function normalizeChunk(
   c: NonNullable<RawStreamingIndex['chunks']>[number],
   index: number,
   sceneBbox: Bbox,
   totalSplats: number,
+  g: RawGltf,
+  attrs: RawGaussianAttributes,
 ): ChunkDescriptor {
-  if (typeof c.uri !== 'string' || c.uri.length === 0) {
+  // The chunk may carry `uri` (preferred) or `buffer` (index into root.buffers).
+  // The Rust writer emits both since v0.1.1 but we accept either to remain
+  // forward-compatible with future packers.
+  let uri: string | undefined =
+    typeof c.uri === 'string' && c.uri.length > 0 ? c.uri : undefined;
+  if (!uri && typeof c.buffer === 'number') {
+    uri = g.buffers?.[c.buffer]?.uri;
+  }
+  if (!uri || uri.length === 0) {
     throw new Error(`manifest_invalid: chunk[${index}] missing uri`);
   }
+
+  const chunkByteOffset = typeof c.byteOffset === 'number' ? c.byteOffset : 0;
+  // Per-chunk SoA layout: only emit when this chunk owns the buffer used by
+  // the primitive attributes. For the common case where Rust emits one buffer
+  // per chunk this always holds; treating it conservatively keeps the legacy
+  // path active when assumptions don't.
+  const bufIdx = typeof c.buffer === 'number' ? c.buffer : undefined;
+  const slice = (accIdx: number | undefined):
+    | { byteOffset: number; byteLength: number }
+    | undefined => {
+    const s = accessorSlice(g, accIdx);
+    if (!s) return undefined;
+    if (bufIdx !== undefined && s.bufferIdx !== bufIdx) return undefined;
+    return { byteOffset: s.byteOffset, byteLength: s.byteLength };
+  };
+  const layout =
+    bufIdx !== undefined
+      ? buildAttributeLayout(
+          slice(attrs.POSITION),
+          slice(attrs._ROTATION),
+          slice(attrs._SCALE),
+          slice(attrs._OPACITY),
+          slice(attrs._COLOR_DC),
+          chunkByteOffset,
+        )
+      : undefined;
+
   return {
-    uri: c.uri,
-    byteOffset: typeof c.byteOffset === 'number' ? c.byteOffset : 0,
+    uri,
+    byteOffset: chunkByteOffset,
     byteLength: typeof c.byteLength === 'number' ? c.byteLength : 0,
     splatCount: typeof c.splatCount === 'number' ? c.splatCount : totalSplats,
     bbox: {
@@ -202,5 +383,6 @@ function normalizeChunk(
     lod: typeof c.lod === 'number' ? c.lod : 0,
     checksum: typeof c.checksum === 'string' ? c.checksum : '',
     loadPriority: typeof c.loadPriority === 'number' ? c.loadPriority : index,
+    attributeLayout: layout,
   };
 }
