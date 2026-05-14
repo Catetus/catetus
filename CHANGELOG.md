@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **ML Score metric calibrated against empirical-p99 RMSE distribution.** The
+  `splatforge-pro` perceptual metric advanced from `0.1.1-baseline` to
+  `0.2.0-empirical`. Per-component RMSE normalizers were measured directly on
+  a 1176-pair synthetic corruption corpus (`bin/diag`) and the theoretical-max
+  normalizers (441 / 1442 / 48) were replaced with calibrated p99 values
+  (50 / 130 / 13) — a 9-20× tightening that lets the features span their full
+  0..1 range. The ML Score column on SplatBench now actually rank-orders
+  scenes by perceptual cost rather than clustering everything at 0.84-0.99.
+  Notable shifts: `bonsai/web-mobile` 93.98 → 60.69, `bicycle/web-mobile`
+  84.76 → 3.89, `floater/size-min` 88.00 → 45.93. The bicycle drop is
+  honest, not a bug — 25× compression on fine-detail photogrammetry exceeds
+  what's in the corruption corpus, and the metric correctly reports the
+  exceedance.
+
 ### Added
 
 - **ML Score column on SplatBench leaderboard.** A new `ML Score (pro)` column
