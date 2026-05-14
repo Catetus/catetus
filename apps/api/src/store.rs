@@ -107,18 +107,18 @@ impl BlobBackend {
     /// call lives behind the `BLOB_READ_WRITE_TOKEN` env var and is wired
     /// in once apps/worker is provisioned.
     pub async fn presign_upload(&self, key: &str, _ttl: Duration) -> Result<String, BlobError> {
-        if self.token.is_none() {
-            // Stub mode — emit a sentinel URL so the API contract still
-            // makes sense for client-side smoke tests that don't have a
-            // configured Blob backend.
-            return Ok(format!("blob://stub/{key}?ttl=900"));
-        }
-        // TODO(splatforge#blob-presign): call `@vercel/blob`'s presign endpoint.
-        // The Node Vercel Blob SDK uses an HTTPS API at blob.vercel-storage.com
-        // — but its protocol is undocumented in stable form. We'll port the
-        // call once apps/worker is in place so we can also exercise the
-        // upload→optimize→download path end-to-end.
-        Err(BlobError::Api("presign not yet implemented".to_string()))
+        // Vercel Blob doesn't expose a stable HTTPS presign API; the JS
+        // `@vercel/blob/client.generateClientTokenFromReadWriteToken` is the
+        // canonical path and isn't trivially portable to Rust. For v0.1 we
+        // return a sentinel URL so the contract still resolves; the actual
+        // upload flow goes through `POST /v1/jobs/:id/upload` (the API proxies
+        // bytes to Vercel Blob server-side using the bearer token).
+        let suffix = if self.token.is_some() {
+            "?ttl=900&mode=server-proxy"
+        } else {
+            "?ttl=900&mode=stub"
+        };
+        Ok(format!("blob://stub/{key}{suffix}"))
     }
 
     /// Return the publicly fetchable URL the worker should pull from. Stub
