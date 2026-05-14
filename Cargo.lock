@@ -1474,6 +1474,7 @@ dependencies = [
  "axum",
  "chrono",
  "dotenvy",
+ "futures-util",
  "reqwest",
  "serde",
  "serde_json",

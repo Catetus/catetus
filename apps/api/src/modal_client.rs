@@ -2,8 +2,8 @@
 //!
 //! The worker exposes a single `POST /enqueue` route that accepts a job
 //! descriptor + blob URL and returns immediately after the Modal Function is
-//! spawned. Result updates flow back through the API's status webhook
-//! (`POST /v1/jobs/:id/status`), not by polling Modal directly.
+//! spawned. Result updates flow back through `callback_url` (the API's
+//! `/v1/jobs/:id/result` route), not by polling Modal directly.
 
 use std::time::Duration;
 
@@ -32,16 +32,20 @@ impl ModalClient {
         Self {
             base_url,
             http: reqwest::Client::builder()
-                .timeout(Duration::from_secs(15))
+                .timeout(Duration::from_secs(30))
                 .build()
                 .expect("reqwest client"),
         }
     }
 
-    /// POST the job to the Modal worker. Returns an `EnqueueAck` that may
-    /// carry a worker-side warning (e.g. "Modal cold-start in flight, expect
-    /// ~5 s delay before the job starts").
-    pub async fn enqueue(&self, job: &Job, blob_url: &str) -> Result<EnqueueAck, ModalError> {
+    /// POST the job to the Modal worker. `callback_url` is the absolute URL
+    /// the worker should POST the final result to.
+    pub async fn enqueue(
+        &self,
+        job: &Job,
+        blob_url: &str,
+        callback_url: &str,
+    ) -> Result<EnqueueAck, ModalError> {
         let Some(base) = &self.base_url else {
             // No worker configured — degrade gracefully so the API can still
             // function in dev environments without Modal access.
@@ -50,7 +54,14 @@ impl ModalClient {
                 error: Some("modal worker not configured; job remains AwaitingUpload".to_string()),
             });
         };
-        let url = format!("{}/enqueue", base.trim_end_matches('/'));
+        // The Modal deploy publishes one URL per `fastapi_endpoint`. Treat
+        // `base` as the full `/enqueue` URL when it already names it, else
+        // append the path (back-compat with the older `https://host` form).
+        let url = if base.contains("enqueue") {
+            base.to_string()
+        } else {
+            format!("{}/enqueue", base.trim_end_matches('/'))
+        };
         let payload = EnqueuePayload {
             job_id: job.id,
             preset: &job.preset,
@@ -58,6 +69,7 @@ impl ModalClient {
             filename: &job.filename,
             size_bytes: job.size_bytes,
             label: job.label.as_deref(),
+            callback_url,
         };
         let resp = self
             .http
@@ -88,6 +100,7 @@ struct EnqueuePayload<'a> {
     size_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<&'a str>,
+    callback_url: &'a str,
 }
 
 /// Worker's reply to `/enqueue`. `queued=true` means the Modal Function has

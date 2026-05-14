@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use reqwest::Body;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -17,14 +18,16 @@ pub enum JobStatus {
     /// Job was created; we issued a presign and are waiting for the client
     /// to actually upload the splat to Blob.
     AwaitingUpload,
-    /// Upload confirmed; Modal worker queue is processing it.
+    /// Bytes are streaming through the API into Vercel Blob right now.
+    Uploading,
+    /// Upload finished; Modal worker queue is processing it.
     Queued,
     /// Modal worker is actively running splatforge optimize.
     Running,
-    /// Optimize succeeded; `result` is populated with the SPZ + report URLs.
-    Succeeded,
+    /// Optimize finished; `output_url` is a downloadable Vercel Blob URL.
+    Done,
     /// Optimize failed or worker timed out; `error` is populated.
-    Failed,
+    Error,
 }
 
 /// One optimize job — created by `POST /v1/jobs`, polled via `GET /v1/jobs/:id`.
@@ -37,25 +40,22 @@ pub struct Job {
     pub label: Option<String>,
     pub status: JobStatus,
     /// Storage backend key (e.g. `jobs/<uuid>/scene.ply`). The full URL is
-    /// derived via `BlobBackend::public_url`.
+    /// derived via `BlobBackend::public_url` once the bytes have landed.
     pub blob_key: String,
+    /// Public Vercel Blob URL the worker should pull from; only populated
+    /// after the upload proxy finishes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blob_url: Option<String>,
+    /// Actual bytes received by the upload proxy (may differ from
+    /// the `size_bytes` hint the client gave us at job creation).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upload_size_bytes: Option<u64>,
+    /// Downloadable URL for the optimized artifact, set by the worker callback.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_url: Option<String>,
     pub created_at: DateTime<Utc>,
-    /// Populated by the Modal worker via the status webhook on success.
-    pub result: Option<JobResult>,
     /// Populated on failure with a short, user-safe message.
     pub error: Option<String>,
-}
-
-/// What the client gets back after a successful optimize.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JobResult {
-    pub spz_url: String,
-    pub gltf_url: String,
-    pub report_url: String,
-    /// Compression ratio computed by the worker (bytes_in / bytes_out_spz).
-    pub ratio: f32,
-    /// Wall-clock time spent inside the optimize binary (ms).
-    pub optimize_ms: u64,
 }
 
 /// In-memory job store. Swapped for Postgres in a later iteration; the
@@ -87,32 +87,45 @@ pub enum BlobError {
     NotConfigured,
     #[error("blob api: {0}")]
     Api(String),
+    #[error("blob transport: {0}")]
+    Transport(String),
 }
 
 /// Adapter around a Vercel Blob (or compatible) storage backend.
 ///
-/// The actual presigning protocol is encapsulated behind two methods so we
-/// can swap to R2 / S3 without touching call sites.
+/// The Vercel Blob HTTPS protocol is dead-simple: PUT to
+/// `https://blob.vercel-storage.com/<pathname>?addRandomSuffix=0` with the
+/// bearer token and content-type headers. The 200 response carries the
+/// canonical public URL.
 pub struct BlobBackend {
     token: Option<String>,
+    http: reqwest::Client,
 }
+
+const BLOB_HOST: &str = "https://blob.vercel-storage.com";
+const BLOB_API_VERSION: &str = "7";
 
 impl BlobBackend {
     pub fn new(token: Option<String>) -> Self {
-        Self { token }
+        Self {
+            token,
+            http: reqwest::Client::builder()
+                // Splat uploads can be hundreds of MB on slow links; keep the
+                // overall PUT generous but require steady progress via the
+                // tcp keepalive defaults baked into reqwest.
+                .timeout(Duration::from_secs(600))
+                .pool_max_idle_per_host(4)
+                .build()
+                .expect("reqwest client"),
+        }
     }
 
-    /// Issue a write-only URL valid for `ttl`. Today this returns a
-    /// `vercel-blob://<key>` placeholder; the real Vercel Blob presigning
-    /// call lives behind the `BLOB_READ_WRITE_TOKEN` env var and is wired
-    /// in once apps/worker is provisioned.
+    /// Issue a write-only URL valid for `ttl`. We don't have a real presign
+    /// API (Vercel Blob doesn't expose stable HTTPS presigning for Rust), so
+    /// the contract here returns a sentinel pointing back at this same API:
+    /// the client PUTs to `/v1/jobs/:id/upload` and we proxy the bytes to
+    /// Vercel Blob server-side using the bearer token.
     pub async fn presign_upload(&self, key: &str, _ttl: Duration) -> Result<String, BlobError> {
-        // Vercel Blob doesn't expose a stable HTTPS presign API; the JS
-        // `@vercel/blob/client.generateClientTokenFromReadWriteToken` is the
-        // canonical path and isn't trivially portable to Rust. For v0.1 we
-        // return a sentinel URL so the contract still resolves; the actual
-        // upload flow goes through `POST /v1/jobs/:id/upload` (the API proxies
-        // bytes to Vercel Blob server-side using the bearer token).
         let suffix = if self.token.is_some() {
             "?ttl=900&mode=server-proxy"
         } else {
@@ -121,9 +134,51 @@ impl BlobBackend {
         Ok(format!("blob://stub/{key}{suffix}"))
     }
 
-    /// Return the publicly fetchable URL the worker should pull from. Stub
-    /// matches `presign_upload` until the real client is wired in.
+    /// Best-effort guess at the public URL for a key, used only when the
+    /// server-side PUT hasn't run yet (e.g. for fallback rendering). The
+    /// real, canonical URL is the one Vercel returns from `put`.
     pub fn public_url(&self, key: &str) -> String {
         format!("blob://stub/{key}")
+    }
+
+    /// Stream raw bytes to Vercel Blob and return the public URL Vercel
+    /// hands back. `content_type` is forwarded as the resulting object's
+    /// content type; pass `application/octet-stream` for splats.
+    pub async fn put_bytes(
+        &self,
+        key: &str,
+        body: Body,
+        content_type: &str,
+    ) -> Result<String, BlobError> {
+        let token = self
+            .token
+            .as_ref()
+            .ok_or(BlobError::NotConfigured)?
+            .clone();
+        let url = format!("{BLOB_HOST}/{}?addRandomSuffix=0", key.trim_start_matches('/'));
+        let resp = self
+            .http
+            .put(&url)
+            .header("authorization", format!("Bearer {token}"))
+            .header("x-content-type", content_type)
+            .header("x-api-version", BLOB_API_VERSION)
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| BlobError::Transport(e.to_string()))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(BlobError::Api(format!("{status}: {text}")));
+        }
+        // Response envelope: `{ "url": "...", "pathname": "...", ... }`.
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| BlobError::Api(format!("decoding blob response: {e}")))?;
+        body.get("url")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .ok_or_else(|| BlobError::Api(format!("blob response missing url field: {body}")))
     }
 }
