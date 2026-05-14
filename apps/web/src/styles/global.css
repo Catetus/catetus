@@ -63,7 +63,28 @@ main.page {
 }
 
 section + section {
-  margin-top: 88px;
+  margin-top: 120px;
+  padding-top: 8px;
+  position: relative;
+}
+
+/* Subtle hairline between major sections so the page doesn't read as one
+   unbroken canvas. The leaderboard table is wide + dense, so the next
+   section needs an explicit visual break. */
+section + section::before {
+  content: "";
+  position: absolute;
+  top: -60px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--line-strong) 30%,
+    var(--line-strong) 70%,
+    transparent 100%
+  );
 }
 
 h1,
@@ -79,7 +100,27 @@ h2.section-title {
   color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 2px;
-  margin-bottom: 18px;
+  margin: 0 0 12px 0;
+}
+
+/* Shared section-head pattern: small uppercase eyebrow + larger explanatory
+   subtitle. Replaces the bare h2 that competed with body text. */
+.section-head {
+  margin-bottom: 32px;
+  max-width: 720px;
+}
+.section-sub {
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  margin: 0;
+}
+.section-sub code {
+  color: var(--fg);
+  background: var(--bg-elev);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
 }
 
 /* --- Nav bar --- */
@@ -644,6 +685,94 @@ table.leaderboard tbody tr:last-child td {
 }
 
 /* --- Try-it drag-drop --- */
+.try-section {
+  /* nothing special, section-head + dropzone do the work */
+}
+.dropzone {
+  position: relative;
+  border: 2px dashed var(--line-strong);
+  border-radius: 18px;
+  padding: 64px 28px 40px;
+  text-align: center;
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      rgba(125, 211, 252, 0.06) 0%,
+      rgba(125, 211, 252, 0) 60%
+    ),
+    var(--bg-elev);
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  transition: border-color 200ms, background 200ms, transform 200ms;
+}
+.dropzone:hover {
+  border-color: var(--line-strong);
+}
+.dropzone.drag-hover {
+  border-color: var(--accent);
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      rgba(125, 211, 252, 0.12) 0%,
+      rgba(125, 211, 252, 0.02) 60%
+    ),
+    var(--bg-elev);
+  transform: translateY(-2px);
+}
+.dropzone-icon {
+  color: var(--accent);
+  margin-bottom: 4px;
+  opacity: 0.7;
+  transition: opacity 200ms;
+}
+.dropzone:hover .dropzone-icon,
+.dropzone.drag-hover .dropzone-icon {
+  opacity: 1;
+}
+.dropzone-headline {
+  font-family: var(--sans);
+  font-size: 22px;
+  color: var(--fg);
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.dropzone-body {
+  color: var(--fg-muted);
+  max-width: 560px;
+  line-height: 1.6;
+  font-size: 14px;
+}
+.dropzone-body code {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.dropzone-cta {
+  margin-top: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.try-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+  font-size: 14px;
+}
+.try-footer-meta {
+  color: var(--fg-muted);
+}
+
+/* legacy uploader keys preserved while we transition */
 .uploader {
   position: relative;
   border: 1.5px dashed var(--line-strong);
@@ -767,4 +896,113 @@ code.inline {
   align-items: center;
   gap: 8px;
   color: var(--fg-muted);
+}
+
+/* --- Quickstart docs (inline) --- */
+.docs-section {
+  /* uses section-head, so nothing here */
+}
+.docs-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+@media (min-width: 880px) {
+  .docs-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+}
+.docs-step {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 22px 22px 18px;
+  background: var(--bg-elev);
+  transition: border-color 160ms;
+}
+.docs-step:hover {
+  border-color: var(--line-strong);
+}
+.docs-step-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.docs-step-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 2px;
+}
+.docs-step-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--fg);
+}
+.docs-step-body {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+.docs-step-cmd {
+  margin: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg);
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.55;
+}
+
+.docs-refs {
+  margin-top: 28px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 720px) {
+  .docs-refs {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 1024px) {
+  .docs-refs {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+.docs-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color 160ms, background 160ms;
+}
+.docs-ref:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.02);
+  text-decoration: none;
+}
+.docs-ref-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--accent-strong);
+}
+.docs-ref-blurb {
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }

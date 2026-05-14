@@ -1,57 +1,83 @@
 ---
-// Drag-drop hooked up to the live hosted API. The DO droplet at
-// `splatforge-api` returns a job_id + presigned-upload sentinel; the actual
-// upload→Modal→download path is still ahead of us (Vercel Blob direct
-// upload requires the JS client-token handshake), so for v0.1 the user
-// sees: file dropped → job created → live API echo. That's an honest
-// "yes this is real, not a Figma mockup".
+// "Try it" is the call-to-action that proves SplatForge is alive.
+// The PRIMARY action is "Choose a file" (file picker) + drop zone — the
+// drop zone IS the section, not a button inside it. Secondary affordances
+// (apply as design partner, view docs) live BELOW the upload card so they
+// don't compete with the upload action.
 const apiBase = import.meta.env.PUBLIC_API_BASE ?? "http://splatforge-api.fly.dev:8080";
 const partnerHref =
   "https://github.com/montabano1/SplatForge/issues/new?title=design-partner-interest&body=Hi%20%E2%80%94%20I%27d%20like%20to%20run%20a%20splat%20through%20SplatForge";
 const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
 ---
 
-<section id="try" aria-labelledby="try-title">
-  <h2 id="try-title" class="section-title">Try it on your splat</h2>
-  <div class="uploader" data-uploader>
-    <span class="pill">Design-partner alpha</span>
-    <div class="icon-stack" aria-hidden="true">
-      <span></span><span></span><span></span>
+<section id="try" class="try-section" aria-labelledby="try-title">
+  <div class="section-head">
+    <h2 id="try-title" class="section-title">Try it on your splat</h2>
+    <p class="section-sub">
+      Drop a Gaussian-splat scene and we'll register an optimize job against the
+      hosted API. The end-to-end upload→optimize→download flow is in
+      design-partner alpha — for now the drop returns a real job ID + API
+      response so you can see the pipeline is live.
+    </p>
+  </div>
+
+  <div class="dropzone" data-uploader>
+    <input
+      type="file"
+      id="splat-file-input"
+      data-file-input
+      accept=".ply,.spz,.gltf,.glb,.splat"
+      hidden
+    />
+
+    <div class="dropzone-icon" aria-hidden="true">
+      <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+        <circle cx="28" cy="28" r="27" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.4"></circle>
+        <path d="M28 18v18M21 27l7-9 7 9" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M15 38v3a2 2 0 002 2h22a2 2 0 002-2v-3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+      </svg>
     </div>
-    <div class="headline" data-uploader-headline>
-      Drop a splat to register a job with the hosted API.
+
+    <div class="dropzone-headline" data-uploader-headline>
+      Drop a splat or click to choose a file
     </div>
-    <div class="body" data-uploader-body>
-      The drop creates a real job on
-      <code data-api-base>{apiBase}</code> and shows you the job ID it issued.
-      Full upload + optimize round-trip lands once the direct-to-Blob handshake
-      is wired (the design-partner program does it manually today). Everything
-      the leaderboard shows is already reproducible locally via
-      <code>make bench-splatbench</code>.
+    <div class="dropzone-body" data-uploader-body>
+      Files stay local until you confirm. The hosted API runs at
+      <code data-api-base>{apiBase}</code>.
     </div>
-    <pre class="api-response" data-api-response hidden></pre>
+
+    <label for="splat-file-input" class="btn btn-primary dropzone-cta">
+      <span aria-hidden="true">📎</span>&nbsp;Choose file
+    </label>
+
     <div class="format-chips" aria-label="Supported input formats">
       {supported.map((ext) => <span class="chip">{ext}</span>)}
     </div>
-    <div class="hero-ctas">
-      <a class="btn btn-primary" href={partnerHref} target="_blank" rel="noreferrer noopener">
-        Apply as a design partner →
-      </a>
-      <a class="btn btn-ghost" href="https://github.com/montabano1/SplatForge#getting-started"
-        >Read the docs →</a
+
+    <pre class="api-response" data-api-response hidden></pre>
+  </div>
+
+  <div class="try-footer">
+    <span class="pill">Design-partner alpha</span>
+    <span class="try-footer-meta">
+      Full upload + optimize round-trip is wired manually for design partners
+      today. <a href={partnerHref} target="_blank" rel="noreferrer noopener"
+        >Apply →</a
       >
-    </div>
+    </span>
   </div>
 </section>
 
 <script is:inline define:vars={{ apiBase, partnerHref }}>
   (function () {
     const zone = document.querySelector("[data-uploader]");
+    const input = document.querySelector("[data-file-input]");
     const headline = document.querySelector("[data-uploader-headline]");
     const body = document.querySelector("[data-uploader-body]");
     const out = document.querySelector("[data-api-response]");
     if (
       !(zone instanceof HTMLElement) ||
+      !(input instanceof HTMLInputElement) ||
       !(headline instanceof HTMLElement) ||
       !(body instanceof HTMLElement) ||
       !(out instanceof HTMLElement)
@@ -108,7 +134,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
         body.innerHTML =
           'Supported: <code>' +
           supportedExts.join("</code>, <code>") +
-          "</code>. Drop a different file or apply via the design-partner link.";
+          "</code>. Choose a different file.";
         return;
       }
       headline.textContent = "Reaching the hosted API…";
@@ -120,7 +146,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
         const reachable = await ping();
         if (!reachable) throw new Error("/healthz did not return ok");
         const job = await createJob(file.name, file.size);
-        headline.textContent = "Job registered with the hosted API ✓";
+        headline.textContent = "Job registered ✓";
         body.innerHTML =
           "Direct upload to Vercel Blob is the next step. For now grab the design-partner link to run this through the CLI by hand.";
         out.textContent = JSON.stringify(job, null, 2);
@@ -130,7 +156,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
         body.innerHTML =
           "Falling back to the design-partner intake. The API at <code>" +
           apiBase +
-          "</code> may be cold or behind a firewall. (" +
+          "</code> may be cold. (" +
           (err && err.message ? err.message : String(err)) +
           ")";
         const a = document.createElement("a");
@@ -149,29 +175,11 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       cool();
       const file =
         e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (file) {
-        void handleFile(file);
-      } else {
-        window.open(partnerHref, "_blank", "noopener");
-      }
+      if (file) void handleFile(file);
+    });
+    input.addEventListener("change", function () {
+      const file = input.files && input.files[0];
+      if (file) void handleFile(file);
     });
   })();
 </script>
-
-<style>
-  .api-response {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    padding: 12px 14px;
-    margin: 10px 0 0 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--fg);
-    overflow-x: auto;
-    text-align: left;
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
-</style>

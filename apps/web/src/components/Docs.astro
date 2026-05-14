@@ -1,0 +1,87 @@
+---
+// Quickstart docs inline on the landing page. The full reference lives in
+// the README; this section gives a visitor the minimum to go from
+// "interesting" to "running" without leaving the site.
+const githubUrl = "https://github.com/montabano1/SplatForge";
+const steps = [
+  {
+    n: "01",
+    title: "Install the CLI",
+    body: "Rust toolchain + a single cargo install. macOS, Linux, Windows.",
+    cmd: "cargo install splatforge",
+  },
+  {
+    n: "02",
+    title: "Optimize a scene",
+    body: "Pick a preset. web-mobile is the everyday default; size-min squeezes harder.",
+    cmd: "splatforge optimize scene.ply --preset web-mobile --out scene.gltf",
+  },
+  {
+    n: "03",
+    title: "View in the browser",
+    body: "The viewer SDK is a tiny TS package — WebGPU primary, WebGL2 fallback.",
+    cmd: "pnpm add @splatforge/viewer\n# then in your app:\n# new SplatForgeViewer({ canvas }).load('scene.gltf')",
+  },
+  {
+    n: "04",
+    title: "Diff or benchmark",
+    body: "Reproduce the leaderboard byte-for-byte on your machine — same corpus, same hashes.",
+    cmd: "make bench-splatbench",
+  },
+];
+
+const refs = [
+  {
+    title: "Full README + reference",
+    href: `${githubUrl}#getting-started`,
+    blurb: "CLI flags, preset matrix, SPEC docs.",
+  },
+  {
+    title: "Viewer SDK source",
+    href: `${githubUrl}/tree/main/packages/viewer`,
+    blurb: "WebGPU + WebGL2 renderer in TypeScript.",
+  },
+  {
+    title: "SplatBench corpus",
+    href: `${githubUrl}/tree/main/benches`,
+    blurb: "11 scenes, deterministic synthetics + 2 real photogrammetry.",
+  },
+  {
+    title: "SPEC documents",
+    href: `${githubUrl}/tree/main/specs`,
+    blurb: "Wire-format specs (KHR_gaussian_splatting, SPZ, OpenUSD).",
+  },
+];
+---
+
+<section id="docs" class="docs-section" aria-labelledby="docs-title">
+  <div class="section-head">
+    <h2 id="docs-title" class="section-title">Quickstart</h2>
+    <p class="section-sub">
+      Four commands to go from a raw <code>.ply</code> to a SplatBench entry. Full
+      reference in the <a href={`${githubUrl}#getting-started`}>README</a>.
+    </p>
+  </div>
+
+  <ol class="docs-steps">
+    {steps.map((s) => (
+      <li class="docs-step">
+        <div class="docs-step-meta">
+          <span class="docs-step-num">{s.n}</span>
+          <h3 class="docs-step-title">{s.title}</h3>
+        </div>
+        <p class="docs-step-body">{s.body}</p>
+        <pre class="docs-step-cmd"><code>{s.cmd}</code></pre>
+      </li>
+    ))}
+  </ol>
+
+  <div class="docs-refs">
+    {refs.map((r) => (
+      <a class="docs-ref" href={r.href} target="_blank" rel="noreferrer noopener">
+        <span class="docs-ref-title">{r.title} ↗</span>
+        <span class="docs-ref-blurb">{r.blurb}</span>
+      </a>
+    ))}
+  </div>
+</section>
