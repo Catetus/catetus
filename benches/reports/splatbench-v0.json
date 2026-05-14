@@ -43,7 +43,10 @@
           "meanPixelMatch": 0.014172,
           "meanSsimLoss": 0.021123,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.96018,
+          "mlScoreMax": 0.980341,
+          "mlScoreVersion": "0.1.0-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.006406,
@@ -52,7 +55,10 @@
           "meanPixelMatch": 0.015096,
           "meanSsimLoss": 0.023345,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.958101,
+          "mlScoreMax": 0.977371,
+          "mlScoreVersion": "0.1.0-baseline"
         }
       }
     },
@@ -92,7 +98,10 @@
           "meanPixelMatch": 0.031236,
           "meanSsimLoss": 0.082897,
           "status": "borderline",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.886393,
+          "mlScoreMax": 0.898563,
+          "mlScoreVersion": "0.1.0-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.026016,
@@ -101,7 +110,10 @@
           "meanPixelMatch": 0.028473,
           "meanSsimLoss": 0.073273,
           "status": "borderline",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.890111,
+          "mlScoreMax": 0.902736,
+          "mlScoreVersion": "0.1.0-baseline"
         }
       }
     },
@@ -141,7 +153,10 @@
           "meanPixelMatch": 0,
           "meanSsimLoss": 0.000072,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.999425,
+          "mlScoreMax": 0.99946,
+          "mlScoreVersion": "0.1.0-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000351,
@@ -150,7 +165,10 @@
           "meanPixelMatch": 0,
           "meanSsimLoss": 0.000121,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.999257,
+          "mlScoreMax": 0.999309,
+          "mlScoreVersion": "0.1.0-baseline"
         }
       }
     },
@@ -190,7 +208,10 @@
           "meanPixelMatch": 0,
           "meanSsimLoss": 0.000073,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.999292,
+          "mlScoreMax": 0.999326,
+          "mlScoreVersion": "0.1.0-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.00101,
@@ -199,7 +220,10 @@
           "meanPixelMatch": 0.000006,
           "meanSsimLoss": 0.000331,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.998516,
+          "mlScoreMax": 0.998568,
+          "mlScoreVersion": "0.1.0-baseline"
         }
       }
     },
@@ -239,7 +263,10 @@
           "meanPixelMatch": 0.000017,
           "meanSsimLoss": 0.007589,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.9957,
+          "mlScoreMax": 0.996918,
+          "mlScoreVersion": "0.1.0-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.144802,
@@ -248,7 +275,10 @@
           "meanPixelMatch": 0.273118,
           "meanSsimLoss": 0.283179,
           "status": "fail",
-          "passed": false
+          "passed": false,
+          "mlScore": 0.886541,
+          "mlScoreMax": 0.888261,
+          "mlScoreVersion": "0.1.0-baseline"
         }
       }
     },
@@ -288,7 +318,10 @@
           "meanPixelMatch": 0,
           "meanSsimLoss": 0.000063,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.999336,
+          "mlScoreMax": 0.999456,
+          "mlScoreVersion": "0.1.0-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000908,
@@ -297,7 +330,10 @@
           "meanPixelMatch": 0,
           "meanSsimLoss": 0.000339,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.998366,
+          "mlScoreMax": 0.998662,
+          "mlScoreVersion": "0.1.0-baseline"
         }
       }
     },
@@ -337,7 +373,10 @@
           "meanPixelMatch": 0,
           "meanSsimLoss": 0.000021,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.999655,
+          "mlScoreMax": 0.999672,
+          "mlScoreVersion": "0.1.0-baseline"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000244,
@@ -346,7 +385,10 @@
           "meanPixelMatch": 0,
           "meanSsimLoss": 0.000136,
           "status": "pass",
-          "passed": true
+          "passed": true,
+          "mlScore": 0.999092,
+          "mlScoreMax": 0.999169,
+          "mlScoreVersion": "0.1.0-baseline"
         }
       }
     }
