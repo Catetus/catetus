@@ -225,11 +225,16 @@ updater auto-detects which JSON is present.
 
 ## Concrete next steps (priority-ordered)
 
-1. **Implement SPEC-0013.** Flip the three `#[ignore]`s in
-   `crates/splatforge-gltf/tests/mesh_quantization.rs`, wire integer
-   accessors in `splatforge_gltf::pack_chunk`, surface a `quantize: bool`
-   on `WriteOpts`, default the relevant presets to `quantize=true` in
-   `splatforge-optimize`. ~1 day.
+1. **~~SPEC-0013~~ — DONE on 2026-05-14.** `KHR_mesh_quantization` is wired
+   end-to-end: the writer emits u16 POSITION + u8 _SCALE/_OPACITY/_COLOR_DC
+   when `WriteOpts::quantize` is on, the CLI flips it on for the web-targeted
+   presets, the reader dequantizes back, and the JS viewer learned the
+   integer accessor path too. The three `#[ignore]`'d tests now pass; full
+   workspace test count is 46 active (was 43 + 3 ignored). See SPEC-0013 for
+   the wire format and the `feat(gltf): implement SPEC-0013` commit for the
+   implementation. Next quantization slice would be smallest-three quaternion
+   packing (`_ROTATION` → 32-bit packed integer), tracked as a new spec when
+   it's prioritized.
 
 2. **Provision Vercel Blob.**
    ```bash
@@ -245,9 +250,20 @@ updater auto-detects which JSON is present.
    - Front with Caddy (free auto-TLS) for `api.splatforge.dev`.
    ~1 day.
 
-4. **Run the GPU fidelity rerun.** If still building / completed but not
-   committed at session start: pull from the Modal Volume, commit the
-   resulting JSON, re-run the leaderboard updater.
+4. **Run the GPU fidelity rerun (still broken on Modal).** The 2026-05-14
+   run completed but produced an all-errors JSON: every scene failed with
+   `Failed to fetch dynamically imported module: http://127.0.0.1:4785/viewer/index.js`,
+   suggesting the harness server inside the Modal container can't see the
+   viewer dist or is binding to a different working directory than the one
+   the script's `VIEWER_DIST` constant resolves to. Probe shows the T4 GPU
+   itself is visible (`nvidia-smi` returns the card) but Vulkan is going
+   through `llvmpipe` (CPU) — no NVIDIA Vulkan ICD inside the container, so
+   even if the viewer-dist path were fixed, the rerun would be a Linux
+   SwiftShader run, not hardware-accel. Two open questions: (a) does Modal
+   actually mount the NVIDIA Vulkan ICD or just the CUDA runtime?, and (b)
+   why doesn't the harness server resolve `/viewer/*`?  Probably easier to
+   move the GPU rerun to a self-managed Linux box with an NVIDIA driver
+   stack than to keep fighting Modal's container constraints.
 
 5. **Khronos KHR_gaussian_splatting conformance submission.** Open a
    discussion thread on the WG repo; offer the SplatBench corpus +
@@ -262,9 +278,10 @@ updater auto-detects which JSON is present.
    `usdview` in a Docker container; close the SPEC-0011 §"Open questions"
    items one by one.
 
-8. **README polish + GitHub repo metadata.** Now that the repo is public,
-   add topic tags (`gaussian-splatting`, `webgpu`, `3d`, `splat`), set the
-   GitHub repo description, add the live site URL to the sidebar.
+8. **~~GitHub repo metadata~~ — DONE on 2026-05-14.** Topic tags
+   (`gaussian-splatting`, `webgpu`, `3d`, `splat`, `rust`, `gltf`,
+   `splatforge`, `computer-graphics`), description, and homepage URL
+   (`https://splatforge.vercel.app`) are all set via `gh repo edit`.
 
 ---
 
