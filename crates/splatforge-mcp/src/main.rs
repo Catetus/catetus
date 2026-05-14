@@ -23,7 +23,7 @@ use serde_json::{json, Map, Value};
 use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, SplatScene};
 use splatforge_gltf::{read_glb, read_gltf, write_gltf, WriteOpts};
 use splatforge_optimize::preset;
-use splatforge_ply::read_ply;
+use splatforge_ply::{read_ply, write_ply};
 use splatforge_spz::read_spz;
 
 // ------------------------------------------------------------- JSON-RPC types
@@ -163,6 +163,18 @@ const TOOLS: &[ToolDef] = &[
         input_schema: schema_optimize,
     },
     ToolDef {
+        name: "splatforge.generate_lod_pyramid",
+        description:
+            "Take one .ply / .spz / .gltf and emit N .ply files at user-specified \
+             splat-count ratios. Ranks splats by saliency (sigmoid(α) · Σexp(scale), \
+             the same metric the diff-repack premium tier converges to), then writes \
+             top-K subsets. Use this when a hosting / streaming platform requires the \
+             user to pre-train multiple LOD variants (e.g. Blurry's upload UI asks for \
+             4 .ply files at decreasing detail) — SplatForge generates the pyramid \
+             from a single converged scene in a few seconds.",
+        input_schema: schema_generate_lod_pyramid,
+    },
+    ToolDef {
         name: "splatforge.find_similar_scenes",
         description:
             "Given a scene's splatCount, SH degree, and optional content class, find the \
@@ -206,6 +218,30 @@ fn schema_analyze() -> Value {
 
 fn schema_list_presets() -> Value {
     json!({ "type": "object", "properties": {} })
+}
+
+fn schema_generate_lod_pyramid() -> Value {
+    json!({
+        "type": "object",
+        "required": ["input", "ratios"],
+        "properties": {
+            "input": schema_splatref_path_only(),
+            "ratios": {
+                "type": "array",
+                "description": "Splat-count ratios in (0, 1]. e.g. [1.0, 0.5, 0.25, 0.1] \
+                                produces a 4-level pyramid: full, half, quarter, tenth.",
+                "items": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+                "minItems": 1,
+                "maxItems": 16
+            },
+            "out_dir": {
+                "type": "string",
+                "description": "Absolute directory for the emitted .ply pyramid. \
+                                Each level is written as `lod_<idx>_r<ratio>.ply`. \
+                                Created if missing."
+            }
+        }
+    })
 }
 
 fn schema_find_similar_scenes() -> Value {
@@ -278,8 +314,157 @@ fn call_tool(name: &str, args: &Value) -> ToolResult {
         "splatforge.analyze" => tool_analyze(args),
         "splatforge.list_presets" => tool_list_presets(),
         "splatforge.optimize" => tool_optimize(args),
+        "splatforge.generate_lod_pyramid" => tool_generate_lod_pyramid(args),
         "splatforge.find_similar_scenes" => tool_find_similar_scenes(args),
         other => tool_error(format!("unknown tool: {other}")),
+    }
+}
+
+// ---------------------------- splatforge.generate_lod_pyramid handler
+
+fn tool_generate_lod_pyramid(args: &Value) -> ToolResult {
+    let input = match args.get("input") {
+        Some(v) => v,
+        None => return tool_error("missing required argument: input"),
+    };
+    let path = match splatref_path(input) {
+        Ok(p) => p,
+        Err(e) => return tool_error(e),
+    };
+    if !path.exists() {
+        return tool_error(format!("file not found: {}", path.display()));
+    }
+    let ratios: Vec<f32> = match args.get("ratios").and_then(Value::as_array) {
+        Some(arr) => {
+            let mut out: Vec<f32> = Vec::new();
+            for v in arr {
+                let Some(n) = v.as_f64() else {
+                    return tool_error("ratios entries must be numbers");
+                };
+                if !(n > 0.0 && n <= 1.0) {
+                    return tool_error(format!("ratio {n} out of (0, 1]"));
+                }
+                out.push(n as f32);
+            }
+            out
+        }
+        _ => return tool_error("ratios must be a non-empty array of numbers in (0, 1]"),
+    };
+    if ratios.is_empty() {
+        return tool_error("ratios array must contain at least one entry");
+    }
+
+    let out_dir = match args.get("out_dir").and_then(Value::as_str) {
+        Some(s) => PathBuf::from(s),
+        None => path
+            .parent()
+            .map(|p| p.join("lod_pyramid"))
+            .unwrap_or_else(|| PathBuf::from("lod_pyramid")),
+    };
+    if let Err(e) = std::fs::create_dir_all(&out_dir) {
+        return tool_error(format!("creating {}: {e}", out_dir.display()));
+    }
+
+    let t0 = std::time::Instant::now();
+    let (scene, _fmt) = match load_scene(&path) {
+        Ok(p) => p,
+        Err(e) => return tool_error(e),
+    };
+    let n_in = scene.splats.len();
+    if n_in == 0 {
+        return tool_error("input scene has zero splats");
+    }
+
+    // Rank splats by saliency = sigmoid(α) · Σ exp(scale).
+    // This is the same metric the diff-repack premium tier converges to
+    // and the standard signal in the 3DGS literature for "is this splat
+    // load-bearing?" Cheap O(N) computation; the topk sort is the only
+    // non-trivial cost and scales fine to millions of splats.
+    let mut saliencies: Vec<(usize, f32)> = scene
+        .splats
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            // Stored opacity is post-sigmoid linear in [0, 1]; stored scale
+            // is per-axis linear (not log-space) per the SplatIR spec.
+            // The saliency formula assumes log-space scale, so take ln
+            // before summing exp — which simplifies to summing the linear
+            // scales. Stable and matches the diff-repack ranking.
+            let scale_sum = s.scale[0] + s.scale[1] + s.scale[2];
+            (i, s.opacity * scale_sum)
+        })
+        .collect();
+    // Sort descending by saliency — splat 0 in the sorted list is the
+    // single most "load-bearing" splat in the entire scene.
+    saliencies.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Emit one .ply per ratio.
+    let mut pyramid: Vec<Value> = Vec::with_capacity(ratios.len());
+    for (idx, &ratio) in ratios.iter().enumerate() {
+        let keep_n = ((n_in as f32) * ratio).ceil() as usize;
+        let keep_n = keep_n.clamp(1, n_in);
+        let mut keep_indices: Vec<usize> = saliencies[..keep_n].iter().map(|(i, _)| *i).collect();
+        keep_indices.sort_unstable();
+        let mut sub_scene = scene.clone();
+        sub_scene.splats = keep_indices
+            .iter()
+            .map(|&i| scene.splats[i].clone())
+            .collect();
+        // Drop any LOD index sets the source carried — they reference the
+        // full splat list and don't survive subsetting.
+        // lods is Option<Vec<LodLevel>> — drop it entirely for the subset
+        // since the original indices reference splats we just dropped.
+        sub_scene.lods = None;
+        let level_name = format!(
+            "lod_{:02}_r{:.4}.ply",
+            idx,
+            ratio
+        );
+        let level_path = out_dir.join(&level_name);
+        if let Err(e) = write_ply(&sub_scene, &level_path) {
+            return tool_error(format!("writing {}: {e}", level_path.display()));
+        }
+        let bytes_out = std::fs::metadata(&level_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        pyramid.push(json!({
+            "ratio": ratio,
+            "splatCount": keep_n,
+            "bytesOut": bytes_out,
+            "path": level_path.display().to_string(),
+        }));
+    }
+
+    let elapsed_ms = t0.elapsed().as_millis() as u64;
+    let lines: Vec<String> = pyramid
+        .iter()
+        .map(|p| {
+            format!(
+                "  r={:>5.3}  splats={:>9}  bytes={:>10}  path={}",
+                p["ratio"].as_f64().unwrap_or(0.0),
+                p["splatCount"].as_u64().unwrap_or(0),
+                p["bytesOut"].as_u64().unwrap_or(0),
+                p["path"].as_str().unwrap_or("?")
+            )
+        })
+        .collect();
+    let text = format!(
+        "Generated LOD pyramid from {} ({} splats in) → {} levels in {} ms:\n{}",
+        path.display(),
+        n_in,
+        ratios.len(),
+        elapsed_ms,
+        lines.join("\n"),
+    );
+    ToolResult {
+        json: json!({
+            "input": path.display().to_string(),
+            "splatsIn": n_in,
+            "elapsedMs": elapsed_ms,
+            "pyramid": pyramid,
+        }),
+        text,
+        is_error: false,
     }
 }
 
