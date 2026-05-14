@@ -1,31 +1,32 @@
 //! `splatforge-api` — hosted optimize endpoint.
 //!
-//! Public surface for the design-partner program. Three responsibilities:
+//! Public surface for the design-partner program. Responsibilities:
 //!
-//! 1. Issue presigned upload URLs into Vercel Blob (or compatible store).
-//! 2. Enqueue optimize jobs against the Modal worker.
-//! 3. Serve job status + result download URLs.
+//! 1. Create optimize jobs and hand the client a server-proxy upload URL.
+//! 2. Proxy the client's splat bytes into Vercel Blob over HTTPS.
+//! 3. Enqueue the Modal worker with the resulting blob URL + a callback URL.
+//! 4. Accept the worker's callback and surface the final download URL.
 //!
 //! The actual splat work happens in `apps/worker` (Modal Python). This crate
-//! stays HTTP-light so we can host it on either Modal `web_endpoint` or any
-//! standard PaaS without rewriting handlers.
+//! stays HTTP-light so we can host it on any standard PaaS without rewriting
+//! handlers.
 
 use std::sync::Arc;
 
 use anyhow::Context;
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
+use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tokio::sync::RwLock;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, trace::TraceLayer};
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 mod modal_client;
@@ -44,6 +45,9 @@ pub struct AppState {
     pub modal: Arc<ModalClient>,
     /// Blob storage adapter (Vercel Blob today; R2/S3 later).
     pub blob: Arc<store::BlobBackend>,
+    /// Publicly addressable base URL for this API (no trailing slash).
+    /// Used to build the worker's callback URL so it can POST results back.
+    pub public_base_url: String,
 }
 
 #[tokio::main]
@@ -59,23 +63,39 @@ async fn main() -> anyhow::Result<()> {
     let bind = std::env::var("SPLATFORGE_API_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
     let modal_url = std::env::var("SPLATFORGE_MODAL_URL").ok();
     let blob_token = std::env::var("BLOB_READ_WRITE_TOKEN").ok();
+    // Default to the droplet's well-known address; override in env for
+    // production behind a proper hostname.
+    let public_base_url = std::env::var("SPLATFORGE_PUBLIC_BASE_URL")
+        .unwrap_or_else(|_| "http://splatforge-api.fly.dev:8080".to_string());
 
     let state = AppState {
         jobs: Arc::new(JobStore::default()),
         modal: Arc::new(ModalClient::new(modal_url)),
         blob: Arc::new(store::BlobBackend::new(blob_token)),
+        public_base_url: public_base_url.trim_end_matches('/').to_string(),
     };
 
-    let app = Router::new()
+    // Two routers so the upload path can run with a 250 MB body cap while
+    // the small JSON routes keep the strict 50 MB default.
+    let small = Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/jobs", post(create_job))
         .route("/v1/jobs/:id", get(get_job))
-        .route("/v1/jobs/:id/upload", post(presign_upload))
+        .route("/v1/jobs/:id/result", post(job_result))
+        .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
+
+    let upload = Router::new()
+        .route("/v1/jobs/:id/upload", post(upload_job))
+        // 250 MB — covers the SplatBench indoor proxy (50 MB) with plenty of
+        // headroom for typical splats. The body is streamed through to Vercel
+        // Blob; we never buffer it in memory.
+        .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024));
+
+    let app = Router::new()
+        .merge(small)
+        .merge(upload)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
-        // 50 MB request body cap — splats upload directly to Blob via
-        // presigned URL, so the API request payload itself stays small.
-        .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&bind)
@@ -96,7 +116,7 @@ async fn healthz(State(_state): State<AppState>) -> impl IntoResponse {
 }
 
 /// Payload for `POST /v1/jobs`. The client describes the optimize request
-/// upfront; the response carries a presign URL the client uploads the splat to.
+/// upfront; the response carries a server-proxy URL for the byte upload.
 #[derive(Debug, Deserialize)]
 pub struct CreateJobRequest {
     /// One of `lossless-repack` / `web-mobile` / `size-min` / etc.
@@ -150,8 +170,10 @@ async fn create_job(
         label: req.label.clone(),
         status: JobStatus::AwaitingUpload,
         blob_key: blob_key.clone(),
+        blob_url: None,
+        upload_size_bytes: None,
+        output_url: None,
         created_at: Utc::now(),
-        result: None,
         error: None,
     };
     state.jobs.insert(job.clone()).await;
@@ -178,30 +200,133 @@ async fn get_job(
         .ok_or(ApiError::NotFound)
 }
 
-/// POST /v1/jobs/:id/upload — the client calls this AFTER they've finished
-/// PUTting the splat to the presigned URL. We then enqueue the actual optimize.
-#[instrument(skip(state))]
-async fn presign_upload(
+/// `POST /v1/jobs/:id/upload`
+///
+/// Streams the request body through to Vercel Blob, updates the job with
+/// the canonical public URL, and enqueues the Modal worker with a
+/// callback URL so the worker can POST the result when it's done.
+#[instrument(skip(state, headers, body), fields(job_id = %id))]
+async fn upload_job(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Body,
 ) -> Result<Json<Job>, ApiError> {
     let Some(mut job) = state.jobs.get(&id).await else {
         return Err(ApiError::NotFound);
     };
     if !matches!(job.status, JobStatus::AwaitingUpload) {
         return Err(ApiError::BadRequest(format!(
-            "job {id} is already {:?}; cannot re-enqueue",
+            "job {id} is {:?}; cannot re-upload",
             job.status
         )));
     }
 
-    // Hand off to Modal — it will pull the blob, run splatforge optimize,
-    // and write the result back via the worker's status webhook (next iter).
-    let blob_url = state.blob.public_url(&job.blob_key);
-    let enqueued = state.modal.enqueue(&job, &blob_url).await?;
+    // Flip to Uploading before we start streaming so the client polling
+    // `/v1/jobs/:id` sees the transition.
+    job.status = JobStatus::Uploading;
+    state.jobs.update(job.clone()).await;
 
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    // Stream the axum body directly into reqwest so we never buffer the
+    // whole splat in memory. axum's body is a Stream<Item = Result<Bytes, _>>;
+    // reqwest::Body has `wrap_stream` for exactly this case.
+    let stream = body.into_data_stream().map_err(std::io::Error::other);
+    let reqwest_body = reqwest::Body::wrap_stream(stream);
+
+    let blob_url = match state
+        .blob
+        .put_bytes(&job.blob_key, reqwest_body, &content_type)
+        .await
+    {
+        Ok(url) => url,
+        Err(e) => {
+            warn!(error = %e, "blob upload failed");
+            job.status = JobStatus::Error;
+            job.error = Some(format!("blob upload failed: {e}"));
+            state.jobs.update(job.clone()).await;
+            return Err(ApiError::Storage(e));
+        }
+    };
+
+    job.blob_url = Some(blob_url.clone());
+    // We don't have a clean way to recover the streamed byte count without
+    // a counting middleware; fall back to the client-supplied size_bytes
+    // (already validated to be in range) so the field is at least populated.
+    job.upload_size_bytes = Some(job.size_bytes);
     job.status = JobStatus::Queued;
-    job.error = enqueued.error;
+    state.jobs.update(job.clone()).await;
+
+    let callback_url = format!("{}/v1/jobs/{}/result", state.public_base_url, id);
+    match state.modal.enqueue(&job, &blob_url, &callback_url).await {
+        Ok(ack) => {
+            if let Some(msg) = ack.error.as_deref() {
+                warn!(error = msg, "modal enqueue warning");
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "modal enqueue failed");
+            job.status = JobStatus::Error;
+            job.error = Some(format!("modal enqueue failed: {e}"));
+            state.jobs.update(job.clone()).await;
+            return Err(ApiError::Modal(e));
+        }
+    }
+
+    Ok(Json(job))
+}
+
+/// `POST /v1/jobs/:id/result`
+///
+/// Worker callback. Payload:
+/// ```json
+/// { "status": "done" | "error", "output_url": "https://...", "error": "..." }
+/// ```
+#[derive(Debug, Deserialize)]
+pub struct ResultPayload {
+    pub status: String,
+    #[serde(default)]
+    pub output_url: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[instrument(skip(state, body), fields(job_id = %id, status = %body.status))]
+async fn job_result(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ResultPayload>,
+) -> Result<Json<Job>, ApiError> {
+    let Some(mut job) = state.jobs.get(&id).await else {
+        return Err(ApiError::NotFound);
+    };
+    match body.status.as_str() {
+        "done" | "succeeded" => {
+            let Some(url) = body.output_url else {
+                return Err(ApiError::BadRequest(
+                    "status=done requires output_url".to_string(),
+                ));
+            };
+            job.status = JobStatus::Done;
+            job.output_url = Some(url);
+            job.error = None;
+        }
+        "error" | "failed" => {
+            job.status = JobStatus::Error;
+            job.error = Some(body.error.unwrap_or_else(|| "unknown worker error".into()));
+        }
+        "running" => {
+            job.status = JobStatus::Running;
+        }
+        other => {
+            return Err(ApiError::BadRequest(format!("unknown status: {other}")));
+        }
+    }
     state.jobs.update(job.clone()).await;
     Ok(Json(job))
 }
@@ -245,10 +370,4 @@ impl IntoResponse for ApiError {
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }
-}
-
-// Silence unused-import warning on the default in-memory store.
-#[allow(dead_code)]
-fn _hashmap_witness() -> HashMap<Uuid, RwLock<Job>> {
-    HashMap::new()
 }

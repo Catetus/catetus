@@ -37,5 +37,10 @@ tracing-subscriber = { workspace = true }
 # HTTP client — used to call into the Modal worker for the actual optimize work.
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 
+# Stream adapters — converts axum's body stream into reqwest::Body without
+# buffering. Already pulled in transitively; declaring it explicitly lets
+# the upload handler stream 200 MB splats without touching the workspace deps.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
 # Env config
 dotenvy = "0.15"

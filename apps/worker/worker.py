@@ -12,8 +12,9 @@ Each optimize invocation:
 
 1. Pulls the splat blob from a URL the API hands us (Vercel Blob today).
 2. Runs the pinned ``splatforge`` CLI inside this container's filesystem.
-3. POSTs the resulting SPZ + glTF + report bytes back to the API's status
-   webhook so the caller can transition their job to ``Succeeded``.
+3. Uploads the resulting glTF back to Vercel Blob.
+4. POSTs ``{status: "done", output_url}`` to the API's ``callback_url`` so
+   the caller can transition their job to ``Done`` without polling.
 
 Cost model: the optimize container is single-CPU and scales to zero. A typical
 1M-splat optimize takes ~30 s; at the published Modal rates that's well under
@@ -22,7 +23,6 @@ don't drift mid-flight.
 """
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -72,6 +72,10 @@ app = modal.App("splatforge-worker", image=image)
 # jobs can share staging space without ballooning ephemeral disk.
 volume = modal.Volume.from_name("splatforge-worker-tmp", create_if_missing=True)
 
+# Vercel Blob HTTPS protocol — matches what apps/api uses on the upload path.
+BLOB_HOST = "https://blob.vercel-storage.com"
+BLOB_API_VERSION = "7"
+
 
 # ----------------------------------------------------- optimize core function
 
@@ -81,121 +85,106 @@ volume = modal.Volume.from_name("splatforge-worker-tmp", create_if_missing=True)
     memory=4096,
     timeout=600,
     volumes={"/data": volume},
+    secrets=[modal.Secret.from_name("vercel-blob", required_keys=["BLOB_READ_WRITE_TOKEN"])],
 )
 def run_optimize(
     job_id: str,
     preset: str,
     blob_url: str,
     filename: str,
-    api_status_url: Optional[str] = None,
+    callback_url: Optional[str] = None,
 ) -> dict:
-    """Pull the splat at ``blob_url``, run ``splatforge optimize``, return
-    a result dict the caller can store directly on the Job. Also POSTs the
-    result back to ``api_status_url`` (when set) so the API can mark the job
-    Succeeded / Failed without polling.
+    """Pull the splat at ``blob_url``, run ``splatforge optimize``, upload the
+    result back to Vercel Blob, and POST a callback to the API. Returns the
+    same payload that was POSTed so test harnesses can introspect it.
     """
     work = Path(tempfile.mkdtemp(prefix=f"splat-{job_id}-", dir="/data"))
-    src_path = work / filename
+    src_path = work / (filename or "input.bin")
     out_dir = work / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Download the source splat. Streaming so we don't blow memory on
-    # bicycle-sized scenes (~860 MB).
-    _download(blob_url, src_path)
+    try:
+        # 1. Download the source splat. Streaming so we don't blow memory on
+        # bicycle-sized scenes (~860 MB).
+        _download(blob_url, src_path)
 
-    bytes_in = src_path.stat().st_size
-
-    # 2. Run splatforge optimize → gltf, then convert that gltf → spz so the
-    # caller has the streamable artifact + the canonical glTF side-by-side.
-    gltf_path = out_dir / "scene.gltf"
-    optimize_log = work / "optimize.log"
-    rc = _run_cli(
-        [
-            "splatforge",
-            "optimize",
-            str(src_path),
-            "--preset",
-            preset,
-            "--out",
-            str(gltf_path),
-        ],
-        optimize_log,
-    )
-    if rc != 0:
-        return _ship(
-            api_status_url,
-            job_id,
-            {
-                "status": "failed",
-                "error": _tail(optimize_log, 4096),
-            },
+        # 2. Run splatforge optimize → gltf.
+        gltf_path = out_dir / "optimized.gltf"
+        optimize_log = work / "optimize.log"
+        rc = _run_cli(
+            [
+                "splatforge",
+                "optimize",
+                str(src_path),
+                "--preset",
+                preset,
+                "--out",
+                str(gltf_path),
+            ],
+            optimize_log,
         )
+        if rc != 0 or not gltf_path.exists():
+            payload = {
+                "status": "error",
+                "error": _tail(optimize_log, 4096) or f"splatforge exited {rc}",
+            }
+            return _callback(callback_url, payload)
 
-    spz_path = out_dir / "scene.spz"
-    convert_log = work / "convert.log"
-    rc = _run_cli(
-        [
-            "splatforge",
-            "convert",
-            str(gltf_path),
-            "--to",
-            "spz",
-            "--out",
-            str(spz_path),
-        ],
-        convert_log,
-    )
-    if rc != 0:
-        return _ship(
-            api_status_url,
-            job_id,
-            {
-                "status": "failed",
-                "error": _tail(convert_log, 4096),
-            },
-        )
-
-    bytes_out = spz_path.stat().st_size
-    ratio = float(bytes_in) / float(max(1, bytes_out))
-
-    # 3. Read the analyze report so the API has rich metadata to return.
-    report_path = gltf_path.with_suffix(".json")
-    report = {}
-    if report_path.exists():
+        # 3. Upload the optimized artifact back to Vercel Blob. Same protocol
+        # the API uses for the inbound upload — PUT with bearer token.
+        output_key = f"jobs/{job_id}/optimized.gltf"
         try:
-            report = json.loads(report_path.read_text())
+            output_url = _upload_blob(output_key, gltf_path, "model/gltf+json")
         except Exception as exc:  # noqa: BLE001
-            report = {"_report_parse_error": str(exc)}
+            return _callback(
+                callback_url,
+                {"status": "error", "error": f"output upload failed: {exc}"},
+            )
 
-    result = {
-        "status": "succeeded",
-        "ratio": ratio,
-        "bytes_in": bytes_in,
-        "bytes_out": bytes_out,
-        "report": report,
-        # The API decides how to surface the actual artifact URLs (probably
-        # re-upload to Vercel Blob with a public ACL). For v0 we hand back
-        # the worker-local paths so the API can stream them down or proxy.
-        "spz_path": str(spz_path),
-        "gltf_path": str(gltf_path),
-        "report_path": str(report_path) if report_path.exists() else None,
-    }
-    volume.commit()
-    return _ship(api_status_url, job_id, result)
+        volume.commit()
+        return _callback(
+            callback_url,
+            {"status": "done", "output_url": output_url},
+        )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def _download(url: str, dst: Path) -> None:
     """Stream a remote blob to disk in 4 MB chunks."""
     if url.startswith("blob://stub/"):
-        # API is running in stub mode — for dev we expect a sibling local
-        # fixture sharing the same basename.
         raise RuntimeError(
             "blob URL is a stub; configure BLOB_READ_WRITE_TOKEN on the API "
             "before enqueueing real jobs"
         )
     req = urllib.request.Request(url, headers={"User-Agent": "splatforge-worker/0.1.1"})
-    with urllib.request.urlopen(req, timeout=60) as response, dst.open("wb") as f:
+    with urllib.request.urlopen(req, timeout=300) as response, dst.open("wb") as f:
         shutil.copyfileobj(response, f, length=4 * 1024 * 1024)
+
+
+def _upload_blob(key: str, path: Path, content_type: str) -> str:
+    """PUT ``path`` to Vercel Blob and return the public URL."""
+    import requests  # noqa: PLC0415
+
+    token = os.environ.get("BLOB_READ_WRITE_TOKEN")
+    if not token:
+        raise RuntimeError("BLOB_READ_WRITE_TOKEN not set on worker")
+    url = f"{BLOB_HOST}/{key.lstrip('/')}?addRandomSuffix=0"
+    with path.open("rb") as f:
+        resp = requests.put(
+            url,
+            headers={
+                "authorization": f"Bearer {token}",
+                "x-content-type": content_type,
+                "x-api-version": BLOB_API_VERSION,
+            },
+            data=f,
+            timeout=300,
+        )
+    if resp.status_code >= 300:
+        raise RuntimeError(f"vercel blob PUT {resp.status_code}: {resp.text[:512]}")
+    body = resp.json()
+    return body["url"]
 
 
 def _run_cli(argv: list[str], log_path: Path) -> int:
@@ -216,26 +205,20 @@ def _tail(path: Path, n: int) -> str:
         return f"<could not read log: {exc}>"
 
 
-def _ship(api_status_url: Optional[str], job_id: str, result: dict) -> dict:
-    """POST the result back to the API's status webhook if configured.
-
-    Returning the result alongside is intentional — Modal's ``.spawn()`` caller
-    can poll ``Future.get()`` for the same payload when running synchronously
-    in tests or dev.
+def _callback(callback_url: Optional[str], payload: dict) -> dict:
+    """POST the result back to the API. Best-effort: a failed callback is
+    logged into the returned payload but doesn't raise — the caller can
+    still introspect the spawn future for the result in tests.
     """
-    if not api_status_url:
-        return result
+    if not callback_url:
+        return payload
     try:
         import requests  # noqa: PLC0415
 
-        requests.post(
-            f"{api_status_url.rstrip('/')}/v1/jobs/{job_id}/status",
-            json=result,
-            timeout=10,
-        )
+        requests.post(callback_url, json=payload, timeout=15)
     except Exception as exc:  # noqa: BLE001
-        result["_webhook_error"] = str(exc)
-    return result
+        payload = {**payload, "_callback_error": str(exc)}
+    return payload
 
 
 # ------------------------------------------------------------- web endpoints
@@ -244,22 +227,22 @@ def _ship(api_status_url: Optional[str], job_id: str, result: dict) -> dict:
 @app.function(image=image, cpu=0.25)
 @modal.fastapi_endpoint(method="POST", label="enqueue")
 def enqueue(payload: dict) -> dict:
-    """Accept a job descriptor from the API and spawn ``run_optimize``."""
-    required = ("job_id", "preset", "blob_url", "filename")
+    """Accept a job descriptor from the API and spawn ``run_optimize``.
+
+    Required keys: ``job_id``, ``preset``, ``blob_url``, ``callback_url``.
+    ``filename`` is optional (defaults to ``input.bin`` if omitted).
+    """
+    required = ("job_id", "preset", "blob_url", "callback_url")
     missing = [k for k in required if k not in payload]
     if missing:
         return {"queued": False, "error": f"missing fields: {missing}"}
 
-    api_status_url = os.environ.get("SPLATFORGE_API_URL") or payload.get("api_status_url")
-
-    # ``spawn`` returns immediately; the underlying Modal Function gets its
-    # own container and runs to completion in the background.
     run_optimize.spawn(
         job_id=str(payload["job_id"]),
         preset=str(payload["preset"]),
         blob_url=str(payload["blob_url"]),
-        filename=str(payload["filename"]),
-        api_status_url=api_status_url,
+        filename=str(payload.get("filename") or "input.bin"),
+        callback_url=str(payload["callback_url"]),
     )
     return {"queued": True, "error": None}
 
