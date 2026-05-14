@@ -1,8 +1,11 @@
 ---
-// Drag-drop affordance for an eventual hosted optimize pipeline. Today the
-// backend doesn't exist, but showing the drop zone communicates intent and
-// gives stakeholders a shareable artifact. Drops are intercepted client-side
-// and routed to a GitHub issue (design-partner program).
+// Drag-drop hooked up to the live hosted API. The DO droplet at
+// `splatforge-api` returns a job_id + presigned-upload sentinel; the actual
+// upload→Modal→download path is still ahead of us (Vercel Blob direct
+// upload requires the JS client-token handshake), so for v0.1 the user
+// sees: file dropped → job created → live API echo. That's an honest
+// "yes this is real, not a Figma mockup".
+const apiBase = import.meta.env.PUBLIC_API_BASE ?? "http://167.99.231.209:8080";
 const partnerHref =
   "https://github.com/montabano1/SplatForge/issues/new?title=design-partner-interest&body=Hi%20%E2%80%94%20I%27d%20like%20to%20run%20a%20splat%20through%20SplatForge";
 const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
@@ -15,13 +18,18 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     <div class="icon-stack" aria-hidden="true">
       <span></span><span></span><span></span>
     </div>
-    <div class="headline">Drop a splat to get a SplatBench-style report.</div>
-    <div class="body">
-      The hosted optimize pipeline is in flight for the design-partner program. In the
-      meantime everything the leaderboard shows is reproducible locally —
-      <code>make bench-splatbench</code> regenerates it byte-for-byte on Linux and macOS,
-      and the CLI is one <code>cargo install</code> away.
+    <div class="headline" data-uploader-headline>
+      Drop a splat to register a job with the hosted API.
     </div>
+    <div class="body" data-uploader-body>
+      The drop creates a real job on
+      <code data-api-base>{apiBase}</code> and shows you the job ID it issued.
+      Full upload + optimize round-trip lands once the direct-to-Blob handshake
+      is wired (the design-partner program does it manually today). Everything
+      the leaderboard shows is already reproducible locally via
+      <code>make bench-splatbench</code>.
+    </div>
+    <pre class="api-response" data-api-response hidden></pre>
     <div class="format-chips" aria-label="Supported input formats">
       {supported.map((ext) => <span class="chip">{ext}</span>)}
     </div>
@@ -36,24 +44,134 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
   </div>
 </section>
 
-<script is:inline define:vars={{ partnerHref }}>
+<script is:inline define:vars={{ apiBase, partnerHref }}>
   (function () {
     const zone = document.querySelector("[data-uploader]");
-    if (!(zone instanceof HTMLElement)) return;
+    const headline = document.querySelector("[data-uploader-headline]");
+    const body = document.querySelector("[data-uploader-body]");
+    const out = document.querySelector("[data-api-response]");
+    if (
+      !(zone instanceof HTMLElement) ||
+      !(headline instanceof HTMLElement) ||
+      !(body instanceof HTMLElement) ||
+      !(out instanceof HTMLElement)
+    )
+      return;
+
     const hot = function (e) {
       e.preventDefault();
       zone.classList.add("drag-hover");
     };
-    const cool = function () { zone.classList.remove("drag-hover"); };
+    const cool = function () {
+      zone.classList.remove("drag-hover");
+    };
     zone.addEventListener("dragenter", hot);
     zone.addEventListener("dragover", hot);
     zone.addEventListener("dragleave", cool);
+
+    async function ping() {
+      try {
+        const r = await fetch(apiBase + "/healthz", { method: "GET" });
+        if (!r.ok) return false;
+        const j = await r.json();
+        return j && j.ok === true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function createJob(filename, sizeBytes) {
+      const r = await fetch(apiBase + "/v1/jobs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          preset: "web-mobile",
+          filename: filename,
+          size_bytes: sizeBytes,
+        }),
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error("POST /v1/jobs " + r.status + " — " + text);
+      }
+      return await r.json();
+    }
+
+    async function handleFile(file) {
+      const supportedExts = [".ply", ".spz", ".gltf", ".glb", ".splat"];
+      const lower = file.name.toLowerCase();
+      const ok = supportedExts.some(function (ext) {
+        return lower.endsWith(ext);
+      });
+      if (!ok) {
+        headline.textContent = "Unsupported file type.";
+        body.innerHTML =
+          'Supported: <code>' +
+          supportedExts.join("</code>, <code>") +
+          "</code>. Drop a different file or apply via the design-partner link.";
+        return;
+      }
+      headline.textContent = "Reaching the hosted API…";
+      body.innerHTML =
+        "POST <code>" + apiBase + "/v1/jobs</code> for <code>" + file.name + "</code>";
+      out.hidden = true;
+
+      try {
+        const reachable = await ping();
+        if (!reachable) throw new Error("/healthz did not return ok");
+        const job = await createJob(file.name, file.size);
+        headline.textContent = "Job registered with the hosted API ✓";
+        body.innerHTML =
+          "Direct upload to Vercel Blob is the next step. For now grab the design-partner link to run this through the CLI by hand.";
+        out.textContent = JSON.stringify(job, null, 2);
+        out.hidden = false;
+      } catch (err) {
+        headline.textContent = "Hosted API unreachable.";
+        body.innerHTML =
+          "Falling back to the design-partner intake. The API at <code>" +
+          apiBase +
+          "</code> may be cold or behind a firewall. (" +
+          (err && err.message ? err.message : String(err)) +
+          ")";
+        const a = document.createElement("a");
+        a.href = partnerHref;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = "Open the design-partner form →";
+        out.textContent = "";
+        out.appendChild(a);
+        out.hidden = false;
+      }
+    }
+
     zone.addEventListener("drop", function (e) {
       e.preventDefault();
       cool();
-      // Backend not wired — route to the design-partner intake so the gesture
-      // still produces *some* outcome rather than a dead air drop.
-      window.open(partnerHref, "_blank", "noopener");
+      const file =
+        e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) {
+        void handleFile(file);
+      } else {
+        window.open(partnerHref, "_blank", "noopener");
+      }
     });
   })();
 </script>
+
+<style>
+  .api-response {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin: 10px 0 0 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--fg);
+    overflow-x: auto;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+</style>
