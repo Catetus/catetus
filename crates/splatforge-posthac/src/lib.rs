@@ -108,13 +108,15 @@ pub struct HyperpriorWeights {
 }
 
 /// One row of per-splat hyperprior predictions: mean and stddev for every
-/// attribute column.
+/// attribute column. f64 because the constriction range coder consumes
+/// `Gaussian::new(f64, f64)` internally; round-trip determinism requires
+/// passing the same f64 bits the Python encoder used.
 #[derive(Debug, Clone)]
 pub struct Prediction {
     /// `n_attrs` means (in code space, [0, 255]).
-    pub mean: Vec<f32>,
+    pub mean: Vec<f64>,
     /// `n_attrs` stddevs (in code space).
-    pub std: Vec<f32>,
+    pub std: Vec<f64>,
 }
 
 /// Header describing the PostHAC payload. Wire-formatted at encode time
@@ -257,7 +259,12 @@ pub fn predict(
     let mut feats = vec![0f32; n_feats];
 
     for lvl in 0..(cfg.grid_levels as usize) {
-        let scale = (cfg.base_resolution as f32) * 1.5f32.powi(lvl as i32);
+        // Match Python `int(base_resolution * per_level_scale ** lvl)` — truncate
+        // the per-level resolution to an integer before applying it. Failing to
+        // truncate breaks Python↔Rust bitstream interop because the corner-vertex
+        // hashes differ at level boundaries.
+        let scale_f = (cfg.base_resolution as f32) * 1.5f32.powi(lvl as i32);
+        let scale = scale_f.trunc();
         let mut grid_xyz = [0f32; 3];
         for d in 0..3 {
             grid_xyz[d] = pos[d] * scale;
@@ -311,17 +318,90 @@ pub fn predict(
         out[j] = acc;
     }
     let n_attrs = cfg.n_attrs as usize;
-    let mut mean = vec![0f32; n_attrs];
-    let mut std = vec![0f32; n_attrs];
+    let mut mean = vec![0f64; n_attrs];
+    let mut std = vec![0f64; n_attrs];
+    const MLP_GRID: f32 = 1024.0;
+    const GRID: f64 = (1u64 << 20) as f64;
     for c in 0..n_attrs {
-        // Same unscaling as the Python: mu_code = 64*mu + 128, sigma_code = 64*exp(log_sigma).
-        let mu_code = (64.0 * out[c] + 128.0).clamp(0.0, 255.0);
-        let log_sigma = out[c + n_attrs];
-        let sigma_code = (64.0 * log_sigma.exp()).clamp(0.5, 128.0);
-        mean[c] = mu_code;
-        std[c] = sigma_code;
+        // Round MLP output (f32) to 1/1024 BEFORE casting to f64. This absorbs
+        // any 1-ULP drift between PyTorch BLAS and the naive Rust matmul.
+        let mu_raw = (out[c] * MLP_GRID).round() / MLP_GRID;
+        let log_sigma_raw = (out[c + n_attrs].clamp(-7.0, 7.0) * MLP_GRID).round() / MLP_GRID;
+        // Then cast to f64 for the exp() step (IEEE-stable across platforms).
+        let mu_code = (64.0 * (mu_raw as f64) + 128.0).clamp(0.0, 255.0);
+        let sigma_code = (64.0 * (log_sigma_raw as f64).exp()).clamp(0.5, 128.0);
+        // Snap one more time to 1/2^20 f64 grid for safety.
+        let mu_q = (mu_code * GRID).round() / GRID;
+        let sigma_q = (sigma_code * GRID).round() / GRID;
+        mean[c] = mu_q;
+        std[c] = sigma_q;
     }
     Prediction { mean, std }
+}
+
+/// Write hyperprior weights after the header. Layout (all little-endian
+/// f32): grid_tables (sum of `levels * 2^log2 * features` floats),
+/// fc1_w, fc1_b, fc2_w, fc2_b. Sizes are derived from the
+/// `HyperpriorConfig` in the header so no extra length fields are
+/// needed.
+pub fn write_weights<W: Write>(
+    w: &mut W,
+    cfg: &HyperpriorConfig,
+    wts: &HyperpriorWeights,
+) -> Result<(), PostHacError> {
+    let table_len = (cfg.grid_levels as usize)
+        * (1usize << cfg.log2_hashmap_size)
+        * (cfg.features_per_level as usize);
+    debug_assert_eq!(wts.grid_tables.len(), table_len);
+    for v in &wts.grid_tables {
+        w.write_f32::<LittleEndian>(*v)?;
+    }
+    let n_feats = (cfg.grid_levels as usize) * (cfg.features_per_level as usize);
+    let h_size = cfg.mlp_hidden as usize;
+    let out_size = 2 * cfg.n_attrs as usize;
+    debug_assert_eq!(wts.fc1_w.len(), h_size * n_feats);
+    debug_assert_eq!(wts.fc1_b.len(), h_size);
+    debug_assert_eq!(wts.fc2_w.len(), out_size * h_size);
+    debug_assert_eq!(wts.fc2_b.len(), out_size);
+    for arr in [&wts.fc1_w, &wts.fc1_b, &wts.fc2_w, &wts.fc2_b] {
+        for v in arr {
+            w.write_f32::<LittleEndian>(*v)?;
+        }
+    }
+    Ok(())
+}
+
+/// Read hyperprior weights from a stream (the inverse of `write_weights`).
+pub fn read_weights<R: Read>(
+    r: &mut R,
+    cfg: &HyperpriorConfig,
+) -> Result<HyperpriorWeights, PostHacError> {
+    let table_len = (cfg.grid_levels as usize)
+        * (1usize << cfg.log2_hashmap_size)
+        * (cfg.features_per_level as usize);
+    let mut grid_tables = vec![0f32; table_len];
+    for v in grid_tables.iter_mut() {
+        *v = r.read_f32::<LittleEndian>()?;
+    }
+    let n_feats = (cfg.grid_levels as usize) * (cfg.features_per_level as usize);
+    let h_size = cfg.mlp_hidden as usize;
+    let out_size = 2 * cfg.n_attrs as usize;
+    let mut fc1_w = vec![0f32; h_size * n_feats];
+    let mut fc1_b = vec![0f32; h_size];
+    let mut fc2_w = vec![0f32; out_size * h_size];
+    let mut fc2_b = vec![0f32; out_size];
+    for arr in [&mut fc1_w, &mut fc1_b, &mut fc2_w, &mut fc2_b] {
+        for v in arr.iter_mut() {
+            *v = r.read_f32::<LittleEndian>()?;
+        }
+    }
+    Ok(HyperpriorWeights {
+        grid_tables,
+        fc1_w,
+        fc1_b,
+        fc2_w,
+        fc2_b,
+    })
 }
 
 /// Encode a stream of 8-bit attribute codes against per-splat predicted
@@ -362,8 +442,8 @@ pub fn encode_codes(
     for c in 0..d {
         for s in 0..n {
             let symbol = codes[s * d + c] as i32;
-            let mean = predictions[s].mean[c] as f64;
-            let std = (predictions[s].std[c] as f64).max(0.5);
+            let mean = predictions[s].mean[c];
+            let std = predictions[s].std[c].max(0.5);
             let model = quantizer.quantize(Gaussian::new(mean, std));
             encoder
                 .encode_symbol(symbol, model)
@@ -392,8 +472,8 @@ pub fn decode_codes(
     let mut out = vec![0u8; n * d];
     for c in 0..d {
         for s in 0..n {
-            let mean = predictions[s].mean[c] as f64;
-            let std = (predictions[s].std[c] as f64).max(0.5);
+            let mean = predictions[s].mean[c];
+            let std = predictions[s].std[c].max(0.5);
             let model = quantizer.quantize(Gaussian::new(mean, std));
             let symbol = decoder
                 .decode_symbol(model)
@@ -443,6 +523,65 @@ mod tests {
         assert!(c < (1 << 15));
     }
 
+    fn small_cfg() -> HyperpriorConfig {
+        HyperpriorConfig {
+            grid_levels: 2,
+            features_per_level: 2,
+            log2_hashmap_size: 4,
+            base_resolution: 4,
+            mlp_hidden: 4,
+            n_attrs: 3,
+        }
+    }
+
+    fn weights_for(cfg: &HyperpriorConfig) -> HyperpriorWeights {
+        let table_len = (cfg.grid_levels as usize)
+            * (1usize << cfg.log2_hashmap_size)
+            * (cfg.features_per_level as usize);
+        let n_feats = (cfg.grid_levels as usize) * (cfg.features_per_level as usize);
+        let h = cfg.mlp_hidden as usize;
+        let out = 2 * cfg.n_attrs as usize;
+        HyperpriorWeights {
+            grid_tables: (0..table_len).map(|i| i as f32 * 1e-3).collect(),
+            fc1_w: (0..h * n_feats).map(|i| (i as f32) * 1e-2).collect(),
+            fc1_b: vec![0.1f32; h],
+            fc2_w: (0..out * h).map(|i| (i as f32) * 1e-2).collect(),
+            fc2_b: vec![0.0f32; out],
+        }
+    }
+
+    #[test]
+    fn weights_roundtrip() {
+        let cfg = small_cfg();
+        let wts = weights_for(&cfg);
+        let mut buf = Vec::new();
+        write_weights(&mut buf, &cfg, &wts).unwrap();
+        let mut cursor = Cursor::new(&buf);
+        let wts2 = read_weights(&mut cursor, &cfg).unwrap();
+        assert_eq!(wts.grid_tables, wts2.grid_tables);
+        assert_eq!(wts.fc1_w, wts2.fc1_w);
+        assert_eq!(wts.fc1_b, wts2.fc1_b);
+        assert_eq!(wts.fc2_w, wts2.fc2_w);
+        assert_eq!(wts.fc2_b, wts2.fc2_b);
+    }
+
+    #[test]
+    fn predict_is_deterministic() {
+        let cfg = small_cfg();
+        let wts = weights_for(&cfg);
+        let p1 = predict([0.5, 0.5, 0.5], &cfg, &wts);
+        let p2 = predict([0.5, 0.5, 0.5], &cfg, &wts);
+        assert_eq!(p1.mean, p2.mean);
+        assert_eq!(p1.std, p2.std);
+        // All means clamped to [0, 255] and stds to [0.5, 128].
+        for &m in &p1.mean {
+            assert!((0.0..=255.0).contains(&m));
+        }
+        for &s in &p1.std {
+            assert!((0.5..=128.0).contains(&s));
+        }
+    }
+
     #[test]
     fn roundtrip_small_scene() {
         // Encode 100 splats × 4 attrs with random codes + predictions,
@@ -455,7 +594,7 @@ mod tests {
         }
         let predictions: Vec<Prediction> = (0..n)
             .map(|i| Prediction {
-                mean: (0..d).map(|c| ((i * 17 + c * 23) % 256) as f32).collect(),
+                mean: (0..d).map(|c| ((i * 17 + c * 23) % 256) as f64).collect(),
                 std: vec![32.0; d],
             })
             .collect();

@@ -21,3 +21,23 @@ wasm    = []
 
 [dev-dependencies]
 splatforge-ply = { workspace = true }
+
+[[test]]
+name = "interop_python"
+path = "tests/interop_python.rs"
+
+[[test]]
+name = "feature_compare"
+path = "tests/feature_compare.rs"
+
+[[test]]
+name = "encode_minimal"
+path = "tests/encode_minimal.rs"
+
+[[test]]
+name = "encode_batches"
+path = "tests/encode_batches.rs"
+
+[[test]]
+name = "find_divergence"
+path = "tests/find_divergence.rs"
