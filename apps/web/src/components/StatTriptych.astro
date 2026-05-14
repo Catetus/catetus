@@ -8,7 +8,8 @@ import { splatbench } from "../lib/splatbench";
 // Pull the bonsai scene out of the report for the headline numbers.
 const bonsai = splatbench.scenes.find((s) => s.id === "bonsai_mipnerf360_iter7k");
 const ratio = bonsai ? bonsai.webMobileRatio : splatbench.aggregates.webMobileRatioMax;
-const deltaE = bonsai?.fidelity?.deltaE94;
+const deltaE = bonsai?.fidelity?.webMobile?.meanDeltaE94;
+const mlScore = bonsai?.fidelity?.webMobile?.mlScore;
 
 // `analyzeMs` is the analyze pass alone — for the optimize-+-pack story we
 // quote the bonsai-demo number explicitly (730 ms wall-clock on aarch64).
