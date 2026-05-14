@@ -1575,6 +1575,7 @@ dependencies = [
  "splatforge-optimize",
  "splatforge-ply",
  "splatforge-spz",
+ "tempfile",
  "thiserror 1.0.69",
  "tracing",
  "tracing-subscriber",
