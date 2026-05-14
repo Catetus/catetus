@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ML Score column on SplatBench leaderboard.** A new `ML Score (pro)` column
+  appears on `benches/reports/splatbench-v0.{md,html,json}` and on the live
+  Astro site at `splatforge.vercel.app`. Values are computed by
+  `splatforge-pro` — a proprietary build that scores rendered vs. baseline
+  frames with a splat-aware perceptual metric tuned for Gaussian-splat failure
+  modes (floater ghosting, edge breakdown, specular pop). Values are
+  **published**; reproducing them requires the proprietary binary. This is
+  the first column on the benchmark that is asymmetrically reproducible —
+  corpus + formats + viewer stay open, the differentiated scoring stays
+  private. First values: `floater_proxy / size-min` 88.65% ML
+  (correctly fingerprints the floater failure ΔE94 also flags),
+  `bicycle / *` ~88.6% ML, the rest 99.84-99.97%.
+- **`apps/web` leaderboard** now actually renders the fidelity columns from
+  the v0.1.1 ΔE94 numbers — the prior wiring referenced a legacy
+  `fidelity.deltaE94` shape that never matched what `splatbench-update.mjs`
+  emits. `SceneFidelity` aligned to the real `webMobile`/`sizeMin`
+  sub-objects, `hasAnyMlScore()` + `fidelityFor()` helpers added.
 - **SPEC-0013** (`KHR_mesh_quantization` for splat attributes) implemented. The
   Rust glTF writer now emits POSITION as `UNSIGNED_SHORT` and
   `_SCALE` / `_OPACITY` / `_COLOR_DC` as `UNSIGNED_BYTE` (normalized, with
