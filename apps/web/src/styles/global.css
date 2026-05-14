@@ -742,6 +742,50 @@ table.leaderboard tbody tr:last-child td {
   font-size: 13px;
 }
 
+.controls .filter-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  margin: 0 6px;
+}
+.controls .filter-label {
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+.controls .filter-chips {
+  display: inline-flex;
+  gap: 6px;
+}
+.controls .chip {
+  background: var(--bg-elev);
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.controls .chip:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+.controls .chip.is-active {
+  background: rgba(125, 211, 252, 0.10);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.controls .filter-count {
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-left: 4px;
+}
+
 /* --- Try-it drag-drop --- */
 .try-section {
   /* nothing special, section-head + dropzone do the work */
