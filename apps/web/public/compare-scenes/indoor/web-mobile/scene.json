@@ -1,0 +1,91 @@
+{
+  "splats_before": 100000,
+  "splats_after": 100000,
+  "passes": [
+    {
+      "name": "RemoveInvalidSplats",
+      "stats": {
+        "removed": 0,
+        "modified": 0,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "OpacityPrune",
+      "stats": {
+        "removed": 0,
+        "modified": 0,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "FloaterPrune",
+      "stats": {
+        "removed": 0,
+        "modified": 0,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "QuantizePosition",
+      "stats": {
+        "removed": 0,
+        "modified": 299267,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "QuantizeScale",
+      "stats": {
+        "removed": 0,
+        "modified": 299094,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "QuantizeRotation",
+      "stats": {
+        "removed": 0,
+        "modified": 399989,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "ReduceSHDegree",
+      "stats": {
+        "removed": 0,
+        "modified": 100000,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "MortonSort",
+      "stats": {
+        "removed": 0,
+        "modified": 100000,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "BuildLOD",
+      "stats": {
+        "removed": 0,
+        "modified": 0,
+        "duration_ms": 0,
+        "notes": [
+          "LOD0 count=100000",
+          "LOD1 fraction=0.5 stride=2 count=50000",
+          "LOD2 fraction=0.25 stride=4 count=25000"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,371 @@
+---
+// /compare — side-by-side viewer comparing presets on the same scene.
+// Two synced canvases, web-mobile on the left, size-min on the right.
+// User picks the scene; the auto-orbit camera path is identical on both,
+// so what you're seeing is *only* the difference the preset choice made.
+import Base from "../layouts/Base.astro";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+
+// Scenes baked into apps/web/public/compare-scenes/<scene>/<preset>/scene.gltf.
+// ML / ΔE94 numbers come from benches/reports/splatbench-v0.json (frozen at
+// build time; copy via scripts/sync-data.mjs).
+const scenes = [
+  {
+    id: "product",
+    label: "splatbench_product_proxy",
+    blurb:
+      "Clean reference — both presets pass cleanly. Visual difference is essentially nil.",
+    presets: {
+      "web-mobile": { ml: 0.9944, dE94: 0.0002, status: "pass", bytes: "112 KB" },
+      "size-min": { ml: 0.9928, dE94: 0.0004, status: "pass", bytes: "112 KB" },
+    },
+  },
+  {
+    id: "indoor",
+    label: "splatbench_indoor_proxy",
+    blurb:
+      "Moderate scene. size-min sheds a small amount of fidelity; both still pass at the 3% ΔE94 threshold.",
+    presets: {
+      "web-mobile": { ml: 0.9931, dE94: 0.0003, status: "pass", bytes: "1.2 MB" },
+      "size-min": { ml: 0.9856, dE94: 0.0010, status: "pass", bytes: "1.2 MB" },
+    },
+  },
+  {
+    id: "floater",
+    label: "splatbench_floater_proxy",
+    blurb:
+      "The failure case. size-min loses 14.5% ΔE94 — visible ghosting from over-pruned low-opacity splats. ML Score correctly drops to 46%. Web-mobile is fine.",
+    presets: {
+      "web-mobile": { ml: 0.9579, dE94: 0.0009, status: "pass", bytes: "2.6 MB" },
+      "size-min": { ml: 0.4593, dE94: 0.1448, status: "fail", bytes: "2.5 MB" },
+    },
+  },
+];
+
+const title = "SplatForge — Visual compare";
+const description =
+  "Side-by-side viewer comparing web-mobile vs size-min presets on identical scenes. Synced orbit, real WebGPU/WebGL2 splat rendering.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/#leaderboard">SplatBench</a>
+      <a href="/#try">Try it</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <section class="compare-section">
+    <div class="section-head">
+      <h2 class="section-title">Compare presets, side-by-side</h2>
+      <p class="section-sub">
+        Two real <code>@splatforge/viewer</code> instances, identical orbit
+        camera, two different output presets. Pick a scene — what you see
+        on the right is the only thing the preset choice changed.
+      </p>
+    </div>
+
+    <div class="compare-controls">
+      <label class="compare-label" for="scene-select">Scene</label>
+      <select id="scene-select" data-scene-select>
+        {scenes.map((s) => (
+          <option value={s.id}>{s.label}</option>
+        ))}
+      </select>
+      <p class="compare-blurb" data-scene-blurb>{scenes[0].blurb}</p>
+    </div>
+
+    <div class="compare-grid">
+      <div class="compare-card">
+        <div class="compare-card-head">
+          <h3>web-mobile</h3>
+          <span class="ml-tag">default</span>
+        </div>
+        <div class="splat-stage compare-stage">
+          <canvas class="hero-canvas" data-compare-left></canvas>
+          <div class="splat-frame"></div>
+          <div class="splat-caption">
+            <span class="live" data-status-left>booting…</span>
+            <span class="tabular" data-meta-left></span>
+          </div>
+        </div>
+        <div class="compare-metrics" data-metrics-left></div>
+      </div>
+
+      <div class="compare-card">
+        <div class="compare-card-head">
+          <h3>size-min</h3>
+          <span class="ml-tag">aggressive</span>
+        </div>
+        <div class="splat-stage compare-stage">
+          <canvas class="hero-canvas" data-compare-right></canvas>
+          <div class="splat-frame"></div>
+          <div class="splat-caption">
+            <span class="live" data-status-right>booting…</span>
+            <span class="tabular" data-meta-right></span>
+          </div>
+        </div>
+        <div class="compare-metrics" data-metrics-right></div>
+      </div>
+    </div>
+
+    <p class="compare-footnote">
+      Tip: the floater scene at <code>size-min</code> is the only one in the
+      corpus that hits the fail threshold. Switch to it to see what 14.5%
+      ΔE94 looks like as visible ghosting around the low-opacity splats.
+    </p>
+  </section>
+
+  <footer class="site-footer">
+    <span>
+      <a href="/">← back to splatforge</a>
+    </span>
+    <span>
+      Viewer: WebGPU (Chromium/Edge) · WebGL2 fallback (Safari/Firefox)
+    </span>
+  </footer>
+</Base>
+
+<style>
+  .compare-section {
+    margin-top: 32px;
+  }
+  .compare-controls {
+    margin-bottom: 26px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .compare-label {
+    font-family: var(--mono);
+    color: var(--fg-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  #scene-select {
+    background: var(--bg-elev);
+    color: var(--fg);
+    border: 1px solid var(--line-strong);
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .compare-blurb {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 14px;
+    line-height: 1.55;
+    flex: 1 1 320px;
+  }
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 880px) {
+    .compare-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .compare-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .compare-card-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .compare-card-head h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--fg);
+  }
+  .compare-stage {
+    aspect-ratio: 4 / 3;
+  }
+  .compare-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-elev);
+  }
+  .compare-metric {
+    padding: 10px 12px;
+    border-right: 1px solid var(--line);
+  }
+  .compare-metric:last-child {
+    border-right: 0;
+  }
+  .compare-metric-label {
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  .compare-metric-value {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+  }
+  .compare-metric-value.fail {
+    color: var(--bad);
+  }
+  .compare-metric-value.pass {
+    color: var(--good);
+  }
+  .compare-footnote {
+    margin-top: 28px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(125, 211, 252, 0.04);
+    color: var(--fg-muted);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+</style>
+
+<script is:inline define:vars={{ scenes }}>
+  (function () {
+    const select = document.querySelector("[data-scene-select]");
+    const blurb = document.querySelector("[data-scene-blurb]");
+    const leftCanvas = document.querySelector("[data-compare-left]");
+    const rightCanvas = document.querySelector("[data-compare-right]");
+    const statusLeft = document.querySelector("[data-status-left]");
+    const statusRight = document.querySelector("[data-status-right]");
+    const metaLeft = document.querySelector("[data-meta-left]");
+    const metaRight = document.querySelector("[data-meta-right]");
+    const metricsLeft = document.querySelector("[data-metrics-left]");
+    const metricsRight = document.querySelector("[data-metrics-right]");
+
+    if (
+      !(select instanceof HTMLSelectElement) ||
+      !(blurb instanceof HTMLElement) ||
+      !(leftCanvas instanceof HTMLCanvasElement) ||
+      !(rightCanvas instanceof HTMLCanvasElement)
+    )
+      return;
+
+    let leftViewer = null;
+    let rightViewer = null;
+    let Viewer = null;
+
+    function fmt(v, digits) {
+      return (v * 100).toFixed(digits || 2) + "%";
+    }
+
+    function renderMetrics(el, metrics, status) {
+      el.innerHTML =
+        '<div class="compare-metric">' +
+        '<div class="compare-metric-label">ML Score</div>' +
+        '<div class="compare-metric-value">' + fmt(metrics.ml) + "</div>" +
+        "</div>" +
+        '<div class="compare-metric">' +
+        '<div class="compare-metric-label">ΔE94 mean</div>' +
+        '<div class="compare-metric-value">' + fmt(metrics.dE94) + "</div>" +
+        "</div>" +
+        '<div class="compare-metric">' +
+        '<div class="compare-metric-label">Status</div>' +
+        '<div class="compare-metric-value ' + status + '">' + status + "</div>" +
+        "</div>";
+    }
+
+    function sizeCanvas(c) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = c.getBoundingClientRect();
+      c.width = Math.max(1, Math.floor(rect.width * dpr));
+      c.height = Math.max(1, Math.floor(rect.height * dpr));
+    }
+
+    async function loadViewer() {
+      if (Viewer) return Viewer;
+      const mod = await import(/* @vite-ignore */ "/viewer/index.js");
+      Viewer = mod.SplatForgeViewer;
+      return Viewer;
+    }
+
+    async function spawn(canvas, sceneId, preset, statusEl, metaEl) {
+      sizeCanvas(canvas);
+      try {
+        const ViewerCtor = await loadViewer();
+        const v = new ViewerCtor({
+          canvas,
+          src: "/compare-scenes/" + sceneId + "/" + preset + "/scene.gltf",
+          cameraPath: "orbit-8",
+          budget: "web-mobile",
+          autoRotate: true,
+          autoRotateSpeed: 7,
+        });
+        v.on("firstRender", function () {
+          if (statusEl) statusEl.textContent = preset + " · live";
+        });
+        v.on("error", function (p) {
+          const code = (p && p.code) ? p.code : "unknown";
+          if (statusEl) statusEl.textContent = "offline (" + code + ")";
+        });
+        await v.load();
+        return v;
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "viewer failed";
+        console.warn("[compare] viewer init failed for", sceneId, preset, err);
+        return null;
+      }
+    }
+
+    async function reload(sceneId) {
+      const scene = scenes.find(function (s) { return s.id === sceneId; });
+      if (!scene) return;
+      blurb.textContent = scene.blurb;
+
+      // Tear down any existing viewers cleanly before re-loading.
+      if (leftViewer && typeof leftViewer.destroy === "function") {
+        try { leftViewer.destroy(); } catch (_) {}
+      }
+      if (rightViewer && typeof rightViewer.destroy === "function") {
+        try { rightViewer.destroy(); } catch (_) {}
+      }
+      leftViewer = null;
+      rightViewer = null;
+      statusLeft.textContent = "loading…";
+      statusRight.textContent = "loading…";
+
+      metaLeft.textContent = "web-mobile · " + scene.presets["web-mobile"].bytes;
+      metaRight.textContent = "size-min · " + scene.presets["size-min"].bytes;
+      renderMetrics(metricsLeft, scene.presets["web-mobile"], scene.presets["web-mobile"].status);
+      renderMetrics(metricsRight, scene.presets["size-min"], scene.presets["size-min"].status);
+
+      // Kick off both loads in parallel so the orbits stay roughly in sync.
+      const [l, r] = await Promise.all([
+        spawn(leftCanvas, sceneId, "web-mobile", statusLeft, metaLeft),
+        spawn(rightCanvas, sceneId, "size-min", statusRight, metaRight),
+      ]);
+      leftViewer = l;
+      rightViewer = r;
+    }
+
+    select.addEventListener("change", function () {
+      void reload(select.value);
+    });
+    void reload(select.value);
+  })();
+</script>
