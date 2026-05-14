@@ -3,6 +3,7 @@ import Base from "../layouts/Base.astro";
 import Hero from "../components/Hero.astro";
 import StatTriptych from "../components/StatTriptych.astro";
 import Install from "../components/Install.astro";
+import Docs from "../components/Docs.astro";
 import Leaderboard from "../components/Leaderboard.astro";
 import TryIt from "../components/TryIt.astro";
 import { splatbench } from "../lib/splatbench";
@@ -21,8 +22,9 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
       splatforge
     </a>
     <div class="nav-links">
+      <a href="#docs">Quickstart</a>
       <a href="#leaderboard">SplatBench</a>
-      <a href={`${githubUrl}#getting-started`} target="_blank" rel="noreferrer noopener">Docs</a>
+      <a href="#try">Try it</a>
       <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
     </div>
   </nav>
@@ -30,6 +32,7 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
   <Hero />
   <StatTriptych />
   <Install />
+  <Docs />
   <Leaderboard />
   <TryIt />
 
