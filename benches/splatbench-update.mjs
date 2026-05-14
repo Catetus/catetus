@@ -118,6 +118,15 @@ for (const scene of splatbench.scenes) {
       psnrOpacityPruneDb: dr.psnr_opacity_prune_db,
       psnrDeltaDb: dr.psnr_delta_db,
     };
+    // Optional multi-seed annotations (v0.1.1+). Present whenever the row
+    // was produced from an N>1 sweep; absent means "single-run number,
+    // treat as noisy" — the HTML displays a `—` instead of `± stdev` for
+    // those.
+    if (typeof dr.seed_count === 'number') scene.repack.seedCount = dr.seed_count;
+    if (typeof dr.psnr_delta_db_mean === 'number') scene.repack.psnrDeltaDbMean = dr.psnr_delta_db_mean;
+    if (typeof dr.psnr_delta_db_stdev === 'number') scene.repack.psnrDeltaDbStdev = dr.psnr_delta_db_stdev;
+    if (typeof dr.psnr_delta_db_min === 'number') scene.repack.psnrDeltaDbMin = dr.psnr_delta_db_min;
+    if (typeof dr.psnr_delta_db_max === 'number') scene.repack.psnrDeltaDbMax = dr.psnr_delta_db_max;
   }
 }
 writeFileSync(SPLATBENCH_JSON, JSON.stringify(splatbench, null, 2) + '\n');
@@ -156,9 +165,18 @@ const newDataLines = dataLines.map((line) => {
   const mlField = (m) => (m?.mlScore ? `, ml:${m.mlScore.mean.toFixed(4)}` : '');
   const fidelityField = `, fidelity:{ webMobile:{ mean:${f.deltaE94.mean.toFixed(4)}, max:${f.deltaE94.max.toFixed(4)}, status:"${f.status}"${mlField(f)} }, sizeMin:{ mean:${g.deltaE94.mean.toFixed(4)}, max:${g.deltaE94.max.toFixed(4)}, status:"${g.status}"${mlField(g)} } }`;
   const dr = diffRepackById.get(id);
-  const repackField = dr
-    ? `, repack:{ deltaDb:${dr.psnr_delta_db.toFixed(2)}, repackDb:${dr.psnr_repack_db.toFixed(2)}, pruneDb:${dr.psnr_opacity_prune_db.toFixed(2)} }`
-    : '';
+  let repackField = '';
+  if (dr) {
+    const extras = [];
+    if (typeof dr.psnr_delta_db_stdev === 'number') {
+      extras.push(`stdev:${dr.psnr_delta_db_stdev.toFixed(2)}`);
+    }
+    if (typeof dr.seed_count === 'number') {
+      extras.push(`n:${dr.seed_count}`);
+    }
+    const extrasField = extras.length ? `, ${extras.join(', ')}` : '';
+    repackField = `, repack:{ deltaDb:${dr.psnr_delta_db.toFixed(2)}, repackDb:${dr.psnr_repack_db.toFixed(2)}, pruneDb:${dr.psnr_opacity_prune_db.toFixed(2)}${extrasField} }`;
+  }
   // Strip any prior `, fidelity:{...}` AND `, repack:{...}` blocks so
   // re-runs don't duplicate fields.
   const stripped = line
@@ -273,8 +291,16 @@ function fmtRepack(r) {
   const d = r.repack.deltaDb;
   const sign = d >= 0 ? "+" : "";
   const cls = d >= 0 ? "repack-win" : "repack-loss";
-  const title = d < 0 ? ' title="Repack loses to opacity-prune on this scene. Translucent volumes are a structural failure mode for saliency-based hard-pruning."' : "";
-  return '<span class="' + cls + '"' + title + '>' + sign + d.toFixed(2) + ' dB</span>';
+  const hasStdev = typeof r.repack.stdev === "number";
+  const hasN = typeof r.repack.n === "number";
+  const stdevSuffix = hasStdev ? " ± " + r.repack.stdev.toFixed(2) : "";
+  const nSuffix = hasN ? " (n=" + r.repack.n + ")" : "";
+  const baseTitle = d < 0
+    ? "Repack loses to opacity-prune on this scene. Translucent volumes are a structural failure mode for saliency-based hard-pruning."
+    : "Median improvement of differentiable-repack over opacity-prune at the same byte budget.";
+  const seedNote = hasN ? " " + r.repack.n + "-seed median ± stdev." : " Single-seed number — treat as noisy.";
+  const title = ' title="' + baseTitle + seedNote + '"';
+  return '<span class="' + cls + '"' + title + '>' + sign + d.toFixed(2) + " dB" + stdevSuffix + nSuffix + '</span>';
 }
 // repack-helper-end
 `;
