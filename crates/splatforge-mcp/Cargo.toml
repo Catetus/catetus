@@ -10,6 +10,9 @@ description = "Model Context Protocol server for SplatForge — exposes analyze/
 name = "splatforge-mcp"
 path = "src/main.rs"
 
+[dev-dependencies]
+tempfile = "3"
+
 [dependencies]
 splatforge-core      = { workspace = true }
 splatforge-ply       = { workspace = true }

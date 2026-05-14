@@ -1219,6 +1219,74 @@ mod tests {
     }
 
     #[test]
+    fn generate_lod_pyramid_emits_correct_splat_counts() {
+        // Use a synthetic SplatBench scene that's small enough for the
+        // test suite — 8K-splat product-scan PLY ships with the repo.
+        let tmp = tempfile::tempdir().unwrap();
+        let out_dir = tmp.path().to_path_buf();
+        let resp = dispatch(req(
+            13,
+            "tools/call",
+            json!({
+                "name": "splatforge.generate_lod_pyramid",
+                "arguments": {
+                    "input": {
+                        "kind": "path",
+                        "path": "../../benches/scenes/splatbench_specular_proxy.ply"
+                    },
+                    "ratios": [1.0, 0.5, 0.25],
+                    "out_dir": out_dir.display().to_string(),
+                }
+            }),
+        ));
+        assert_eq!(resp["result"]["isError"], false, "tool errored: {:?}", resp);
+        let pyramid = resp["result"]["structuredContent"]["pyramid"]
+            .as_array()
+            .unwrap();
+        assert_eq!(pyramid.len(), 3);
+        let splats_in =
+            resp["result"]["structuredContent"]["splatsIn"].as_u64().unwrap();
+        // r=1.0 must emit exactly the input count; r=0.5 ≈ half; r=0.25 ≈ quarter.
+        let counts: Vec<u64> = pyramid
+            .iter()
+            .map(|p| p["splatCount"].as_u64().unwrap())
+            .collect();
+        assert_eq!(counts[0], splats_in);
+        let half = splats_in / 2;
+        assert!(
+            (counts[1] as i64 - half as i64).abs() <= 1,
+            "r=0.5 emitted {} vs expected ~{}", counts[1], half
+        );
+        let quarter = splats_in / 4;
+        assert!(
+            (counts[2] as i64 - quarter as i64).abs() <= 1,
+            "r=0.25 emitted {} vs expected ~{}", counts[2], quarter
+        );
+        // Every emitted file exists and is non-empty.
+        for level in pyramid {
+            let p = level["path"].as_str().unwrap();
+            let m = std::fs::metadata(p).unwrap();
+            assert!(m.len() > 1024, "{p} is suspiciously small ({} bytes)", m.len());
+        }
+    }
+
+    #[test]
+    fn generate_lod_pyramid_rejects_out_of_range_ratio() {
+        let resp = dispatch(req(
+            14,
+            "tools/call",
+            json!({
+                "name": "splatforge.generate_lod_pyramid",
+                "arguments": {
+                    "input": { "kind": "path", "path": "/dev/null" },
+                    "ratios": [1.5],
+                }
+            }),
+        ));
+        assert_eq!(resp["result"]["isError"], true);
+    }
+
+    #[test]
     fn find_similar_scenes_returns_neighbors_in_distance_order() {
         let resp = dispatch(req(
             10,

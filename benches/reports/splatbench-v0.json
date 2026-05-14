@@ -75,7 +75,9 @@
         "psnrDeltaDbStdev": 1.822,
         "psnrDeltaDbMin": 4.15,
         "psnrDeltaDbMax": 8.849
-      }
+      },
+      "webMobileZstdBytes": 15480527,
+      "webMobileZstdRatio": 18.54
     },
     {
       "id": "bicycle_mipnerf360_iter7k",
@@ -1175,8 +1177,8 @@
     "fidelityWebMobilePass": 16,
     "fidelitySizeMinPass": 16,
     "webMobileZstdRatioMin": 10.25,
-    "webMobileZstdRatioMedian": 20.43,
+    "webMobileZstdRatioMedian": 20.21,
     "webMobileZstdRatioMax": 29.17,
-    "webMobileZstdScenesCovered": 14
+    "webMobileZstdScenesCovered": 15
   }
 }
