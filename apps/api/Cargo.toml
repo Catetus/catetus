@@ -1,0 +1,41 @@
+[package]
+name = "splatforge-api"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hosted optimize API for SplatForge — Axum endpoint that hands jobs off to the Modal worker."
+
+[[bin]]
+name = "splatforge-api"
+path = "src/main.rs"
+
+[dependencies]
+splatforge-core = { workspace = true }
+
+# Web stack — Axum is the canonical Rust HTTP server for this kind of API,
+# integrates cleanly with tokio and tower middleware.
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1.40", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# IDs + time
+uuid = { version = "1.10", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Errors + tracing
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# HTTP client — used to call into the Modal worker for the actual optimize work.
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+
+# Env config
+dotenvy = "0.15"
