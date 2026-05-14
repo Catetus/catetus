@@ -67,9 +67,9 @@
         "splatsOut": 578573,
         "bytesIn": 286972500,
         "bytesOut": 143487635,
-        "psnrRepackDb": 38.316,
+        "psnrRepackDb": 38.326,
         "psnrOpacityPruneDb": 31.918,
-        "psnrDeltaDb": 6.398
+        "psnrDeltaDb": 6.408
       }
     },
     {
@@ -132,9 +132,9 @@
         "splatsOut": 1808054,
         "bytesIn": 896795076,
         "bytesOut": 448398924,
-        "psnrRepackDb": 34.425,
+        "psnrRepackDb": 34.623,
         "psnrOpacityPruneDb": 29.638,
-        "psnrDeltaDb": 4.788
+        "psnrDeltaDb": 4.986
       }
     },
     {
@@ -197,9 +197,9 @@
         "splatsOut": 5003,
         "bytesIn": 2481530,
         "bytesOut": 1242273,
-        "psnrRepackDb": 32.709,
+        "psnrRepackDb": 31.774,
         "psnrOpacityPruneDb": 18.221,
-        "psnrDeltaDb": 14.487
+        "psnrDeltaDb": 13.553
       }
     },
     {
@@ -262,9 +262,9 @@
         "splatsOut": 50003,
         "bytesIn": 24801531,
         "bytesOut": 12402274,
-        "psnrRepackDb": 23.216,
+        "psnrRepackDb": 23.825,
         "psnrOpacityPruneDb": 16.675,
-        "psnrDeltaDb": 6.541
+        "psnrDeltaDb": 7.15
       }
     },
     {
@@ -327,9 +327,9 @@
         "splatsOut": 125003,
         "bytesIn": 62001531,
         "bytesOut": 31002275,
-        "psnrRepackDb": 39.582,
+        "psnrRepackDb": 39.615,
         "psnrOpacityPruneDb": 40.172,
-        "psnrDeltaDb": -0.59
+        "psnrDeltaDb": -0.556
       }
     },
     {
@@ -392,9 +392,9 @@
         "splatsOut": 250003,
         "bytesIn": 124001531,
         "bytesOut": 62002275,
-        "psnrRepackDb": 28.21,
+        "psnrRepackDb": 28.39,
         "psnrOpacityPruneDb": 22.888,
-        "psnrDeltaDb": 5.322
+        "psnrDeltaDb": 5.502
       }
     },
     {
@@ -457,9 +457,9 @@
         "splatsOut": 1000003,
         "bytesIn": 496001532,
         "bytesOut": 248002276,
-        "psnrRepackDb": 32.167,
+        "psnrRepackDb": 32.7,
         "psnrOpacityPruneDb": 25.962,
-        "psnrDeltaDb": 6.204
+        "psnrDeltaDb": 6.737
       }
     },
     {
@@ -522,9 +522,9 @@
         "splatsOut": 6003,
         "bytesIn": 2977530,
         "bytesOut": 1490273,
-        "psnrRepackDb": 28.378,
+        "psnrRepackDb": 28.951,
         "psnrOpacityPruneDb": 13.758,
-        "psnrDeltaDb": 14.62
+        "psnrDeltaDb": 15.193
       }
     },
     {
@@ -587,9 +587,9 @@
         "splatsOut": 15003,
         "bytesIn": 7441530,
         "bytesOut": 3722274,
-        "psnrRepackDb": 28.682,
+        "psnrRepackDb": 28.622,
         "psnrOpacityPruneDb": 18.487,
-        "psnrDeltaDb": 10.195
+        "psnrDeltaDb": 10.134
       }
     },
     {
@@ -652,9 +652,9 @@
         "splatsOut": 4003,
         "bytesIn": 1985529,
         "bytesOut": 994273,
-        "psnrRepackDb": 30.537,
+        "psnrRepackDb": 31.127,
         "psnrOpacityPruneDb": 15.818,
-        "psnrDeltaDb": 14.719
+        "psnrDeltaDb": 15.309
       }
     },
     {
@@ -717,9 +717,9 @@
         "splatsOut": 6003,
         "bytesIn": 2977530,
         "bytesOut": 1490273,
-        "psnrRepackDb": 38.034,
+        "psnrRepackDb": 38.126,
         "psnrOpacityPruneDb": 14.224,
-        "psnrDeltaDb": 23.81
+        "psnrDeltaDb": 23.903
       }
     },
     {
@@ -782,9 +782,9 @@
         "splatsOut": 7503,
         "bytesIn": 3721530,
         "bytesOut": 1862273,
-        "psnrRepackDb": 42.937,
+        "psnrRepackDb": 43.009,
         "psnrOpacityPruneDb": 34.638,
-        "psnrDeltaDb": 8.299
+        "psnrDeltaDb": 8.371
       }
     },
     {
@@ -847,9 +847,9 @@
         "splatsOut": 12503,
         "bytesIn": 6201530,
         "bytesOut": 3102274,
-        "psnrRepackDb": 38.998,
+        "psnrRepackDb": 39.285,
         "psnrOpacityPruneDb": 47.567,
-        "psnrDeltaDb": -8.569
+        "psnrDeltaDb": -8.282
       }
     },
     {
@@ -912,9 +912,9 @@
         "splatsOut": 6003,
         "bytesIn": 2977530,
         "bytesOut": 1490273,
-        "psnrRepackDb": 24.951,
+        "psnrRepackDb": 24.913,
         "psnrOpacityPruneDb": 14.805,
-        "psnrDeltaDb": 10.146
+        "psnrDeltaDb": 10.108
       }
     },
     {
@@ -977,9 +977,9 @@
         "splatsOut": 7503,
         "bytesIn": 3721530,
         "bytesOut": 1862273,
-        "psnrRepackDb": 31.865,
+        "psnrRepackDb": 35.953,
         "psnrOpacityPruneDb": 13.241,
-        "psnrDeltaDb": 18.624
+        "psnrDeltaDb": 22.712
       }
     },
     {
@@ -1042,9 +1042,9 @@
         "splatsOut": 5003,
         "bytesIn": 2481530,
         "bytesOut": 1242273,
-        "psnrRepackDb": 42.337,
+        "psnrRepackDb": 43.079,
         "psnrOpacityPruneDb": 38.3,
-        "psnrDeltaDb": 4.037
+        "psnrDeltaDb": 4.779
       }
     }
   ],
