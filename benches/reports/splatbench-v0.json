@@ -60,6 +60,16 @@
           "mlScoreMax": 0.776778,
           "mlScoreVersion": "0.2.0-empirical"
         }
+      },
+      "repack": {
+        "targetRatio": 0.5,
+        "splatsIn": 1157141,
+        "splatsOut": 578573,
+        "bytesIn": 286972500,
+        "bytesOut": 143487635,
+        "psnrRepackDb": 38.316,
+        "psnrOpacityPruneDb": 31.918,
+        "psnrDeltaDb": 6.398
       }
     },
     {

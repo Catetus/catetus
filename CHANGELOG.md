@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Repack ΔPSNR column on SplatBench leaderboard.** A new `Repack ΔPSNR (premium)`
+  column reports PSNR delta of `splatforge-pro`'s differentiable repack vs.
+  naive opacity-prune at the same byte budget. First entry: `bonsai_mipnerf360_iter7k`
+  at 50% byte budget — **+6.40 dB** (38.32 dB repack vs. 31.92 dB opacity-prune).
+  Algorithm: gsplat 1.5.3 + self-distillation against 16 inside-the-cloud orbit
+  cameras + hard-prune-by-saliency every 200 iters. Runs ~50 s wall on Modal
+  A100-spot, **~$0.10/scene** of GPU. Second column on the public bench that's
+  asymmetrically reproducible — values published, algorithm private.
+- **SplatBench corpus expanded 7 → 11 scenes.** Added `splatbench_specular_proxy`
+  (view-dependent SH), `splatbench_foliage_proxy` (anisotropic translucent
+  splats), `splatbench_lowlight_proxy` (narrow dynamic range), and
+  `splatbench_portrait_proxy` (foreground/background saliency). Each is a
+  deterministic stress test for a specific Gaussian-splat failure mode.
+- **Hosted API live on DigitalOcean.** `apps/api` deployed as a systemd
+  service at `http://167.99.231.209:8080` (`/healthz`, `POST /v1/jobs`,
+  `GET /v1/jobs/:id`, `POST /v1/jobs/:id/upload`). HTTPS via a Cloudflare quick
+  tunnel at a `*.trycloudflare.com` URL (ephemeral — to be replaced with
+  `api.splatforge.dev` or a named Cloudflare tunnel).
+- **TryIt component on splatforge.vercel.app actually calls the live API.**
+  Drop a `.ply` and see the JSON response from `POST /v1/jobs`. Graceful
+  fallback to the design-partner intake when the API is unreachable.
+
 ### Changed
 
 - **ML Score metric calibrated against empirical-p99 RMSE distribution.** The

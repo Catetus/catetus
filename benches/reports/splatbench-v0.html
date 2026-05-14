@@ -109,6 +109,7 @@
         <th>Ratio</th>
         <th>Fidelity (ΔE94)</th>
         <th>ML Score <span class="ml-tag">pro</span></th>
+        <th>Repack ΔPSNR <span class="ml-tag">premium</span></th>
         <th>analyze</th>
       </tr>
     </thead>
@@ -151,7 +152,7 @@
 
 <script>
 const DATA = [
-  { id:"bonsai_mipnerf360_iter7k",  cls:"indoor-real-estate",  src:"real",      splats:1157141, bytesIn:286972500, webMobile:{spz:12576301, ratio:22.81}, sizeMin:{spz:9015122,  ratio:31.83}, analyze:1240, fidelity:{ webMobile:{ mean:0.0060, max:0.0084, status:"pass", ml:0.6069 }, sizeMin:{ mean:0.0064, max:0.0087, status:"pass", ml:0.5863 } } },
+  { id:"bonsai_mipnerf360_iter7k",  cls:"indoor-real-estate",  src:"real",      splats:1157141, bytesIn:286972500, webMobile:{spz:12576301, ratio:22.81}, sizeMin:{spz:9015122,  ratio:31.83}, analyze:1240, fidelity:{ webMobile:{ mean:0.0060, max:0.0084, status:"pass", ml:0.6069 }, sizeMin:{ mean:0.0064, max:0.0087, status:"pass", ml:0.5863 } }, repack:{ deltaDb:6.40, repackDb:38.32, pruneDb:31.92 } },
   { id:"bicycle_mipnerf360_iter7k", cls:"outdoor-scene",       src:"real",      splats:3616103, bytesIn:896795076, webMobile:{spz:35222089, ratio:25.46}, sizeMin:{spz:23040772, ratio:38.92}, analyze:4457, fidelity:{ webMobile:{ mean:0.0286, max:0.0356, status:"borderline", ml:0.0389 }, sizeMin:{ mean:0.0260, max:0.0333, status:"borderline", ml:0.0453 } } },
   { id:"splatbench_product_proxy",  cls:"product-scan",        src:"synthetic", splats:10000,   bytesIn:2481530,   webMobile:{spz:121033,   ratio:20.50}, sizeMin:{spz:121078,   ratio:20.49}, analyze:11, fidelity:{ webMobile:{ mean:0.0002, max:0.0003, status:"pass", ml:0.9944 }, sizeMin:{ mean:0.0004, max:0.0004, status:"pass", ml:0.9928 } } },
   { id:"splatbench_indoor_proxy",   cls:"indoor-real-estate",  src:"synthetic", splats:100000,  bytesIn:24801531,  webMobile:{spz:1204695,  ratio:20.58}, sizeMin:{spz:1149536,  ratio:21.57}, analyze:105, fidelity:{ webMobile:{ mean:0.0003, max:0.0004, status:"pass", ml:0.9931 }, sizeMin:{ mean:0.0010, max:0.0011, status:"pass", ml:0.9856 } } },
@@ -204,6 +205,13 @@ function fmtMlScore(r, preset) {
   if (!f || typeof f.ml !== "number") return "<span class=\"ml-na\">—</span>";
   return '<span class="ml">' + (f.ml * 100).toFixed(2) + '%</span>';
 }
+// repack-helper-injected
+function fmtRepack(r) {
+  if (!r.repack || typeof r.repack.deltaDb !== "number") return "<span class=\"ml-na\">—</span>";
+  const d = r.repack.deltaDb;
+  const sign = d >= 0 ? "+" : "";
+  return '<span class="repack-win">' + sign + d.toFixed(2) + ' dB</span>';
+}
 function renderTable() {
   const preset = document.getElementById("preset").value;
   const rows = [...DATA].sort((a, b) => b[preset].ratio - a[preset].ratio);
@@ -226,6 +234,7 @@ function renderTable() {
       <td><span class="ratio ${cls}">${pr.ratio.toFixed(2)}×</span><span class="bar"><span class="bar-fill" style="width:${w}%"></span></span></td>
       <td>${fmtFidelity(r, preset)}</td>
       <td>${fmtMlScore(r, preset)}</td>
+      <td>${fmtRepack(r)}</td>
       <td>${fmtMs(r.analyze)}</td>
     </tr>`;
   }).join("");

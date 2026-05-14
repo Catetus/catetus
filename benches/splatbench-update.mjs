@@ -19,10 +19,20 @@ const SPLATBENCH_JSON = resolve(REPORTS, 'splatbench-v0.json');
 const SPLATBENCH_MD = resolve(REPORTS, 'splatbench-v0.md');
 const SPLATBENCH_HTML = resolve(REPORTS, 'splatbench-v0.html');
 const FIDELITY_JSON = resolve(REPORTS, 'fidelity-v0.json');
+const DIFF_REPACK_JSON = resolve(REPORTS, 'diff-repack-v0.json');
 const VERSION = '0.1.1';
 
 const fidelity = JSON.parse(readFileSync(FIDELITY_JSON, 'utf8'));
 const splatbench = JSON.parse(readFileSync(SPLATBENCH_JSON, 'utf8'));
+// Optional — only present once `splatforge-pro` runs differentiable repack on
+// a scene. Joined by `scene_id`.
+let diffRepackById = new Map();
+try {
+  const dr = JSON.parse(readFileSync(DIFF_REPACK_JSON, 'utf8'));
+  diffRepackById = new Map((dr.results || []).map((r) => [r.scene_id, r]));
+} catch (_) {
+  // missing file is fine — the column just stays empty
+}
 
 /* ------------- helper formatters --------------------------------------- */
 
@@ -92,6 +102,23 @@ for (const scene of splatbench.scenes) {
     webMobile: presetSummary('web-mobile'),
     sizeMin: presetSummary('size-min'),
   };
+
+  // splatforge-pro DifferentiableRepack — proprietary premium-tier result.
+  // Joined by `scene_id` from diff-repack-v0.json. Only scenes that have
+  // been run through the gsplat repack have an entry; others stay empty.
+  const dr = diffRepackById.get(scene.id);
+  if (dr) {
+    scene.repack = {
+      targetRatio: 0.5,
+      splatsIn: dr.splats_in,
+      splatsOut: dr.splats_out,
+      bytesIn: dr.bytes_in,
+      bytesOut: dr.bytes_out,
+      psnrRepackDb: dr.psnr_repack_db,
+      psnrOpacityPruneDb: dr.psnr_opacity_prune_db,
+      psnrDeltaDb: dr.psnr_delta_db,
+    };
+  }
 }
 writeFileSync(SPLATBENCH_JSON, JSON.stringify(splatbench, null, 2) + '\n');
 
@@ -128,13 +155,22 @@ const newDataLines = dataLines.map((line) => {
   const g = presets['size-min'];
   const mlField = (m) => (m?.mlScore ? `, ml:${m.mlScore.mean.toFixed(4)}` : '');
   const fidelityField = `, fidelity:{ webMobile:{ mean:${f.deltaE94.mean.toFixed(4)}, max:${f.deltaE94.max.toFixed(4)}, status:"${f.status}"${mlField(f)} }, sizeMin:{ mean:${g.deltaE94.mean.toFixed(4)}, max:${g.deltaE94.max.toFixed(4)}, status:"${g.status}"${mlField(g)} } }`;
-  // Strip any prior `, fidelity:{ webMobile:{...}, sizeMin:{...} }` block so
-  // re-runs don't duplicate the field. Matches exactly two levels of nesting.
-  const stripped = line.replace(
-    /,\s*fidelity:\{\s*webMobile:\{[^}]*\},\s*sizeMin:\{[^}]*\}\s*\}/g,
-    '',
+  const dr = diffRepackById.get(id);
+  const repackField = dr
+    ? `, repack:{ deltaDb:${dr.psnr_delta_db.toFixed(2)}, repackDb:${dr.psnr_repack_db.toFixed(2)}, pruneDb:${dr.psnr_opacity_prune_db.toFixed(2)} }`
+    : '';
+  // Strip any prior `, fidelity:{...}` AND `, repack:{...}` blocks so
+  // re-runs don't duplicate fields.
+  const stripped = line
+    .replace(
+      /,\s*fidelity:\{\s*webMobile:\{[^}]*\},\s*sizeMin:\{[^}]*\}\s*\}/g,
+      '',
+    )
+    .replace(/,\s*repack:\{[^}]*\}/g, '');
+  const updated = stripped.replace(
+    /(\s*}\s*,?\s*)$/,
+    (_, tail) => `${fidelityField}${repackField} ${tail.trimStart()}`,
   );
-  const updated = stripped.replace(/(\s*}\s*,?\s*)$/, (_, tail) => `${fidelityField} ${tail.trimStart()}`);
   return updated;
 });
 
@@ -163,6 +199,12 @@ if (!html.includes('<th>ML Score')) {
     );
   }
 }
+if (!html.includes('<th>Repack ΔPSNR')) {
+  html = html.replace(
+    /<th>ML Score <span class="ml-tag">pro<\/span><\/th>\s*<th>analyze<\/th>/,
+    '<th>ML Score <span class="ml-tag">pro</span></th>\n        <th>Repack ΔPSNR <span class="ml-tag">premium</span></th>\n        <th>analyze</th>',
+  );
+}
 if (!html.includes('fmtMlScore(r, preset)')) {
   if (html.includes('${fmtFidelity(r, preset)}')) {
     // Fidelity cell already present — insert ML cell after it.
@@ -181,6 +223,12 @@ if (!html.includes('fmtMlScore(r, preset)')) {
     );
   }
 }
+if (!html.includes('fmtRepack(r)')) {
+  html = html.replace(
+    /<td>\$\{fmtMlScore\(r, preset\)\}<\/td>\s*\n\s*<td>\$\{fmtMs\(r\.analyze\)\}<\/td>/,
+    `<td>\${fmtMlScore(r, preset)}</td>\n      <td>\${fmtRepack(r)}</td>\n      <td>\${fmtMs(r.analyze)}</td>`,
+  );
+}
 
 // Inject helper functions ahead of `function renderTable()`. We insert a small
 // block once, keyed by a marker comment for idempotency.
@@ -192,10 +240,14 @@ if (!html.includes('// ml-helper-injected')) {
   const mlHelpers = `// ml-helper-injected\nfunction fmtMlScore(r, preset) {\n  if (!r.fidelity) return "<span class=\\"ml-na\\">—</span>";\n  const f = r.fidelity[fidelityKey(preset)];\n  if (!f || typeof f.ml !== "number") return "<span class=\\"ml-na\\">—</span>";\n  return '<span class="ml">' + (f.ml * 100).toFixed(2) + '%</span>';\n}\n`;
   html = html.replace(/function renderTable\(\)/, `${mlHelpers}function renderTable()`);
 }
+if (!html.includes('// repack-helper-injected')) {
+  const repackHelpers = `// repack-helper-injected\nfunction fmtRepack(r) {\n  if (!r.repack || typeof r.repack.deltaDb !== "number") return "<span class=\\"ml-na\\">—</span>";\n  const d = r.repack.deltaDb;\n  const sign = d >= 0 ? "+" : "";\n  return '<span class="repack-win">' + sign + d.toFixed(2) + ' dB</span>';\n}\n`;
+  html = html.replace(/function renderTable\(\)/, `${repackHelpers}function renderTable()`);
+}
 
 // Add styles for the fidelity pills if not already present.
 if (!html.includes('.fid-pass')) {
-  const fidStyles = `\n  .fid { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 4px; }\n  .fid-pass { background: rgba(52, 211, 153, 0.18); color: var(--good); }\n  .fid-borderline { background: rgba(251, 191, 36, 0.18); color: var(--warn); }\n  .fid-fail { background: rgba(248, 113, 113, 0.18); color: var(--bad); }\n  .fid-na { color: var(--fg-dim); }\n  .ml { font-variant-numeric: tabular-nums; color: var(--fg); }\n  .ml-na { color: var(--fg-dim); }\n  .ml-tag { font-size: 0.7em; padding: 1px 4px; border-radius: 3px; background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%); color: white; margin-left: 4px; vertical-align: middle; }\n`;
+  const fidStyles = `\n  .fid { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 4px; }\n  .fid-pass { background: rgba(52, 211, 153, 0.18); color: var(--good); }\n  .fid-borderline { background: rgba(251, 191, 36, 0.18); color: var(--warn); }\n  .fid-fail { background: rgba(248, 113, 113, 0.18); color: var(--bad); }\n  .fid-na { color: var(--fg-dim); }\n  .ml { font-variant-numeric: tabular-nums; color: var(--fg); }\n  .ml-na { color: var(--fg-dim); }\n  .ml-tag { font-size: 0.7em; padding: 1px 4px; border-radius: 3px; background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%); color: white; margin-left: 4px; vertical-align: middle; }\n  .repack-win { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--good); padding: 2px 6px; border-radius: 4px; background: rgba(52, 211, 153, 0.12); }\n`;
   html = html.replace(/(\.ratio-low \{[^}]*\}\s*)/m, `$1${fidStyles}`);
   // Fallback if the .ratio-low rule wasn't found — append before </style>.
   if (!html.includes('.fid-pass')) {

@@ -9,46 +9,48 @@
 
 ---
 
-## TL;DR — what changed tonight
+## TL;DR — what changed in this overnight + morning session
 
-1. **Open-core split landed.** New private repo
-   `montabano1/splatforge-private` at `~/Desktop/splatforge-private`
-   contains three crates: `splatforge-advanced` (4 proprietary-pass
-   stubs with research notes), `splatforge-fidelity-ml` (splat-aware
-   perceptual metric, validated on real frames), `splatforge-private-cli`
-   (the `splatforge-pro` binary). Three decision docs in `docs/`:
-   saliency-backend (pick: U2-Netp via ONNX), differentiable-repack (pick:
-   gsplat + hard-prune-by-saliency, ~\$0.04-0.11/scene on A100), fidelity
-   validation.
-2. **ML Score column live on SplatBench** — first asymmetrically
-   reproducible column on the public benchmark. Values published on
-   `benches/reports/splatbench-v0.{md,html,json}` and on
-   splatforge.vercel.app; reproducing them requires the proprietary
-   `splatforge-pro`. Current metric: `0.1.1-baseline` (3 features + tightened
-   high-freq normalizer).
-3. **Astro fidelity wiring bug fixed.** Pre-existing — `SceneFidelity`
-   was reading a `deltaE94` field that never matched the v0.1.1 JSON
-   shape; column had been showing "pending" since launch. Now renders
-   real ΔE94 + ML Score values.
-4. **v0.2 learned metric tried twice, didn't ship.** Both attempts
-   (simple linear refit, 15-feature per-quadrant refit) hit the same
-   wall: base features span 0.93-1.0 while training targets span 0.1-1.0,
-   so ridge regression can't find weights that discriminate. Both
-   attempts honestly documented in
-   `splatforge-private/docs/fidelity-ml-validation.md`. **The real
-   v0.2 unlock**: replace theoretical-max normalizers in
-   `color_score`/`edge_score`/`high_freq_score` with empirical-p95
-   normalizers calibrated on the corruption corpus, THEN per-quadrant
-   refit becomes meaningful. Corpus + harness + fit binaries stay in
-   the private repo for that next attempt.
+1. **Open-core split landed.** New private repo `montabano1/splatforge-private`
+   with `splatforge-advanced` (proprietary passes), `splatforge-fidelity-ml`
+   (perceptual metric), `splatforge-saliency-py` (U2-Netp Python subprocess),
+   `splatforge-private-cli` (the `splatforge-pro` binary).
+2. **ML Score column** (`0.2.0-empirical`) — first asymmetrically
+   reproducible column on the public bench. Values published, only the
+   proprietary build can regenerate them.
+3. **Repack ΔPSNR column** (premium tier) — bonsai shows **+6.40 dB**
+   vs naive opacity-prune at the same byte budget. gsplat 1.5.3 on Modal
+   A100, ~$0.10/scene, ~50 s wall. Algorithm in `splatforge-private`.
+4. **SaliencyPrune wired into `splatforge-pro optimize`** — runs the
+   public preset + U2-Netp-driven prune. Bonsai web-mobile drops from
+   1.06M → 998K splats (5.96% size reduction). Real win expected on
+   the new portrait + product scenes.
+5. **SplatBench corpus 7 → 11 scenes.** Added specular, foliage, lowlight,
+   portrait stress-tests (deterministic synthetic).
+6. **`apps/api` live on DigitalOcean.** http://167.99.231.209:8080.
+   Systemd service. BLOB token + Modal worker URL loaded. Externally
+   reachable.
+7. **HTTPS via Cloudflare Tunnel.** Ephemeral
+   `*.trycloudflare.com` URL serves the API over TLS. Vercel
+   `PUBLIC_API_BASE` env points TryIt at it.
+8. **TryIt component on splatforge.vercel.app actually calls the API.**
+   Drop a `.ply`, see real JSON response inline. Graceful fallback to
+   design-partner intake on failure.
 
-**Where to start tomorrow morning:** EITHER (a) take another swing at
-v0.2 with empirical normalizers as above (~1-2 hours, ships a new ML
-Score version), OR (b) scaffold `SaliencyPrune` with the U2-Netp Python
-subprocess per `docs/saliency-backend.md` (~3-4 hours, ships a real
-proprietary pass). Latter is higher-leverage if you want a new product
-line; former is higher-leverage if you want the column values to keep
-moving as a "the moat updates every release" story.
+**Where to start next:**
+
+- Get a stable HTTPS hostname (buy `splatforge.dev` for $24/yr **OR**
+  set up a named Cloudflare tunnel for $0). The current trycloudflare
+  URL resets every cloudflared restart.
+- Implement `POST /v1/jobs/:id/upload` end-to-end — proxy bytes into
+  Vercel Blob server-side, then enqueue Modal worker. Unblocks the
+  full upload→optimize→download round-trip.
+- Take a fourth swing at the learned perceptual metric — the failed
+  v0.3 sub-agent diagnosed `local_color_shift` as the structural issue
+  in the synthetic corpus. Try per-kind severity calibration before MLP.
+- Run `splatforge-pro` DifferentiableRepack on more scenes (bicycle,
+  portrait_proxy) — each is ~$0.10 of Modal time and ships another
+  data point in the Repack ΔPSNR column.
 
 ---
 
