@@ -77,9 +77,50 @@ fn server_capabilities() -> Value {
             "version": env!("CARGO_PKG_VERSION"),
         },
         "capabilities": {
-            "tools": { "listChanged": false }
+            "tools": { "listChanged": false },
+            "resources": { "subscribe": false, "listChanged": false }
         }
     })
+}
+
+// ------------------------------------------------------------------ resources
+
+/// MCP `resources/list` advertises read-only artifacts that the LLM can
+/// fetch via `resources/read`. The SplatBench corpus JSON is the
+/// design-doc differentiator vs. a CLI wrapper: the LLM can grep the
+/// corpus for comparable scenes without needing a per-scene tool call.
+fn list_resources_response() -> Value {
+    json!({
+        "resources": [
+            {
+                "uri": "splatbench://v0",
+                "name": "SplatBench v0",
+                "description":
+                    "Full SplatBench v0 corpus: 14 synthetic failure-mode probes \
+                     + 2 real Mip-NeRF360 scenes (bonsai, bicycle), with per-preset \
+                     compression ratios, ΔE94 fidelity numbers, and ML-score values. \
+                     Use this when you need to compare against measured numbers \
+                     rather than rules of thumb.",
+                "mimeType": "application/json"
+            }
+        ]
+    })
+}
+
+fn read_resource_response(uri: &str) -> Result<Value, (i64, String)> {
+    if uri == "splatbench://v0" {
+        Ok(json!({
+            "contents": [
+                {
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": SPLATBENCH_V0_JSON,
+                }
+            ]
+        }))
+    } else {
+        Err((INVALID_PARAMS, format!("unknown resource uri: {uri}")))
+    }
 }
 
 // -------------------------------------------------------------- tool catalog
@@ -121,6 +162,17 @@ const TOOLS: &[ToolDef] = &[
              on this public-tier server.",
         input_schema: schema_optimize,
     },
+    ToolDef {
+        name: "splatforge.find_similar_scenes",
+        description:
+            "Given a scene's splatCount, SH degree, and optional content class, find the \
+             K closest scenes in the bundled SplatBench v0 corpus and return their measured \
+             per-preset compression ratios + ΔE94/ML-score fidelity numbers. This is the \
+             public-tier substitute for `recommend_preset` — the LLM can pick a preset by \
+             inspecting how that preset performed on similar scenes. Call `analyze` first to \
+             obtain the splatCount/shDegree inputs.",
+        input_schema: schema_find_similar_scenes,
+    },
 ];
 
 // All tool input schemas accept the same `SplatRef` for input. The public
@@ -154,6 +206,35 @@ fn schema_analyze() -> Value {
 
 fn schema_list_presets() -> Value {
     json!({ "type": "object", "properties": {} })
+}
+
+fn schema_find_similar_scenes() -> Value {
+    json!({
+        "type": "object",
+        "required": ["splatCount"],
+        "properties": {
+            "splatCount": {
+                "type": "integer", "minimum": 1,
+                "description": "Splat count from the analyze report."
+            },
+            "shDegree": {
+                "type": "integer", "minimum": 0, "maximum": 3,
+                "description": "Spherical-harmonic degree from the analyze report."
+            },
+            "contentClass": {
+                "type": "string",
+                "enum": [
+                    "product-scan", "indoor-real-estate", "outdoor-scene",
+                    "object-isolated", "transparent-volume", "portrait", "other"
+                ],
+                "description": "Optional class — if provided, scenes of the same class are scored higher."
+            },
+            "k": {
+                "type": "integer", "minimum": 1, "maximum": 16, "default": 3,
+                "description": "How many neighbors to return."
+            }
+        }
+    })
 }
 
 fn schema_optimize() -> Value {
@@ -197,7 +278,148 @@ fn call_tool(name: &str, args: &Value) -> ToolResult {
         "splatforge.analyze" => tool_analyze(args),
         "splatforge.list_presets" => tool_list_presets(),
         "splatforge.optimize" => tool_optimize(args),
+        "splatforge.find_similar_scenes" => tool_find_similar_scenes(args),
         other => tool_error(format!("unknown tool: {other}")),
+    }
+}
+
+// --------------------------------------------------- bundled SplatBench corpus
+
+/// The `benches/reports/splatbench-v0.json` corpus is baked into the binary
+/// at build time so the tier-1 server can serve recommendations offline.
+/// Refreshing it requires rebuilding the crate — that's intentional, so a
+/// stale binary can't quietly recommend numbers that don't match the public
+/// leaderboard.
+const SPLATBENCH_V0_JSON: &str =
+    include_str!("../../../benches/reports/splatbench-v0.json");
+
+/// Compact per-scene record used for similarity scoring. Built once at
+/// startup from the bundled JSON.
+struct CorpusScene {
+    id: String,
+    class: String,
+    splat_count: u64,
+    sh_degree: u32,
+    bytes_in: u64,
+    /// Full per-scene record from splatbench-v0.json, kept opaque so we can
+    /// echo the entire fidelity block to the caller without re-deriving it.
+    full: Value,
+}
+
+fn load_corpus() -> Vec<CorpusScene> {
+    let Ok(doc): Result<Value, _> = serde_json::from_str(SPLATBENCH_V0_JSON) else {
+        return Vec::new();
+    };
+    let Some(scenes) = doc.get("scenes").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    scenes
+        .iter()
+        .filter_map(|s| {
+            Some(CorpusScene {
+                id: s.get("id")?.as_str()?.to_string(),
+                class: s
+                    .get("class")
+                    .and_then(Value::as_str)
+                    .unwrap_or("other")
+                    .to_string(),
+                splat_count: s.get("splatCount")?.as_u64()?,
+                sh_degree: s.get("shDegree")?.as_u64()? as u32,
+                bytes_in: s.get("bytesIn").and_then(Value::as_u64).unwrap_or(0),
+                full: s.clone(),
+            })
+        })
+        .collect()
+}
+
+// --------------------------------- splatforge.find_similar_scenes handler
+
+fn tool_find_similar_scenes(args: &Value) -> ToolResult {
+    let splat_count = match args.get("splatCount").and_then(Value::as_u64) {
+        Some(n) if n > 0 => n,
+        _ => return tool_error("splatCount must be a positive integer"),
+    };
+    let sh_degree = args.get("shDegree").and_then(Value::as_u64).unwrap_or(3) as i64;
+    let content_class = args
+        .get("contentClass")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let k = args
+        .get("k")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(3)
+        .clamp(1, 16);
+
+    let corpus = load_corpus();
+    if corpus.is_empty() {
+        return tool_error(
+            "bundled SplatBench corpus is empty — rebuild splatforge-mcp \
+             with the benches/reports/splatbench-v0.json present"
+                .to_string(),
+        );
+    }
+
+    // Score = distance in log-splatCount space + SH-degree mismatch penalty
+    // + class-mismatch penalty. Lower is closer.
+    let query_log_n = (splat_count as f64).ln();
+    let mut scored: Vec<(f64, &CorpusScene)> = corpus
+        .iter()
+        .map(|s| {
+            let log_n = (s.splat_count as f64).ln();
+            let n_dist = (log_n - query_log_n).abs();
+            let sh_dist = ((s.sh_degree as i64) - sh_degree).abs() as f64 * 0.5;
+            let class_dist = match &content_class {
+                Some(c) if c == &s.class => 0.0,
+                Some(_) => 0.75,
+                None => 0.0,
+            };
+            (n_dist + sh_dist + class_dist, s)
+        })
+        .collect();
+    scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let neighbors: Vec<Value> = scored
+        .iter()
+        .take(k)
+        .map(|(score, s)| {
+            json!({
+                "id": s.id,
+                "class": s.class,
+                "splatCount": s.splat_count,
+                "shDegree": s.sh_degree,
+                "bytesIn": s.bytes_in,
+                "distance": score,
+                "scene": s.full,
+            })
+        })
+        .collect();
+
+    let summary_lines: Vec<String> = neighbors
+        .iter()
+        .map(|n| {
+            format!(
+                "  - {} ({}, {} splats, dist={:.3})",
+                n["id"].as_str().unwrap_or("?"),
+                n["class"].as_str().unwrap_or("?"),
+                n["splatCount"].as_u64().unwrap_or(0),
+                n["distance"].as_f64().unwrap_or(0.0),
+            )
+        })
+        .collect();
+    let text = format!(
+        "Top {} similar scenes for splatCount={} sh={} class={:?}:\n{}",
+        k,
+        splat_count,
+        sh_degree,
+        content_class,
+        summary_lines.join("\n"),
+    );
+
+    ToolResult {
+        json: json!({ "neighbors": neighbors }),
+        text,
+        is_error: false,
     }
 }
 
@@ -609,9 +831,21 @@ fn handle_request(req: RpcRequest) -> Option<Value> {
                 Ok(tool_response(call_tool(&name, &args)))
             }
         }
+        "resources/list" => Ok(list_resources_response()),
+        "resources/read" => {
+            let uri = req
+                .params
+                .get("uri")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if uri.is_empty() {
+                Err((INVALID_PARAMS, "resources/read requires `uri`".to_string()))
+            } else {
+                read_resource_response(uri)
+            }
+        }
         // Optional MCP methods we don't support — answer empty so clients
         // don't error out on capability negotiation mismatches.
-        "resources/list" => Ok(json!({ "resources": [] })),
         "prompts/list" => Ok(json!({ "prompts": [] })),
         "ping" => Ok(json!({})),
         other => Err((METHOD_NOT_FOUND, format!("method not found: {other}"))),
@@ -797,6 +1031,61 @@ mod tests {
     fn unknown_method_returns_method_not_found() {
         let resp = dispatch(req(6, "splatforge/teleport", json!({})));
         assert_eq!(resp["error"]["code"], METHOD_NOT_FOUND);
+    }
+
+    #[test]
+    fn find_similar_scenes_returns_neighbors_in_distance_order() {
+        let resp = dispatch(req(
+            10,
+            "tools/call",
+            json!({
+                "name": "splatforge.find_similar_scenes",
+                "arguments": {
+                    "splatCount": 1_200_000,
+                    "shDegree": 3,
+                    "contentClass": "indoor-real-estate",
+                    "k": 3
+                }
+            }),
+        ));
+        assert_eq!(resp["result"]["isError"], false);
+        let neighbors = resp["result"]["structuredContent"]["neighbors"]
+            .as_array()
+            .unwrap();
+        assert_eq!(neighbors.len(), 3);
+        // Distance is monotonically non-decreasing.
+        let dists: Vec<f64> = neighbors
+            .iter()
+            .map(|n| n["distance"].as_f64().unwrap())
+            .collect();
+        for w in dists.windows(2) {
+            assert!(w[0] <= w[1] + 1e-9, "distances not sorted: {dists:?}");
+        }
+        // Top match should be bonsai (1.16M splats, indoor-real-estate, sh 3).
+        assert_eq!(neighbors[0]["id"], "bonsai_mipnerf360_iter7k");
+    }
+
+    #[test]
+    fn resources_list_includes_splatbench() {
+        let resp = dispatch(req(11, "resources/list", json!({})));
+        let resources = resp["result"]["resources"].as_array().unwrap();
+        assert!(resources.iter().any(|r| r["uri"] == "splatbench://v0"));
+    }
+
+    #[test]
+    fn resources_read_returns_corpus_json() {
+        let resp = dispatch(req(
+            12,
+            "resources/read",
+            json!({ "uri": "splatbench://v0" }),
+        ));
+        let contents = resp["result"]["contents"].as_array().unwrap();
+        assert_eq!(contents.len(), 1);
+        assert_eq!(contents[0]["mimeType"], "application/json");
+        let text = contents[0]["text"].as_str().unwrap();
+        // Sanity: this should at least parse and contain 16 scenes.
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed["scenes"].as_array().unwrap().len(), 16);
     }
 
     #[test]
