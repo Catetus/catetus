@@ -21,7 +21,7 @@ import {
   resolveChunkUri,
   validateChecksum,
 } from './loader.js';
-import { orbitFrames, orbitPose } from './camera.js';
+import { bboxCenter, orbitFrames, orbitPose } from './camera.js';
 import { StatsOverlay } from './stats.js';
 import type { Renderer } from './renderer/base.js';
 import { isWebGPUAvailable, WebGPURenderer } from './renderer/webgpu.js';
@@ -65,6 +65,8 @@ export class SplatForgeViewer {
   private stats?: StatsOverlay;
   private firstRenderFired = false;
   private disposed = false;
+  private autoRotateRaf: number | null = null;
+  private cachedManifest?: Manifest;
 
   constructor(options: ViewerOptions) {
     if (!options.canvas) throw new Error('ViewerOptions.canvas is required');
@@ -78,6 +80,9 @@ export class SplatForgeViewer {
       deterministic: options.deterministic ?? false,
       seed: options.seed ?? 0xc0ffee,
       stats: options.stats ?? false,
+      autoRotate: options.autoRotate ?? false,
+      autoRotateSpeed: options.autoRotateSpeed ?? 10,
+      autoRotateFraming: options.autoRotateFraming ?? 1.0,
     };
   }
 
@@ -132,6 +137,7 @@ export class SplatForgeViewer {
       }
 
       const manifest = await this.fetchManifest();
+      this.cachedManifest = manifest;
       this.emitter.emit('manifestLoaded', {
         type: 'manifestLoaded',
         chunkCount: manifest.chunks.length,
@@ -140,6 +146,9 @@ export class SplatForgeViewer {
       await this.streamChunks(manifest);
       await this.runCameraPath(manifest);
       this.emitter.emit('complete', { type: 'complete' });
+      if (this.opts.autoRotate && !this.opts.deterministic) {
+        this.startAutoRotate();
+      }
     } catch (err) {
       const { code, message } = normalizeError(err);
       this.emitter.emit('error', { type: 'error', code, message });
@@ -151,11 +160,65 @@ export class SplatForgeViewer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.stopAutoRotate();
     this.renderer?.destroy();
     this.renderer = undefined;
     this.stats?.destroy();
     this.stats = undefined;
     this.emitter.removeAll();
+  }
+
+  /**
+   * Drive a continuous yaw orbit via `requestAnimationFrame`. Idempotent —
+   * calling twice keeps the existing loop. Stops on `dispose()` or when the
+   * canvas leaves the document.
+   */
+  private startAutoRotate(): void {
+    if (this.autoRotateRaf !== null) return;
+    const raf = (
+      globalThis as { requestAnimationFrame?: (cb: (t: number) => void) => number }
+    ).requestAnimationFrame;
+    if (typeof raf !== 'function') return;
+    const speedRad = (this.opts.autoRotateSpeed * Math.PI) / 180;
+    const t0 = performance.now();
+    const step = (now: number): void => {
+      if (this.disposed || !this.renderer || !this.cachedManifest) return;
+      const canvas = this.opts.canvas;
+      // Bail cheaply when the canvas has been detached or hidden.
+      if (!canvas.isConnected) {
+        this.autoRotateRaf = null;
+        return;
+      }
+      const aspect = canvas.width > 0 ? canvas.width / Math.max(canvas.height, 1) : 16 / 9;
+      const yaw = ((now - t0) / 1000) * speedRad;
+      const pose = orbitPose(this.cachedManifest.bbox, yaw, aspect);
+      // Apply the marketing framing multiplier by lerping the eye toward the
+      // target. We do this here rather than inside `orbitPose` so the
+      // deterministic camera paths used by SPEC-0009 keep their canonical
+      // distance — only the live auto-rotate is reframed.
+      const framing = this.opts.autoRotateFraming;
+      if (framing !== 1.0) {
+        const center = bboxCenter(this.cachedManifest.bbox);
+        pose.position = [
+          center[0] + (pose.position[0] - center[0]) * framing,
+          center[1] + (pose.position[1] - center[1]) * framing,
+          center[2] + (pose.position[2] - center[2]) * framing,
+        ];
+      }
+      // Fire-and-forget — we'd rather drop a frame than back up the queue.
+      void this.renderer.renderFrame(pose);
+      this.autoRotateRaf = raf(step);
+    };
+    this.autoRotateRaf = raf(step);
+  }
+
+  private stopAutoRotate(): void {
+    if (this.autoRotateRaf === null) return;
+    const caf = (
+      globalThis as { cancelAnimationFrame?: (id: number) => void }
+    ).cancelAnimationFrame;
+    if (typeof caf === 'function') caf(this.autoRotateRaf);
+    this.autoRotateRaf = null;
   }
 
   /* --------------------------------------------------------------- */

@@ -59,6 +59,25 @@ export interface ViewerOptions {
   seed?: number;
   /** Mount a tiny on-canvas FPS / memory overlay. Defaults to `false`. */
   stats?: boolean;
+  /**
+   * Continuously orbit after the deterministic camera path completes. Used by
+   * the marketing hero where we want a live, breathing preview rather than a
+   * frozen final frame. Ignored in headless / regression mode.
+   */
+  autoRotate?: boolean;
+  /** Auto-rotate angular speed in degrees per second. Defaults to `10`. */
+  autoRotateSpeed?: number;
+  /**
+   * Multiplier applied to the orbit radius the viewer otherwise picks from
+   * the scene bbox half-diagonal. `1.0` is the canonical
+   * fits-the-whole-bbox framing used by the deterministic camera paths;
+   * values below `1.0` push the camera closer (useful for hero shots that
+   * want to fill more pixels). Defaults to `1.0`.
+   *
+   * Only consulted by `autoRotate`. The deterministic `orbit-8` / `static`
+   * paths intentionally ignore this so visual-regression frames stay stable.
+   */
+  autoRotateFraming?: number;
 }
 
 /**

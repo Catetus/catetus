@@ -288,6 +288,46 @@ h2.section-title {
   height: 100%;
   display: block;
 }
+/* Soft vignette + load-in mask. Starts opaque so the canvas reveals as the
+   first splats land; the `.ready` flag (set by the firstRender event) fades
+   it out over ~600 ms. Without this the hand-off from "dark frame" to
+   "splats" looks jarring on a slow connection. */
+.splat-fade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse at 50% 55%,
+      rgba(11, 13, 16, 0) 0%,
+      rgba(11, 13, 16, 0.55) 78%,
+      rgba(11, 13, 16, 0.92) 100%
+    ),
+    radial-gradient(
+      ellipse at 30% 25%,
+      rgba(125, 211, 252, 0.06) 0%,
+      transparent 55%
+    ),
+    rgba(11, 13, 16, 0.55);
+  opacity: 1;
+  transition: opacity 600ms ease-out, background 600ms ease-out;
+}
+.splat-fade.ready {
+  background:
+    radial-gradient(
+      ellipse at 50% 55%,
+      rgba(11, 13, 16, 0) 0%,
+      rgba(11, 13, 16, 0.25) 78%,
+      rgba(11, 13, 16, 0.7) 100%
+    ),
+    radial-gradient(
+      ellipse at 30% 25%,
+      rgba(125, 211, 252, 0.08) 0%,
+      transparent 55%
+    ),
+    transparent;
+  opacity: 1;
+}
 .splat-frame {
   position: absolute;
   inset: 12px;
