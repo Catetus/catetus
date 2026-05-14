@@ -1,0 +1,22 @@
+[package]
+name = "splatforge-posthac"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PostHAC: hash-grid hyperprior range-coded entropy compression for converged Gaussian splat scenes."
+
+[dependencies]
+splatforge-core = { workspace = true }
+byteorder       = { workspace = true }
+thiserror       = { workspace = true }
+constriction    = "0.4"
+
+[features]
+default = []
+# Enable WASM-compatible builds (excludes file-system I/O).
+wasm    = []
+
+[dev-dependencies]
+splatforge-ply = { workspace = true }
