@@ -1545,6 +1545,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "splatforge-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "splatforge-core",
+ "splatforge-gltf",
+ "splatforge-optimize",
+ "splatforge-ply",
+ "splatforge-spz",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "splatforge-optimize"
 version = "0.1.0"
 dependencies = [
