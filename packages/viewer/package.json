@@ -1,0 +1,35 @@
+{
+  "name": "@splatforge/viewer",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Browser viewer SDK for SplatForge optimized glTF / SPZ gaussian-splat assets.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./preview-shell.html": "./src/index.html"
+  },
+  "files": [
+    "dist",
+    "src/index.html",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@webgpu/types": "^0.1.40",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

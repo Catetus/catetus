@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SplatForge harness</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; }
+  /*
+   * Important: the canvas size is the size Playwright captures *from*. The
+   * Playwright viewport is 512x512 (see playwright.config.ts) — keep these
+   * in lockstep or your golden frames will not align.
+   */
+  #c { display: block; width: 512px; height: 512px; }
+  #status { position: fixed; bottom: 4px; left: 6px; color: #6cf;
+    font: 11px/1.3 ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+<canvas id="c" width="512" height="512"></canvas>
+<div id="status">init</div>
+<script type="module">
+  /**
+   * Harness page used by Playwright.
+   *
+   * URL params:
+   *   src      = path to a viewer-loadable asset (e.g. /fixtures/tiny/cube.gltf)
+   *   renderer = 'webgpu' | 'webgl2'  (the *forced* backend)
+   *   seed     = optional integer seed override (defaults to 0xC0FFEE)
+   *
+   * Side effects (Playwright reads these via page.evaluate):
+   *   window.__sf.ready   = true once viewer.complete has fired
+   *   window.__sf.error   = { code, message } on failure
+   *   window.__sf.frames  = [{ index, dataUrl }] for the 8 orbit-8 frames
+   *   window.__sf.warnings= [{ code, message }] collected during the run
+   *
+   * The harness imports the viewer from `/viewer/index.js`, which the static
+   * server in harness/server.mjs maps to `packages/viewer/dist/index.js`.
+   */
+  const params = new URLSearchParams(location.search);
+  const src = params.get('src');
+  const renderer = (params.get('renderer') || 'auto');
+  const seed = Number(params.get('seed') || 0xC0FFEE);
+  const status = document.getElementById('status');
+  const canvas = document.getElementById('c');
+
+  const sf = (window.__sf = { ready: false, frames: [], warnings: [], error: null });
+
+  function setStatus(s) { status.textContent = s; }
+
+  if (!src) {
+    sf.error = { code: 'no_src', message: 'missing ?src= query param' };
+    setStatus('error: no_src');
+  } else {
+    try {
+      const mod = await import('/viewer/index.js');
+      const { SplatForgeViewer } = mod;
+      const viewer = new SplatForgeViewer({
+        canvas,
+        src,
+        renderer,            // 'webgpu' or 'webgl2' — pinned by project
+        cameraPath: 'orbit-8',
+        deterministic: true,
+        seed,
+      });
+
+      viewer.on('warning', (e) => sf.warnings.push({ code: e.code, message: e.message }));
+      viewer.on('error', (e) => {
+        sf.error = { code: e.code, message: e.message };
+        setStatus(`error: ${e.code}`);
+      });
+
+      // The viewer's 'complete' event fires after the orbit-8 path finishes
+      // rendering all 8 frames in deterministic mode. We capture each frame
+      // by hooking 'firstRender' for frame 0 and a synthetic per-frame
+      // 'frameRendered' event from the viewer — but to keep the harness
+      // simple and robust to viewer-SDK churn, we instead poll the canvas
+      // on every requestAnimationFrame tick until 'complete' fires, and
+      // dedupe by a hash of the pixel data.
+      //
+      // NOTE: the viewer SDK is expected to drive its deterministic clock
+      // such that exactly 8 distinct frames are presented before 'complete'.
+      const seen = new Set();
+      let captureRunning = true;
+      function tick() {
+        if (!captureRunning) return;
+        const url = canvas.toDataURL('image/png');
+        // Cheap fingerprint: last 64 chars of the base64 payload. PNG output
+        // is deterministic for identical pixels because we render at fixed
+        // size and the encoder is browser-native.
+        const fp = url.slice(-64);
+        if (!seen.has(fp)) {
+          seen.add(fp);
+          sf.frames.push({ index: sf.frames.length + 1, dataUrl: url });
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      viewer.on('complete', () => {
+        captureRunning = false;
+        // Trim or pad to 8 — the orbit-8 path is contractually 8 frames.
+        sf.frames = sf.frames.slice(0, 8);
+        sf.ready = true;
+        setStatus(`ready (${sf.frames.length} frames)`);
+      });
+
+      setStatus(`loading ${src} (${renderer})`);
+      await viewer.load();
+    } catch (err) {
+      sf.error = { code: 'harness_exception', message: String(err && err.message || err) };
+      setStatus(`error: harness_exception`);
+    }
+  }
+</script>
+</body>
+</html>

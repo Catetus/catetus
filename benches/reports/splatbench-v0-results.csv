@@ -1,0 +1,7 @@
+scene,bytes_in,splats,analyze_ms,web_mobile_spz,web_mobile_ratio,size_min_spz,size_min_ratio,hash
+splatbench_dense_proxy,496001532,2000000,2184,22794972,21.75x,20461015,24.24x,blake3:61154d1a04689dc0f4
+splatbench_floater_proxy,62001531,250000,248,2399049,25.84x,2226050,27.85x,blake3:aeccc3316dbc2b7d1b
+splatbench_indoor_proxy,24801531,100000,105,1204695,20.58x,1149536,21.57x,blake3:fe3005df52f5c986b9
+splatbench_outdoor_proxy,124001531,500000,483,6301960,19.67x,5714469,21.69x,blake3:47c7d3f2235a97ce31
+splatbench_product_proxy,2481530,10000,11,121033,20.50x,121078,20.49x,blake3:136841e98cd55e44a2
+bicycle_mipnerf360_iter7k,896795076,3616103,4457,35222089,25.46x,23040772,38.92x,blake3:72a38d7d5f5fa8292d

@@ -1,0 +1,13 @@
+[package]
+name = "splatforge-optimize"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Composable optimization passes for SplatForge."
+
+[dependencies]
+splatforge-core = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }

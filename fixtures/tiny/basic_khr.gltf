@@ -1,0 +1,104 @@
+{
+  "accessors": [
+    {
+      "bufferView": 0,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 3,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 12,
+      "componentType": 5126,
+      "count": 3,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 28,
+      "componentType": 5126,
+      "count": 3,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 40,
+      "componentType": 5126,
+      "count": 3,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 44,
+      "componentType": 5126,
+      "count": 3,
+      "type": "VEC3"
+    }
+  ],
+  "asset": {
+    "generator": "SplatForge fixtures/build.py",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 168,
+      "byteOffset": 0,
+      "byteStride": 56,
+      "target": 34962
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 168,
+      "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAM3MTD3NzEw9zcxMPWZmZj8AAAA/AAAAPwAAAD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPc3MTD3NzEw9ZmZmPwAAAD8AAAA/AAAAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAAAAAAAAAADNzEw9zcxMPc3MTD1mZmY/AAAAPwAAAD8AAAA/"
+    }
+  ],
+  "extensionsRequired": [
+    "KHR_gaussian_splatting"
+  ],
+  "extensionsUsed": [
+    "KHR_gaussian_splatting"
+  ],
+  "meshes": [
+    {
+      "name": "splats",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0
+          },
+          "extensions": {
+            "KHR_gaussian_splatting": {
+              "attributes": {
+                "POSITION": 0,
+                "_COLOR_DC": 4,
+                "_OPACITY": 3,
+                "_ROTATION": 1,
+                "_SCALE": 2
+              },
+              "splatCount": 3,
+              "version": "1.0"
+            }
+          },
+          "mode": 0
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "splatNode"
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ]
+}

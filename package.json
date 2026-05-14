@@ -1,0 +1,17 @@
+{
+  "name": "splatforge-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "packages/*",
+    "tests/visual"
+  ],
+  "scripts": {
+    "lint": "pnpm -r --if-present run lint",
+    "test": "pnpm -r --if-present run test",
+    "build": "pnpm -r --if-present run build",
+    "playwright": "pnpm -F splatforge-visual test"
+  }
+}

@@ -1,0 +1,30 @@
+[package]
+name = "splatforge-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The `splatforge` command-line tool."
+
+[[bin]]
+name = "splatforge"
+path = "src/main.rs"
+
+[dependencies]
+splatforge-core = { workspace = true }
+splatforge-ply = { workspace = true }
+splatforge-spz = { workspace = true }
+splatforge-gltf = { workspace = true }
+splatforge-optimize = { workspace = true }
+splatforge-bench = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde_json = { workspace = true }
+tiny_http = "0.12"
+
+[dev-dependencies]
+assert_cmd = "2"
+tempfile = "3"

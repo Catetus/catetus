@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SplatBench v0 — SplatForge benchmark corpus</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-elev: #14181d;
+    --bg-row: #161b21;
+    --bg-row-alt: #131820;
+    --fg: #d7dde4;
+    --fg-dim: #8b95a3;
+    --accent: #7dd3fc;
+    --accent-strong: #38bdf8;
+    --good: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --line: #1f262e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 64px;
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.55 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  main { max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: -0.5px; }
+  .sub { color: var(--fg-dim); margin-bottom: 28px; }
+  .kpis {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 32px;
+  }
+  .kpi {
+    background: var(--bg-elev); border: 1px solid var(--line);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .kpi-label { color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .kpi-value { font-size: 22px; font-weight: 600; color: var(--fg); }
+  .kpi-value .unit { color: var(--fg-dim); font-size: 14px; font-weight: 400; margin-left: 4px; }
+  h2 { margin: 24px 0 12px; font-size: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; background: var(--bg-elev); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--line); }
+  th { background: #1a1f25; color: var(--fg-dim); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr:nth-child(even) { background: var(--bg-row-alt); }
+  tbody tr:nth-child(odd)  { background: var(--bg-row); }
+  tbody tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-real { background: rgba(52,211,153,0.15); color: var(--good); border: 1px solid rgba(52,211,153,0.3); }
+  .badge-synth { background: rgba(125,211,252,0.10); color: var(--accent); border: 1px solid rgba(125,211,252,0.25); }
+  .ratio { font-weight: 700; }
+  .ratio-high { color: var(--good); }
+  .ratio-mid { color: var(--accent); }
+  .ratio-low { color: var(--warn); }
+  .footer { color: var(--fg-dim); font-size: 12px; margin-top: 32px; line-height: 1.6; }
+  a { color: var(--accent-strong); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .bar {
+    position: relative; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden;
+    width: 80px; display: inline-block; vertical-align: middle; margin-left: 6px;
+  }
+  .bar-fill { position: absolute; top: 0; left: 0; height: 100%; background: linear-gradient(90deg, var(--accent) 0%, var(--good) 100%); }
+  code.inline { background: var(--bg-elev); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+  .controls { margin-bottom: 12px; }
+  select {
+    background: var(--bg-elev); color: var(--fg); border: 1px solid var(--line);
+    padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>SplatBench <span style="color:var(--accent)">v0</span></h1>
+  <div class="sub">
+    The initial public benchmark corpus for <a href="https://github.com/splatforge/splatforge">SplatForge</a>.
+    7 scenes · 7.63M splats total · 1.89 GB raw PLY · run on splatforge 0.1.0 · linux-aarch64 · 2026-05-14
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-label">Scenes</div><div class="kpi-value">7<span class="unit">(2 real + 5 synthetic)</span></div></div>
+    <div class="kpi"><div class="kpi-label">web-mobile median</div><div class="kpi-value">21.75<span class="unit">×</span></div></div>
+    <div class="kpi"><div class="kpi-label">size-min median</div><div class="kpi-value">24.24<span class="unit">×</span></div></div>
+    <div class="kpi"><div class="kpi-label">Best ratio</div><div class="kpi-value">38.92<span class="unit">× (bicycle, size-min)</span></div></div>
+  </div>
+
+  <h2>Leaderboard</h2>
+  <div class="controls">
+    Preset:
+    <select id="preset" onchange="renderTable()">
+      <option value="webMobile" selected>web-mobile</option>
+      <option value="sizeMin">size-min</option>
+    </select>
+  </div>
+  <table id="leaderboard">
+    <thead>
+      <tr>
+        <th>Scene</th>
+        <th>Class</th>
+        <th>Source</th>
+        <th>Splats</th>
+        <th>Input</th>
+        <th>SPZ out</th>
+        <th>Ratio</th>
+        <th>analyze</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <h2>By scene class</h2>
+  <table>
+    <thead><tr><th>Class</th><th>Scenes</th><th>Splats covered</th><th>Coverage</th></tr></thead>
+    <tbody>
+      <tr><td>indoor-real-estate</td><td>2</td><td>1,257,141</td><td><span class="badge badge-real">REAL anchor</span></td></tr>
+      <tr><td>outdoor-scene</td><td>2</td><td>4,116,103</td><td><span class="badge badge-real">REAL anchor</span></td></tr>
+      <tr><td>product-scan</td><td>1</td><td>10,000</td><td><span class="badge badge-synth">synth only</span></td></tr>
+      <tr><td>noisy-capture</td><td>1</td><td>250,000</td><td><span class="badge badge-synth">synth only</span></td></tr>
+      <tr><td>dense-large-scene</td><td>1</td><td>2,000,000</td><td><span class="badge badge-synth">synth only</span></td></tr>
+      <tr><td>people/characters</td><td>0</td><td>—</td><td>Pending design-partner contribution</td></tr>
+      <tr><td>reflective/transparent</td><td>0</td><td>—</td><td>Pending</td></tr>
+      <tr><td>mobile-friendly</td><td>0</td><td>—</td><td>Pending</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What v0 doesn't yet measure</h2>
+  <table>
+    <thead><tr><th>Metric</th><th>Status</th><th>Blocker</th></tr></thead>
+    <tbody>
+      <tr><td>Visual fidelity (ΔE94, SSIM, PSNR)</td><td>pending</td><td>needs <code class="inline">playwright-core + chromium</code></td></tr>
+      <tr><td>Viewer parity matrix</td><td>pending</td><td>needs Playwright across 4 browser projects</td></tr>
+      <tr><td>FPS / first-meaningful-paint</td><td>pending</td><td>needs real-device matrix</td></tr>
+      <tr><td>Mobile memory peak</td><td>pending</td><td>needs real-device matrix</td></tr>
+      <tr><td>Design-partner real assets</td><td>pending</td><td>Phase 0 outreach</td></tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    Reproducibility: every scene is identified by a BLAKE3 hash of its canonical IR.
+    Synthetic scenes regenerate byte-identically from <code class="inline">benches/synth_scenes.py</code>.
+    Full machine-readable data: <a href="splatbench-v0.json">splatbench-v0.json</a> · raw CSV: <a href="splatbench-v0-results.csv">splatbench-v0-results.csv</a> · writeup: <a href="splatbench-v0.md">splatbench-v0.md</a>.
+  </div>
+</main>
+
+<script>
+const DATA = [
+  { id:"bonsai_mipnerf360_iter7k",  cls:"indoor-real-estate",  src:"real",      splats:1157141, bytesIn:286972500, webMobile:{spz:12576301, ratio:22.81}, sizeMin:{spz:9015122,  ratio:31.83}, analyze:1240 },
+  { id:"bicycle_mipnerf360_iter7k", cls:"outdoor-scene",       src:"real",      splats:3616103, bytesIn:896795076, webMobile:{spz:35222089, ratio:25.46}, sizeMin:{spz:23040772, ratio:38.92}, analyze:4457 },
+  { id:"splatbench_product_proxy",  cls:"product-scan",        src:"synthetic", splats:10000,   bytesIn:2481530,   webMobile:{spz:121033,   ratio:20.50}, sizeMin:{spz:121078,   ratio:20.49}, analyze:11   },
+  { id:"splatbench_indoor_proxy",   cls:"indoor-real-estate",  src:"synthetic", splats:100000,  bytesIn:24801531,  webMobile:{spz:1204695,  ratio:20.58}, sizeMin:{spz:1149536,  ratio:21.57}, analyze:105  },
+  { id:"splatbench_floater_proxy",  cls:"noisy-capture",       src:"synthetic", splats:250000,  bytesIn:62001531,  webMobile:{spz:2399049,  ratio:25.84}, sizeMin:{spz:2226050,  ratio:27.85}, analyze:248  },
+  { id:"splatbench_outdoor_proxy",  cls:"outdoor-scene",       src:"synthetic", splats:500000,  bytesIn:124001531, webMobile:{spz:6301960,  ratio:19.67}, sizeMin:{spz:5714469,  ratio:21.69}, analyze:483  },
+  { id:"splatbench_dense_proxy",    cls:"dense-large-scene",   src:"synthetic", splats:2000000, bytesIn:496001532, webMobile:{spz:22794972, ratio:21.75}, sizeMin:{spz:20461015, ratio:24.24}, analyze:2184 }
+];
+
+function fmtBytes(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n/1024).toFixed(1) + " KB";
+  if (n < 1073741824) return (n/1048576).toFixed(1) + " MB";
+  return (n/1073741824).toFixed(2) + " GB";
+}
+function fmtMs(ms) {
+  if (ms < 1000) return ms + " ms";
+  return (ms/1000).toFixed(2) + " s";
+}
+function ratioClass(r) {
+  if (r >= 25) return "ratio-high";
+  if (r >= 21) return "ratio-mid";
+  return "ratio-low";
+}
+function renderTable() {
+  const preset = document.getElementById("preset").value;
+  const rows = [...DATA].sort((a, b) => b[preset].ratio - a[preset].ratio);
+  const maxRatio = Math.max(...rows.map(r => r[preset].ratio));
+  const tbody = document.getElementById("rows");
+  tbody.innerHTML = rows.map((r, i) => {
+    const pr = r[preset];
+    const cls = ratioClass(pr.ratio);
+    const w = Math.round((pr.ratio / maxRatio) * 100);
+    const srcBadge = r.src === "real"
+      ? '<span class="badge badge-real">REAL</span>'
+      : '<span class="badge badge-synth">synth</span>';
+    return `<tr>
+      <td><strong>${r.id}</strong></td>
+      <td>${r.cls}</td>
+      <td>${srcBadge}</td>
+      <td>${r.splats.toLocaleString()}</td>
+      <td>${fmtBytes(r.bytesIn)}</td>
+      <td>${fmtBytes(pr.spz)}</td>
+      <td><span class="ratio ${cls}">${pr.ratio.toFixed(2)}×</span><span class="bar"><span class="bar-fill" style="width:${w}%"></span></span></td>
+      <td>${fmtMs(r.analyze)}</td>
+    </tr>`;
+  }).join("");
+}
+renderTable();
+</script>
+</body>
+</html>
