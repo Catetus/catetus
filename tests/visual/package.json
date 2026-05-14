@@ -1,0 +1,28 @@
+{
+  "name": "splatforge-visual",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Visual-diff (SPEC-0009) and viewer-parity (SPEC-0010) harness for SplatForge.",
+  "scripts": {
+    "test": "playwright test",
+    "report": "node scripts/build-report.mjs",
+    "diff": "node scripts/diff-cli.mjs",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@splatforge/viewer": "workspace:*",
+    "@splatforge/report-ui": "workspace:*",
+    "pixelmatch": "^6.0.0",
+    "playwright-core": "^1.45.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0",
+    "@types/node": "^20.11.0",
+    "@types/pixelmatch": "^5.2.6",
+    "@types/pngjs": "^6.0.5",
+    "typescript": "^5.4.0"
+  }
+}

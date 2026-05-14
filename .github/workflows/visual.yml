@@ -1,0 +1,26 @@
+name: visual
+on:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -F splatforge-visual exec playwright install --with-deps chromium webkit firefox
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p splatforge-cli
+      - run: pnpm -F splatforge-visual run test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-report
+          path: tests/visual/report/

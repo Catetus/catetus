@@ -1,0 +1,13 @@
+[package]
+name = "splatforge-ply"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PLY (Inria 3DGS) ingest into SplatForge IR."
+
+[dependencies]
+splatforge-core = { workspace = true }
+byteorder = { workspace = true }
+thiserror = { workspace = true }

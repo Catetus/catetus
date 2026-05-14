@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SplatForge Preview</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #eee; font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    #stage { position: fixed; inset: 0; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    #hud {
+      position: fixed; bottom: 12px; left: 12px; padding: 6px 10px;
+      background: rgba(0,0,0,0.55); border-radius: 6px;
+      font: 12px/1.2 ui-monospace, monospace; pointer-events: none;
+    }
+    #hud .row { display: flex; gap: 12px; }
+    #hud b { color: #7df; font-weight: 600; }
+    .err { color: #f66; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+      <div class="row"><span>state</span><b id="state">idle</b></div>
+      <div class="row"><span>chunks</span><b id="chunks">0 / 0</b></div>
+      <div class="row"><span>renderer</span><b id="renderer">-</b></div>
+    </div>
+  </div>
+  <script type="module">
+    import { SplatForgeViewer } from './viewer.js';
+
+    const params = new URLSearchParams(location.search);
+    const src = params.get('src');
+    const rendererParam = params.get('renderer');
+    const stateEl = document.getElementById('state');
+    const chunksEl = document.getElementById('chunks');
+    const rendererEl = document.getElementById('renderer');
+    const canvas = document.getElementById('canvas');
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    if (!src) {
+      stateEl.textContent = 'missing ?src=';
+      stateEl.classList.add('err');
+    } else {
+      const viewer = new SplatForgeViewer({
+        canvas,
+        src,
+        renderer: rendererParam === 'webgl2' || rendererParam === 'webgpu' ? rendererParam : 'auto',
+        cameraPath: 'orbit-8',
+        stats: true,
+      });
+      rendererEl.textContent = rendererParam ?? 'auto';
+      let total = 0;
+      let loaded = 0;
+      viewer.on('loadStart', () => { stateEl.textContent = 'loading'; });
+      viewer.on('manifestLoaded', (e) => { total = e.chunkCount; chunksEl.textContent = `0 / ${total}`; });
+      viewer.on('chunkLoaded', () => { loaded++; chunksEl.textContent = `${loaded} / ${total}`; });
+      viewer.on('firstRender', () => { stateEl.textContent = 'rendering'; });
+      viewer.on('complete', () => { stateEl.textContent = 'complete'; });
+      viewer.on('error', (e) => {
+        stateEl.textContent = `error: ${e.code}`;
+        stateEl.classList.add('err');
+      });
+      viewer.load().catch(() => { /* error already surfaced via event */ });
+    }
+  </script>
+</body>
+</html>

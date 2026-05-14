@@ -1,0 +1,52 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node / pnpm
+node_modules/
+**/node_modules/
+packages/*/dist/
+packages/*/.tsbuildinfo
+.pnpm-store/
+
+# Playwright / visual harness output
+tests/visual/report/
+tests/visual/test-results/
+tests/visual/playwright-report/
+tests/visual/.cache/
+
+# Build artifacts and prebuilt binaries
+/bin/*
+!/bin/.gitkeep
+!/bin/README.md
+
+# Local benchmark scratch
+/benches/scratch/
+/benches/runs/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+*.iml
+
+# Logs and reports left from CI runs
+*.log
+playwright-report/
+test-results/
+
+# Private corpus (don't track real splats)
+fixtures/private/**
+!fixtures/private/.gitkeep
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Temporary outputs
+/tmp/
+/dist/

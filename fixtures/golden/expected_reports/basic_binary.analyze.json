@@ -1,0 +1,61 @@
+{
+  "attributes": {
+    "color_dc": true,
+    "opacity": true,
+    "position": true,
+    "rotation": true,
+    "scale": true,
+    "sh_rest": true
+  },
+  "boundingBox": {
+    "max": [
+      1.0,
+      1.0,
+      0.0
+    ],
+    "min": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "coordinateSystem": {
+    "handedness": "right",
+    "up": "Y"
+  },
+  "estimatedMemory": {
+    "ramMb": 0,
+    "vramMb": 0
+  },
+  "fileSize": 2270,
+  "format": "ply",
+  "hash": "blake3:a2cf921d57904e9cc80bce5cb8dc28c09fb3950b9db543c5187c7d8d8c0ebcb0",
+  "opacityDistribution": {
+    "max": 0.8999999761581421,
+    "mean": 0.8999999761581421,
+    "median": 0.8999999761581421,
+    "min": 0.8999999761581421
+  },
+  "recommendations": [],
+  "scaleDistribution": {
+    "max": [
+      0.04999999701976776,
+      0.04999999701976776,
+      0.04999999701976776
+    ],
+    "mean": [
+      0.04999999701976776,
+      0.04999999701976776,
+      0.04999999701976776
+    ],
+    "min": [
+      0.04999999701976776,
+      0.04999999701976776,
+      0.04999999701976776
+    ]
+  },
+  "schemaVersion": "1",
+  "shDegree": 3,
+  "splatCount": 3,
+  "warnings": []
+}
