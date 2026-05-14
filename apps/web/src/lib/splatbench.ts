@@ -74,12 +74,18 @@ export interface SplatBenchAggregates {
   scenesSynthetic: number;
   splatCountTotal: number;
   bytesInTotal: number;
+  webMobileSpzTotal?: number;
+  sizeMinSpzTotal?: number;
+  webMobileRatioOverall?: number;
+  sizeMinRatioOverall?: number;
   webMobileRatioMin: number;
   webMobileRatioMedian: number;
   webMobileRatioMax: number;
   sizeMinRatioMin: number;
   sizeMinRatioMedian: number;
   sizeMinRatioMax: number;
+  fidelityWebMobilePass?: number;
+  fidelitySizeMinPass?: number;
 }
 
 export interface SplatBenchReport {

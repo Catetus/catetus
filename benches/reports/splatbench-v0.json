@@ -1049,16 +1049,22 @@
     }
   ],
   "aggregates": {
-    "scenesTotal": 7,
+    "scenesTotal": 16,
     "scenesReal": 2,
-    "scenesSynthetic": 5,
-    "splatCountTotal": 7633244,
-    "bytesInTotal": 1893055231,
-    "webMobileRatioMin": 19.67,
-    "webMobileRatioMedian": 21.75,
-    "webMobileRatioMax": 25.84,
-    "sizeMinRatioMin": 20.49,
-    "sizeMinRatioMedian": 24.24,
-    "sizeMinRatioMax": 38.92
+    "scenesSynthetic": 14,
+    "splatCountTotal": 7772244,
+    "bytesInTotal": 1927541000,
+    "webMobileSpzTotal": 82283079,
+    "sizeMinSpzTotal": 63353472,
+    "webMobileRatioOverall": 23.43,
+    "sizeMinRatioOverall": 30.43,
+    "webMobileRatioMin": 17.63,
+    "webMobileRatioMedian": 21.88,
+    "webMobileRatioMax": 26.6,
+    "sizeMinRatioMin": 17.96,
+    "sizeMinRatioMedian": 23.19,
+    "sizeMinRatioMax": 38.92,
+    "fidelityWebMobilePass": 16,
+    "fidelitySizeMinPass": 15
   }
 }
