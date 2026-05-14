@@ -69,6 +69,12 @@ const SCENE_ORDER = [
   { file: 'splatbench_foliage_proxy.ply', id: 'splatbench_foliage_proxy' },
   { file: 'splatbench_lowlight_proxy.ply', id: 'splatbench_lowlight_proxy' },
   { file: 'splatbench_portrait_proxy.ply', id: 'splatbench_portrait_proxy' },
+  // v0.1.3 corpus extension: texture/transparency/motion/depth/banding probes.
+  { file: 'splatbench_texture_proxy.ply', id: 'splatbench_texture_proxy' },
+  { file: 'splatbench_transparency_proxy.ply', id: 'splatbench_transparency_proxy' },
+  { file: 'splatbench_motion_proxy.ply', id: 'splatbench_motion_proxy' },
+  { file: 'splatbench_depth_proxy.ply', id: 'splatbench_depth_proxy' },
+  { file: 'splatbench_banding_proxy.ply', id: 'splatbench_banding_proxy' },
 ];
 
 /* -------------------------------------------------- color-difference math */

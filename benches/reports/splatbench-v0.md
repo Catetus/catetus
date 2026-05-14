@@ -16,6 +16,8 @@
 | Input total | **1.89 GB** raw PLY |
 | `web-mobile` ratio (min / median / max) | **19.67× / 21.75× / 25.84×** |
 | `size-min` ratio (min / median / max) | **20.49× / 24.24× / 38.92×** |
+| `web-mobile` fidelity passing | **16 / 16** scenes within PRD threshold |
+| `size-min` fidelity passing | **15 / 16** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
 | `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
@@ -92,16 +94,21 @@ Frames captured via `@splatforge/viewer` in headless Chromium (SwiftShader softw
 | Rank | Scene | web-mobile ΔE94 mean / max | status | size-min ΔE94 mean / max | status | web-mobile ML | size-min ML |
 | ---: | ----- | ---: | :---: | ---: | :---: | ---: | ---: |
 | 1 | `splatbench_dense_proxy` | 0.00% / 0.01% | **pass** | 0.02% / 0.03% | **pass** | 95.54% | 94.87% |
-| 2 | `splatbench_product_proxy` | 0.02% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 95.28% | 95.09% |
-| 3 | `splatbench_outdoor_proxy` | 0.02% / 0.04% | **pass** | 0.09% / 0.14% | **pass** | 95.16% | 94.00% |
-| 4 | `splatbench_indoor_proxy` | 0.03% / 0.04% | **pass** | 0.10% / 0.11% | **pass** | 95.12% | 94.19% |
-| 5 | `splatbench_lowlight_proxy` | 0.03% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 95.27% | 95.19% |
-| 6 | `splatbench_specular_proxy` | 0.04% / 0.04% | **pass** | 0.05% / 0.05% | **pass** | 95.14% | 94.97% |
-| 7 | `splatbench_portrait_proxy` | 0.04% / 0.08% | **pass** | 0.06% / 0.11% | **pass** | 95.12% | 94.76% |
-| 8 | `splatbench_floater_proxy` | 0.09% / 0.09% | **pass** | 14.48% / 14.73% | **fail** | 90.82% | 37.17% |
-| 9 | `splatbench_foliage_proxy` | 0.09% / 0.09% | **pass** | 0.10% / 0.10% | **pass** | 93.96% | 93.74% |
-| 10 | `bonsai_mipnerf360_iter7k` | 0.60% / 0.84% | **pass** | 0.64% / 0.87% | **pass** | 46.51% | 43.84% |
-| 11 | `bicycle_mipnerf360_iter7k` | 2.86% / 3.56% | **borderline** | 2.60% / 3.33% | **borderline** | 0.00% | 0.00% |
+| 2 | `splatbench_depth_proxy` | 0.02% / 0.02% | **pass** | 0.02% / 0.03% | **pass** | 95.34% | 95.22% |
+| 3 | `splatbench_product_proxy` | 0.02% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 95.28% | 95.09% |
+| 4 | `splatbench_outdoor_proxy` | 0.02% / 0.04% | **pass** | 0.09% / 0.14% | **pass** | 95.16% | 94.00% |
+| 5 | `splatbench_banding_proxy` | 0.03% / 0.04% | **pass** | 0.03% / 0.04% | **pass** | 95.17% | 95.14% |
+| 6 | `splatbench_indoor_proxy` | 0.03% / 0.04% | **pass** | 0.10% / 0.11% | **pass** | 95.12% | 94.19% |
+| 7 | `splatbench_lowlight_proxy` | 0.03% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 95.27% | 95.19% |
+| 8 | `splatbench_specular_proxy` | 0.04% / 0.04% | **pass** | 0.05% / 0.05% | **pass** | 95.14% | 94.97% |
+| 9 | `splatbench_portrait_proxy` | 0.04% / 0.08% | **pass** | 0.06% / 0.11% | **pass** | 95.12% | 94.76% |
+| 10 | `splatbench_transparency_proxy` | 0.07% / 0.08% | **pass** | 0.08% / 0.08% | **pass** | 94.69% | 94.66% |
+| 11 | `splatbench_floater_proxy` | 0.09% / 0.09% | **pass** | 14.48% / 14.73% | **fail** | 90.82% | 37.17% |
+| 12 | `splatbench_foliage_proxy` | 0.09% / 0.09% | **pass** | 0.10% / 0.10% | **pass** | 93.96% | 93.74% |
+| 13 | `splatbench_texture_proxy` | 0.09% / 0.12% | **pass** | 0.12% / 0.18% | **pass** | 94.26% | 92.73% |
+| 14 | `splatbench_motion_proxy` | 0.15% / 0.16% | **pass** | 0.16% / 0.17% | **pass** | 91.49% | 91.22% |
+| 15 | `bonsai_mipnerf360_iter7k` | 0.60% / 0.84% | **pass** | 0.64% / 0.87% | **pass** | 46.51% | 43.84% |
+| 16 | `bicycle_mipnerf360_iter7k` | 2.86% / 3.56% | **borderline** | 2.60% / 3.33% | **borderline** | 0.00% | 0.00% |
 
 **Pass criterion:** mean ΔE94 < 3% AND max ΔE94 < 8%. **Borderline:** mean 2–3% or max 5–8%. **Pass:** mean < 2% AND max < 5%.
 

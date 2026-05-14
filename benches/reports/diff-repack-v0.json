@@ -5,7 +5,7 @@
   "version": "0.1.0-gsplat-self-distill",
   "target_ratio": 0.5,
   "approach": "gsplat 1.5.3 + self-distillation against 16 inside-the-cloud orbit-camera pseudo-photos; hard-prune by saliency (alpha * |sigma scale|) every N iters",
-  "generated_at": "2026-05-14T12:30:00Z",
+  "generated_at": "2026-05-14T14:02:39.596Z",
   "results": [
     {
       "scene_id": "bonsai_mipnerf360_iter7k",
@@ -55,7 +55,7 @@
       "psnr_repack_db": 32.709,
       "psnr_opacity_prune_db": 18.221,
       "psnr_delta_db": 14.487,
-      "wall_secs": 38.0,
+      "wall_secs": 38,
       "image_size": 192,
       "iters": 1000
     },
@@ -147,6 +147,71 @@
       "psnr_opacity_prune_db": 14.224,
       "psnr_delta_db": 23.81,
       "wall_secs": 34.2,
+      "image_size": 192,
+      "iters": 1000
+    },
+    {
+      "scene_id": "splatbench_texture_proxy",
+      "splats_in": 15000,
+      "splats_out": 7503,
+      "bytes_in": 3721530,
+      "bytes_out": 1862273,
+      "psnr_repack_db": 42.937,
+      "psnr_opacity_prune_db": 34.638,
+      "psnr_delta_db": 8.299,
+      "wall_secs": 19.62,
+      "image_size": 192,
+      "iters": 1000
+    },
+    {
+      "scene_id": "splatbench_transparency_proxy",
+      "splats_in": 25000,
+      "splats_out": 12503,
+      "bytes_in": 6201530,
+      "bytes_out": 3102274,
+      "psnr_repack_db": 34.955,
+      "psnr_opacity_prune_db": 47.567,
+      "psnr_delta_db": -12.612,
+      "wall_secs": 32.88,
+      "image_size": 192,
+      "iters": 1000
+    },
+    {
+      "scene_id": "splatbench_motion_proxy",
+      "splats_in": 12000,
+      "splats_out": 6003,
+      "bytes_in": 2977530,
+      "bytes_out": 1490273,
+      "psnr_repack_db": 24.951,
+      "psnr_opacity_prune_db": 14.805,
+      "psnr_delta_db": 10.146,
+      "wall_secs": 17.32,
+      "image_size": 192,
+      "iters": 1000
+    },
+    {
+      "scene_id": "splatbench_depth_proxy",
+      "splats_in": 15000,
+      "splats_out": 7503,
+      "bytes_in": 3721530,
+      "bytes_out": 1862273,
+      "psnr_repack_db": 31.865,
+      "psnr_opacity_prune_db": 13.241,
+      "psnr_delta_db": 18.624,
+      "wall_secs": 17.09,
+      "image_size": 192,
+      "iters": 1000
+    },
+    {
+      "scene_id": "splatbench_banding_proxy",
+      "splats_in": 10000,
+      "splats_out": 5003,
+      "bytes_in": 2481530,
+      "bytes_out": 1242273,
+      "psnr_repack_db": 42.337,
+      "psnr_opacity_prune_db": 38.3,
+      "psnr_delta_db": 4.037,
+      "wall_secs": 23.88,
       "image_size": 192,
       "iters": 1000
     }
