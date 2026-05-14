@@ -63,26 +63,27 @@ main.page {
 }
 
 section + section {
-  margin-top: 120px;
-  padding-top: 8px;
+  margin-top: 64px;
+  padding-top: 64px;
   position: relative;
+  border-top: 1px solid var(--line);
 }
 
-/* Subtle hairline between major sections so the page doesn't read as one
-   unbroken canvas. The leaderboard table is wide + dense, so the next
-   section needs an explicit visual break. */
+/* Inset accent gradient over the hairline so adjacent sections visually
+   read as distinct chapters. The leaderboard table is dense; without this
+   the next section bleeds into it as one wall. */
 section + section::before {
   content: "";
   position: absolute;
-  top: -60px;
-  left: 0;
-  right: 0;
+  top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, 70%);
   height: 1px;
   background: linear-gradient(
     to right,
     transparent 0%,
-    var(--line-strong) 30%,
-    var(--line-strong) 70%,
+    rgba(125, 211, 252, 0.35) 50%,
     transparent 100%
   );
 }
@@ -369,9 +370,9 @@ h2.section-title {
   margin-bottom: 10px;
 }
 .stat-value .unit {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 500;
-  color: var(--fg-dim);
+  color: var(--fg-muted);
   margin-left: 4px;
 }
 .stat-label {
@@ -428,6 +429,10 @@ h2.section-title {
   align-items: center;
   gap: 12px;
   padding: 16px 18px;
+  min-width: 0;
+}
+.install-body[hidden] {
+  display: none !important;
 }
 .install-body pre {
   flex: 1;
@@ -522,6 +527,19 @@ h2.section-title {
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
+  /* Fade-out gradient on the right edge cues mobile users that there's
+     more table off-screen. Implemented as a mask so it doesn't paint
+     over the table itself. */
+  -webkit-mask-image: linear-gradient(to right, black 90%, transparent 100%);
+  mask-image: linear-gradient(to right, black 90%, transparent 100%);
+}
+@media (min-width: 980px) {
+  /* On wide screens the table fits — disable the mask so the right border
+     stays crisp. */
+  .leaderboard-wrap {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
 }
 table.leaderboard {
   width: 100%;
@@ -922,6 +940,7 @@ code.inline {
   padding: 22px 22px 18px;
   background: var(--bg-elev);
   transition: border-color 160ms;
+  min-width: 0;
 }
 .docs-step:hover {
   border-color: var(--line-strong);
@@ -962,12 +981,15 @@ code.inline {
   overflow-x: auto;
   white-space: pre;
   line-height: 1.55;
+  max-width: 100%;
 }
 
+/* Smaller, denser style — refs are tertiary content, not as prominent as
+   the numbered steps above. */
 .docs-refs {
-  margin-top: 28px;
+  margin-top: 32px;
   display: grid;
-  gap: 12px;
+  gap: 8px;
   grid-template-columns: 1fr;
 }
 @media (min-width: 720px) {
@@ -982,27 +1004,108 @@ code.inline {
 }
 .docs-ref {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
   color: var(--fg);
   text-decoration: none;
-  transition: border-color 160ms, background 160ms;
+  transition: background 160ms;
 }
 .docs-ref:hover {
-  border-color: var(--line-strong);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
   text-decoration: none;
 }
 .docs-ref-title {
-  font-weight: 600;
+  font-weight: 500;
   font-size: 14px;
   color: var(--accent-strong);
+  flex-shrink: 0;
 }
 .docs-ref-blurb {
   color: var(--fg-muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* --- API status pill (sits inline in TryIt section-sub) --- */
+.api-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  margin: 0 2px;
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  color: var(--good);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--mono);
+  text-transform: lowercase;
+  letter-spacing: 0.5px;
+  vertical-align: 2px;
+}
+.api-status .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.6);
+  animation: status-pulse 2.4s ease-in-out infinite;
+}
+.api-status.offline {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.2);
+  color: var(--bad);
+}
+.api-status.offline .status-dot {
+  background: var(--bad);
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.5);
+}
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* Tertiary link inside hero-ctas — a button cluster of 3 reads as cluttered;
+   demote the third to a plain link so the primary CTA stays the obvious one. */
+.hero-link {
+  color: var(--fg-muted);
+  font-size: 14px;
+  margin-left: 4px;
+}
+.hero-link:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+
+/* Compact explainer for the pro/premium pills on the leaderboard. Sits
+   between the preset toggle and the table; avoids hover tooltips that
+   don't work on mobile. */
+.leaderboard-note {
+  margin: 14px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  line-height: 1.5;
+}
+.leaderboard-note > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.leaderboard-note code {
+  color: var(--fg);
+  background: var(--bg-elev);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
 }
