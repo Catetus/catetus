@@ -1,16 +1,73 @@
 ---
 // /compare — side-by-side viewer comparing presets on the same scene.
 // Two synced canvases, web-mobile on the left, size-min on the right.
-// User picks the scene; the auto-orbit camera path is identical on both,
-// so what you're seeing is *only* the difference the preset choice made.
+// User picks the scene; both viewers share an explicit `cameraBbox` so a
+// preset that prunes geometry can't escape the comparison by reframing the
+// auto-orbit camera. What you're seeing is *only* the difference the preset
+// choice made inside the same world-space frame.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import Base from "../layouts/Base.astro";
 
 const githubUrl = "https://github.com/montabano1/SplatForge";
 
+const COMPARE_ROOT = resolve(
+  process.cwd(),
+  "public",
+  "compare-scenes",
+);
+
+/**
+ * Read the POSITION accessor's min/max out of a baked scene.gltf at build
+ * time. We use this to compute a shared camera bbox per scene so the
+ * comparison can't be tilted by one preset auto-framing closer than the
+ * other.
+ */
+function readBbox(sceneId: string, preset: string): { min: [number, number, number]; max: [number, number, number] } | null {
+  try {
+    const j = JSON.parse(
+      readFileSync(resolve(COMPARE_ROOT, sceneId, preset, "scene.gltf"), "utf8"),
+    );
+    const acc = (j.accessors || []).find(
+      (a: any) =>
+        Array.isArray(a.min) && a.min.length === 3 &&
+        Array.isArray(a.max) && a.max.length === 3,
+    );
+    if (!acc) return null;
+    return {
+      min: [Number(acc.min[0]), Number(acc.min[1]), Number(acc.min[2])],
+      max: [Number(acc.max[0]), Number(acc.max[1]), Number(acc.max[2])],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Union of two bboxes (or null fallback to either). */
+function unionBbox(
+  a: ReturnType<typeof readBbox>,
+  b: ReturnType<typeof readBbox>,
+): ReturnType<typeof readBbox> {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    min: [
+      Math.min(a.min[0], b.min[0]),
+      Math.min(a.min[1], b.min[1]),
+      Math.min(a.min[2], b.min[2]),
+    ],
+    max: [
+      Math.max(a.max[0], b.max[0]),
+      Math.max(a.max[1], b.max[1]),
+      Math.max(a.max[2], b.max[2]),
+    ],
+  };
+}
+
 // Scenes baked into apps/web/public/compare-scenes/<scene>/<preset>/scene.gltf.
 // ML / ΔE94 numbers come from benches/reports/splatbench-v0.json (frozen at
 // build time; copy via scripts/sync-data.mjs).
-const scenes = [
+const rawScenes = [
   {
     id: "product",
     label: "splatbench_product_proxy",
@@ -35,13 +92,21 @@ const scenes = [
     id: "floater",
     label: "splatbench_floater_proxy",
     blurb:
-      "The failure case. size-min loses 14.5% ΔE94 — visible ghosting from over-pruned low-opacity splats. ML Score correctly drops to 46%. Web-mobile is fine.",
+      "Noisy-capture stress test. The synthetic adds 50k low-opacity floaters at radius 20-80 around a clean ±2 cube. web-mobile keeps most of them (op-prune threshold 0.02); size-min nukes them all (threshold 0.05). With a shared camera bbox, both renders show the same cube + halo — the only visible difference is the haze density. Both pass the 3% ΔE94 threshold.",
     presets: {
-      "web-mobile": { ml: 0.9579, dE94: 0.0009, status: "pass", bytes: "2.6 MB" },
-      "size-min": { ml: 0.4593, dE94: 0.1448, status: "fail", bytes: "2.5 MB" },
+      "web-mobile": { ml: 0.9266, dE94: 0.0007, status: "pass", bytes: "2.6 MB" },
+      "size-min": { ml: 0.8342, dE94: 0.0037, status: "pass", bytes: "2.5 MB" },
     },
   },
 ];
+
+const scenes = rawScenes.map((s) => ({
+  ...s,
+  cameraBbox: unionBbox(
+    readBbox(s.id, "web-mobile"),
+    readBbox(s.id, "size-min"),
+  ),
+}));
 
 const title = "SplatForge — Visual compare";
 const description =
@@ -304,18 +369,20 @@ const description =
       return Viewer;
     }
 
-    async function spawn(canvas, sceneId, preset, statusEl, metaEl) {
+    async function spawn(canvas, sceneId, preset, statusEl, metaEl, cameraBbox) {
       sizeCanvas(canvas);
       try {
         const ViewerCtor = await loadViewer();
-        const v = new ViewerCtor({
+        const opts = {
           canvas,
           src: "/compare-scenes/" + sceneId + "/" + preset + "/scene.gltf",
           cameraPath: "orbit-8",
           budget: "web-mobile",
           autoRotate: true,
           autoRotateSpeed: 7,
-        });
+        };
+        if (cameraBbox) opts.cameraBbox = cameraBbox;
+        const v = new ViewerCtor(opts);
         v.on("firstRender", function () {
           if (statusEl) statusEl.textContent = preset + " · live";
         });
@@ -355,9 +422,12 @@ const description =
       renderMetrics(metricsRight, scene.presets["size-min"], scene.presets["size-min"].status);
 
       // Kick off both loads in parallel so the orbits stay roughly in sync.
+      // Pass the shared camera bbox so a preset that prunes outliers (e.g.
+      // size-min × floater_proxy at ±2 vs web-mobile at ±79) can't escape
+      // the comparison by auto-framing closer than its peer.
       const [l, r] = await Promise.all([
-        spawn(leftCanvas, sceneId, "web-mobile", statusLeft, metaLeft),
-        spawn(rightCanvas, sceneId, "size-min", statusRight, metaRight),
+        spawn(leftCanvas, sceneId, "web-mobile", statusLeft, metaLeft, scene.cameraBbox),
+        spawn(rightCanvas, sceneId, "size-min", statusRight, metaRight, scene.cameraBbox),
       ]);
       leftViewer = l;
       rightViewer = r;
