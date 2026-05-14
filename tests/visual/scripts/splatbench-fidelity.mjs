@@ -270,9 +270,16 @@ function startServer({ scenesRoot, port }) {
  * compute metrics without re-reading disk.
  */
 async function renderFrames(baseUrl, gltfRelativePath, framesOutDir, renderer) {
+  // SBENCH_CHROME_FLAGS lets the hardware-accel rerun (apps/fidelity-gpu/run.py)
+  // force ANGLE/Vulkan flags without the script having to know about Modal.
+  const extraFlags = (process.env.SBENCH_CHROME_FLAGS || '')
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const headless = process.env.SBENCH_HEADLESS === '0' ? false : true;
   const browser = await playwright.chromium.launch({
-    headless: true,
-    args: ['--no-sandbox'],
+    headless,
+    args: ['--no-sandbox', ...extraFlags],
   });
   try {
     const ctx = await browser.newContext({ viewport: { width: 512, height: 512 } });
