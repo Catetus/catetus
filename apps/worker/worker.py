@@ -47,12 +47,14 @@ image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("curl", "build-essential", "git", "pkg-config", "ca-certificates")
     .run_commands(
-        # Install Rust toolchain (release-channel stable) so we can build the
-        # CLI from source against the pinned ref. ~90 s cold; cached after
+        # Install Rust toolchain (current stable) so we can build the CLI from
+        # source against the pinned ref. We need >=1.83 because the modern
+        # rustc + std crates use the 2024 edition. ~90 s cold; cached after
         # the first deploy.
         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | "
-        "sh -s -- -y --profile minimal --default-toolchain 1.74.0",
-        # Build splatforge at the pinned ref.
+        "sh -s -- -y --profile minimal --default-toolchain stable",
+        # Build splatforge at the pinned ref. `rust-toolchain.toml` in-repo
+        # also requests stable, so this is consistent with local builds.
         f"git clone --depth 1 --branch {SPLATFORGE_REF} {SPLATFORGE_REPO} /opt/splatforge",
         "/root/.cargo/bin/cargo build --release "
         "--manifest-path /opt/splatforge/Cargo.toml "
@@ -60,7 +62,7 @@ image = (
         # Symlink the binary onto PATH.
         "ln -s /opt/splatforge/target/release/splatforge /usr/local/bin/splatforge",
     )
-    .pip_install("requests==2.32.3")
+    .pip_install("requests==2.32.3", "fastapi[standard]==0.115.6")
 )
 
 
