@@ -49,3 +49,10 @@ path = "tests/round_trip_rust_native.rs"
 [[test]]
 name = "full_pipeline"
 path = "tests/full_pipeline.rs"
+
+[[bin]]
+name = "splatforge-posthac"
+path = "src/bin.rs"
+
+[dependencies.clap]
+workspace = true
