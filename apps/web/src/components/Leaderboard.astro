@@ -8,6 +8,8 @@ import {
   fmtMs,
   fmtInt,
   hasAnyFidelity,
+  hasAnyMlScore,
+  fidelityFor,
   type Preset,
   type SplatBenchScene,
 } from "../lib/splatbench";
@@ -18,6 +20,7 @@ const scenes: SplatBenchScene[] = splatbench.scenes;
 const ordered = sortedScenes(scenes, defaultPreset);
 const maxRatio = Math.max(...ordered.map((s) => presetView(s, defaultPreset).ratio));
 const showFidelity = hasAnyFidelity(scenes);
+const showMlScore = hasAnyMlScore(scenes);
 
 // Serialize once for the client island so we don't pay a fetch.
 const clientData = scenes.map((s) => ({
@@ -27,9 +30,16 @@ const clientData = scenes.map((s) => ({
   splats: s.splatCount,
   bytesIn: s.bytesIn,
   analyzeMs: s.analyzeMs,
-  webMobile: { spz: s.webMobileSpzBytes, ratio: s.webMobileRatio },
-  sizeMin: { spz: s.sizeMinSpzBytes, ratio: s.sizeMinRatio },
-  fidelity: s.fidelity ?? null,
+  webMobile: {
+    spz: s.webMobileSpzBytes,
+    ratio: s.webMobileRatio,
+    fid: s.fidelity?.webMobile ?? null,
+  },
+  sizeMin: {
+    spz: s.sizeMinSpzBytes,
+    ratio: s.sizeMinRatio,
+    fid: s.fidelity?.sizeMin ?? null,
+  },
 }));
 ---
 
@@ -82,13 +92,18 @@ const clientData = scenes.map((s) => ({
       <option value="webMobile" selected>web-mobile</option>
       <option value="sizeMin">size-min</option>
     </select>
-    {
-      !showFidelity && (
-        <span class="fidelity-pending">
-          fidelity column lights up automatically when v0.1.1 publishes ΔE94/SSIM/PSNR
-        </span>
-      )
-    }
+    {!showFidelity && (
+      <span class="fidelity-pending">
+        fidelity column lights up automatically when v0.1.1 publishes ΔE94/SSIM/PSNR
+      </span>
+    )}
+    {showMlScore && (
+      <span class="ml-note">
+        <span class="ml-tag">pro</span>
+        ML Score column scored by <code>splatforge-pro</code> — values are
+        published, reproducing them requires the proprietary build.
+      </span>
+    )}
   </div>
 
   <div class="leaderboard-wrap">
@@ -102,7 +117,10 @@ const clientData = scenes.map((s) => ({
           <th>Input</th>
           <th>SPZ out</th>
           <th>Ratio</th>
-          <th>Fidelity</th>
+          <th>Fidelity (ΔE94)</th>
+          {showMlScore && (
+            <th>ML Score <span class="ml-tag">pro</span></th>
+          )}
           <th>analyze</th>
         </tr>
       </thead>
@@ -131,14 +149,23 @@ const clientData = scenes.map((s) => ({
                   <span class="bar"><span class="bar-fill" style={`width:${w}%`} /></span>
                 </td>
                 <td>
-                  {s.fidelity?.deltaE94 !== undefined ? (() => {
-                    const pct = s.fidelity.deltaE94 * 100;
-                    const cls = pct < 2 ? "pass" : pct < 3 ? "borderline" : "fail";
-                    return <span class={`fidelity-cell ${cls}`}>{pct.toFixed(2)}%</span>;
-                  })() : (
-                    <span class="fidelity-pending">pending</span>
-                  )}
+                  {(() => {
+                    const fid = fidelityFor(s, defaultPreset);
+                    if (!fid) return <span class="fidelity-pending">pending</span>;
+                    const pct = fid.meanDeltaE94 * 100;
+                    return <span class={`fidelity-cell ${fid.status}`}>{pct.toFixed(2)}%</span>;
+                  })()}
                 </td>
+                {showMlScore && (
+                  <td>
+                    {(() => {
+                      const fid = fidelityFor(s, defaultPreset);
+                      if (!fid || fid.mlScore === undefined)
+                        return <span class="fidelity-pending">—</span>;
+                      return <span class="ml-cell">{(fid.mlScore * 100).toFixed(2)}%</span>;
+                    })()}
+                  </td>
+                )}
                 <td>{fmtMs(s.analyzeMs)}</td>
               </tr>
             );
@@ -149,13 +176,13 @@ const clientData = scenes.map((s) => ({
   </div>
 </section>
 
-<script is:inline define:vars={{ clientData }}>
+<script is:inline define:vars={{ clientData, showMlScore }}>
   // Tiny client island: preset toggle re-renders the table body in place.
   // No framework. Mirrors the renderer in benches/reports/splatbench-v0.html.
   (function () {
-    /** @typedef {{spz:number, ratio:number}} View */
-    /** @typedef {{deltaE94?:number, ssim?:number, psnr?:number}} Fidelity */
-    /** @typedef {{id:string, cls:string, source:"real"|"synthetic", splats:number, bytesIn:number, analyzeMs:number, webMobile:View, sizeMin:View, fidelity:Fidelity|null}} Row */
+    /** @typedef {{meanDeltaE94:number, status:string, mlScore?:number}} Fid */
+    /** @typedef {{spz:number, ratio:number, fid:Fid|null}} View */
+    /** @typedef {{id:string, cls:string, source:"real"|"synthetic", splats:number, bytesIn:number, analyzeMs:number, webMobile:View, sizeMin:View}} Row */
 
     /** @type {Row[]} */
     const DATA = clientData;
@@ -205,12 +232,23 @@ const clientData = scenes.map((s) => ({
               ? '<span class="badge badge-real">REAL</span>'
               : '<span class="badge badge-synth">synth</span>';
           let fid;
-          if (r.fidelity && typeof r.fidelity.deltaE94 === "number") {
-            const pct = r.fidelity.deltaE94 * 100;
-            const fcls = pct < 2 ? "pass" : pct < 3 ? "borderline" : "fail";
+          if (v.fid && typeof v.fid.meanDeltaE94 === "number") {
+            const pct = v.fid.meanDeltaE94 * 100;
+            const fcls = v.fid.status || (pct < 2 ? "pass" : pct < 3 ? "borderline" : "fail");
             fid = '<span class="fidelity-cell ' + fcls + '">' + pct.toFixed(2) + "%</span>";
           } else {
             fid = '<span class="fidelity-pending">pending</span>';
+          }
+          let mlCell = "";
+          if (showMlScore) {
+            if (v.fid && typeof v.fid.mlScore === "number") {
+              mlCell =
+                '<td><span class="ml-cell">' +
+                (v.fid.mlScore * 100).toFixed(2) +
+                "%</span></td>";
+            } else {
+              mlCell = '<td><span class="fidelity-pending">—</span></td>';
+            }
           }
           return (
             "<tr>" +
@@ -223,6 +261,7 @@ const clientData = scenes.map((s) => ({
             '<td><span class="ratio ' + rc + '">' + v.ratio.toFixed(2) + "×</span>" +
             '<span class="bar"><span class="bar-fill" style="width:' + w + '%"></span></span></td>' +
             "<td>" + fid + "</td>" +
+            mlCell +
             "<td>" + fmtMs(r.analyzeMs) + "</td>" +
             "</tr>"
           );

@@ -11,13 +11,30 @@ import raw from "../data/splatbench-v0.json" with { type: "json" };
 
 export type SceneSource = "real" | "synthetic";
 
+/** One preset's fidelity row, as emitted by `benches/splatbench-update.mjs`. */
+export interface PresetFidelity {
+  meanDeltaE94: number;
+  maxDeltaE94: number;
+  p95DeltaE94: number;
+  meanPixelMatch: number;
+  meanSsimLoss: number;
+  status: "baseline" | "pass" | "borderline" | "fail";
+  passed: boolean;
+  /** Splat-aware perceptual metric mean — only present when scored by
+   *  `splatforge-pro` (proprietary). */
+  mlScore?: number;
+  mlScoreMax?: number;
+  mlScoreVersion?: string;
+}
+
 export interface SceneFidelity {
-  /** CIE ΔE94 mean (lower is better). */
-  deltaE94?: number;
-  /** Structural similarity index, 0..1 (higher is better). */
-  ssim?: number;
-  /** Peak signal-to-noise ratio, dB (higher is better). */
-  psnr?: number;
+  baseline?: string;
+  renderer?: string;
+  cameraPath?: string;
+  frameSize?: number;
+  losslessRepack?: PresetFidelity;
+  webMobile?: PresetFidelity;
+  sizeMin?: PresetFidelity;
 }
 
 export interface SplatBenchScene {
@@ -112,9 +129,24 @@ export function fmtInt(n: number): string {
 export function hasAnyFidelity(scenes: SplatBenchScene[]): boolean {
   return scenes.some(
     (s) =>
-      s.fidelity !== undefined &&
-      (s.fidelity.deltaE94 !== undefined ||
-        s.fidelity.ssim !== undefined ||
-        s.fidelity.psnr !== undefined),
+      s.fidelity?.webMobile?.meanDeltaE94 !== undefined ||
+      s.fidelity?.sizeMin?.meanDeltaE94 !== undefined,
   );
+}
+
+/** True if any scene carries a splatforge-pro ML Score (proprietary column). */
+export function hasAnyMlScore(scenes: SplatBenchScene[]): boolean {
+  return scenes.some(
+    (s) =>
+      s.fidelity?.webMobile?.mlScore !== undefined ||
+      s.fidelity?.sizeMin?.mlScore !== undefined,
+  );
+}
+
+/** Return the `PresetFidelity` for the given preset, if present. */
+export function fidelityFor(
+  scene: SplatBenchScene,
+  preset: Preset,
+): PresetFidelity | undefined {
+  return preset === "webMobile" ? scene.fidelity?.webMobile : scene.fidelity?.sizeMin;
 }

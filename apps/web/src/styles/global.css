@@ -586,6 +586,30 @@ table.leaderboard tbody tr:last-child td {
   font-style: italic;
 }
 
+.ml-cell {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.ml-tag {
+  font-size: 0.7em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
+  color: white;
+  margin-left: 6px;
+  vertical-align: middle;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.ml-note {
+  margin-left: 14px;
+  font-size: 0.85em;
+  color: var(--fg-dim);
+}
+.ml-note code {
+  color: var(--fg);
+}
+
 .controls {
   margin-bottom: 14px;
   display: flex;
