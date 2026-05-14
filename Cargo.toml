@@ -8,6 +8,7 @@ members = [
     "crates/splatforge-optimize",
     "crates/splatforge-bench",
     "crates/splatforge-cli",
+    "crates/splatforge-mcp",
     "crates/splatforge-usd",
     "apps/api",
 ]
