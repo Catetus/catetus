@@ -38,6 +38,14 @@
 | `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
 | `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
 | `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
+| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
+| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
+| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
+| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
+| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
+| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
+| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
+| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
 
 Every scene exceeds the PRD's stated bar of "median 8–20× compression vs raw PLY." The lowest ratio in the corpus (`outdoor_proxy` at 19.67× web-mobile) is still right at the top of the PRD's target range.
 
@@ -71,17 +79,17 @@ The two real scenes top the `size-min` chart because their opacity distribution 
 
 Frames captured via `@splatforge/viewer` in headless Chromium (SwiftShader software-rendered WebGL2), 8 deterministic orbit poses at 512×512. `lossless-repack` is the per-scene baseline. ΔE94 is normalized to 0..1 (i.e. `3%` = 3 absolute ΔE94 units, the perceptibility threshold of an attentive observer).
 
-**ML Score** is the splat-aware perceptual metric from `splatforge-pro` (version `0.1.1-baseline`), a proprietary build that scores rendered vs baseline frames with a model tuned for Gaussian-splat failure modes. Higher is better; 100% means visually identical. ML Score values are published; reproducing them requires the `splatforge-pro` binary.
+**ML Score** is the splat-aware perceptual metric from `splatforge-pro` (version `0.2.0-empirical`), a proprietary build that scores rendered vs baseline frames with a model tuned for Gaussian-splat failure modes. Higher is better; 100% means visually identical. ML Score values are published; reproducing them requires the `splatforge-pro` binary.
 
 | Rank | Scene | web-mobile ΔE94 mean / max | status | size-min ΔE94 mean / max | status | web-mobile ML | size-min ML |
 | ---: | ----- | ---: | :---: | ---: | :---: | ---: | ---: |
-| 1 | `splatbench_dense_proxy` | 0.00% / 0.01% | **pass** | 0.02% / 0.03% | **pass** | 99.94% | 99.85% |
-| 2 | `splatbench_product_proxy` | 0.02% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 99.91% | 99.88% |
-| 3 | `splatbench_outdoor_proxy` | 0.02% / 0.04% | **pass** | 0.09% / 0.14% | **pass** | 99.89% | 99.74% |
-| 4 | `splatbench_indoor_proxy` | 0.03% / 0.04% | **pass** | 0.10% / 0.11% | **pass** | 99.89% | 99.78% |
-| 5 | `splatbench_floater_proxy` | 0.09% / 0.09% | **pass** | 14.48% / 14.73% | **fail** | 99.31% | 88.00% |
-| 6 | `bonsai_mipnerf360_iter7k` | 0.60% / 0.84% | **pass** | 0.64% / 0.87% | **pass** | 93.98% | 93.72% |
-| 7 | `bicycle_mipnerf360_iter7k` | 2.86% / 3.56% | **borderline** | 2.60% / 3.33% | **borderline** | 84.76% | 85.20% |
+| 1 | `splatbench_dense_proxy` | 0.00% / 0.01% | **pass** | 0.02% / 0.03% | **pass** | 99.66% | 99.11% |
+| 2 | `splatbench_product_proxy` | 0.02% / 0.03% | **pass** | 0.04% / 0.04% | **pass** | 99.44% | 99.28% |
+| 3 | `splatbench_outdoor_proxy` | 0.02% / 0.04% | **pass** | 0.09% / 0.14% | **pass** | 99.35% | 98.40% |
+| 4 | `splatbench_indoor_proxy` | 0.03% / 0.04% | **pass** | 0.10% / 0.11% | **pass** | 99.31% | 98.56% |
+| 5 | `splatbench_floater_proxy` | 0.09% / 0.09% | **pass** | 14.48% / 14.73% | **fail** | 95.79% | 45.93% |
+| 6 | `bonsai_mipnerf360_iter7k` | 0.60% / 0.84% | **pass** | 0.64% / 0.87% | **pass** | 60.69% | 58.63% |
+| 7 | `bicycle_mipnerf360_iter7k` | 2.86% / 3.56% | **borderline** | 2.60% / 3.33% | **borderline** | 3.89% | 4.53% |
 
 **Pass criterion:** mean ΔE94 < 3% AND max ΔE94 < 8%. **Borderline:** mean 2–3% or max 5–8%. **Pass:** mean < 2% AND max < 5%.
 

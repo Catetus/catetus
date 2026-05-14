@@ -44,9 +44,9 @@
           "meanSsimLoss": 0.021123,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.939779,
-          "mlScoreMax": 0.96878,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.606916,
+          "mlScoreMax": 0.806215,
+          "mlScoreVersion": "0.2.0-empirical"
         },
         "sizeMin": {
           "meanDeltaE94": 0.006406,
@@ -56,9 +56,9 @@
           "meanSsimLoss": 0.023345,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.937248,
-          "mlScoreMax": 0.964422,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.58634,
+          "mlScoreMax": 0.776778,
+          "mlScoreVersion": "0.2.0-empirical"
         }
       }
     },
@@ -99,9 +99,9 @@
           "meanSsimLoss": 0.082897,
           "status": "borderline",
           "passed": true,
-          "mlScore": 0.847604,
-          "mlScoreMax": 0.866832,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.038851,
+          "mlScoreMax": 0.117162,
+          "mlScoreVersion": "0.2.0-empirical"
         },
         "sizeMin": {
           "meanDeltaE94": 0.026016,
@@ -111,9 +111,9 @@
           "meanSsimLoss": 0.073273,
           "status": "borderline",
           "passed": true,
-          "mlScore": 0.851979,
-          "mlScoreMax": 0.871059,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.045315,
+          "mlScoreMax": 0.12185,
+          "mlScoreVersion": "0.2.0-empirical"
         }
       }
     },
@@ -154,9 +154,9 @@
           "meanSsimLoss": 0.000072,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.999088,
-          "mlScoreMax": 0.999138,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.994432,
+          "mlScoreMax": 0.994765,
+          "mlScoreVersion": "0.2.0-empirical"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000351,
@@ -166,9 +166,9 @@
           "meanSsimLoss": 0.000121,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.998827,
-          "mlScoreMax": 0.998899,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.99281,
+          "mlScoreMax": 0.993308,
+          "mlScoreVersion": "0.2.0-empirical"
         }
       }
     },
@@ -209,9 +209,9 @@
           "meanSsimLoss": 0.000073,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.998915,
-          "mlScoreMax": 0.998963,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.99314,
+          "mlScoreMax": 0.993457,
+          "mlScoreVersion": "0.2.0-empirical"
         },
         "sizeMin": {
           "meanDeltaE94": 0.00101,
@@ -221,9 +221,9 @@
           "meanSsimLoss": 0.000331,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.997774,
-          "mlScoreMax": 0.997911,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.98557,
+          "mlScoreMax": 0.986092,
+          "mlScoreVersion": "0.2.0-empirical"
         }
       }
     },
@@ -264,9 +264,9 @@
           "meanSsimLoss": 0.007589,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.993094,
-          "mlScoreMax": 0.995242,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.957939,
+          "mlScoreMax": 0.970052,
+          "mlScoreVersion": "0.2.0-empirical"
         },
         "sizeMin": {
           "meanDeltaE94": 0.144802,
@@ -276,9 +276,9 @@
           "meanSsimLoss": 0.283179,
           "status": "fail",
           "passed": false,
-          "mlScore": 0.880029,
-          "mlScoreMax": 0.881954,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.459268,
+          "mlScoreMax": 0.463204,
+          "mlScoreVersion": "0.2.0-empirical"
         }
       }
     },
@@ -319,9 +319,9 @@
           "meanSsimLoss": 0.000063,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.99894,
-          "mlScoreMax": 0.999134,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.993527,
+          "mlScoreMax": 0.994687,
+          "mlScoreVersion": "0.2.0-empirical"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000908,
@@ -331,9 +331,9 @@
           "meanSsimLoss": 0.000339,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.9974,
-          "mlScoreMax": 0.997883,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.984037,
+          "mlScoreMax": 0.986918,
+          "mlScoreVersion": "0.2.0-empirical"
         }
       }
     },
@@ -374,9 +374,9 @@
           "meanSsimLoss": 0.000021,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.999445,
-          "mlScoreMax": 0.99947,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.996644,
+          "mlScoreMax": 0.996801,
+          "mlScoreVersion": "0.2.0-empirical"
         },
         "sizeMin": {
           "meanDeltaE94": 0.000244,
@@ -386,9 +386,9 @@
           "meanSsimLoss": 0.000136,
           "status": "pass",
           "passed": true,
-          "mlScore": 0.998535,
-          "mlScoreMax": 0.998662,
-          "mlScoreVersion": "0.1.1-baseline"
+          "mlScore": 0.991135,
+          "mlScoreMax": 0.991894,
+          "mlScoreVersion": "0.2.0-empirical"
         }
       }
     }
