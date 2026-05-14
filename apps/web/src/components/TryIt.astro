@@ -14,15 +14,13 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
   <div class="section-head">
     <h2 id="try-title" class="section-title">Try it on your splat</h2>
     <p class="section-sub">
-      Drop a Gaussian-splat scene and we'll register an optimize job against the
+      Drop a Gaussian-splat scene and we'll run the full
+      upload&nbsp;→&nbsp;optimize&nbsp;→&nbsp;download round-trip against the
       hosted API
       <span class="api-status" data-api-status>
         <span class="status-dot" aria-hidden="true"></span>
         <span data-api-status-label>live</span>
       </span>.
-      The end-to-end upload → optimize → download flow is in design-partner
-      alpha — for now the drop returns a real job ID so you can see the
-      pipeline is wired.
     </p>
   </div>
 
@@ -58,19 +56,102 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       {supported.map((ext) => <span class="chip">{ext}</span>)}
     </div>
 
-    <pre class="api-response" data-api-response hidden></pre>
+    <div class="job-status" data-job-status hidden>
+      <div class="job-status-row">
+        <span class="job-status-label" data-job-status-label>queued</span>
+        <span class="job-status-meta" data-job-status-meta></span>
+      </div>
+      <div class="job-progress" data-job-progress>
+        <div class="job-progress-bar" data-job-progress-bar></div>
+      </div>
+      <div class="job-status-cta" data-job-status-cta></div>
+    </div>
   </div>
 
   <div class="try-footer">
     <span class="pill">Design-partner alpha</span>
     <span class="try-footer-meta">
-      Full upload + optimize round-trip is wired manually for design partners
-      today. <a href={partnerHref} target="_blank" rel="noreferrer noopener"
-        >Apply →</a
+      Need a deeper integration or a giant scene?
+      <a href={partnerHref} target="_blank" rel="noreferrer noopener"
+        >Apply as design partner →</a
       >
     </span>
   </div>
 </section>
+
+<style>
+  .job-status {
+    margin-top: 1.25rem;
+    padding: 1rem 1.1rem;
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: left;
+  }
+  .job-status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 0.55rem;
+  }
+  .job-status-label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .job-status-meta {
+    font-size: 0.85rem;
+    opacity: 0.7;
+  }
+  .job-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+    margin-bottom: 0.85rem;
+  }
+  .job-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    transition: width 0.4s ease;
+  }
+  .job-progress.indeterminate .job-progress-bar {
+    width: 38%;
+    animation: job-progress-slide 1.4s ease-in-out infinite;
+  }
+  @keyframes job-progress-slide {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(280%);
+    }
+  }
+  .job-status[data-state="done"] .job-progress-bar {
+    width: 100%;
+    background: linear-gradient(90deg, #10b981, #34d399);
+  }
+  .job-status[data-state="error"] .job-progress-bar {
+    width: 100%;
+    background: linear-gradient(90deg, #f43f5e, #fb7185);
+  }
+  .job-status-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .job-status-cta a {
+    text-decoration: none;
+  }
+  .job-status-error {
+    font-size: 0.85rem;
+    color: #fda4af;
+    margin-top: 0.5rem;
+  }
+</style>
 
 <script is:inline define:vars={{ apiBase, partnerHref }}>
   (function () {
@@ -78,13 +159,21 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     const input = document.querySelector("[data-file-input]");
     const headline = document.querySelector("[data-uploader-headline]");
     const body = document.querySelector("[data-uploader-body]");
-    const out = document.querySelector("[data-api-response]");
+    const status = document.querySelector("[data-job-status]");
+    const statusLabel = document.querySelector("[data-job-status-label]");
+    const statusMeta = document.querySelector("[data-job-status-meta]");
+    const progress = document.querySelector("[data-job-progress]");
+    const cta = document.querySelector("[data-job-status-cta]");
     if (
       !(zone instanceof HTMLElement) ||
       !(input instanceof HTMLInputElement) ||
       !(headline instanceof HTMLElement) ||
       !(body instanceof HTMLElement) ||
-      !(out instanceof HTMLElement)
+      !(status instanceof HTMLElement) ||
+      !(statusLabel instanceof HTMLElement) ||
+      !(statusMeta instanceof HTMLElement) ||
+      !(progress instanceof HTMLElement) ||
+      !(cta instanceof HTMLElement)
     )
       return;
 
@@ -98,6 +187,33 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     zone.addEventListener("dragenter", hot);
     zone.addEventListener("dragover", hot);
     zone.addEventListener("dragleave", cool);
+
+    function setStatus(state, label, meta) {
+      status.hidden = false;
+      status.dataset.state = state;
+      statusLabel.textContent = label;
+      statusMeta.textContent = meta || "";
+      progress.classList.remove("indeterminate");
+      if (state === "uploading" || state === "queued" || state === "running") {
+        progress.classList.add("indeterminate");
+      }
+      cta.innerHTML = "";
+    }
+
+    function fail(message) {
+      setStatus("error", "error", "");
+      const msg = document.createElement("div");
+      msg.className = "job-status-error";
+      msg.textContent = message;
+      cta.appendChild(msg);
+      const a = document.createElement("a");
+      a.href = partnerHref;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.className = "btn btn-secondary";
+      a.textContent = "Apply as design partner →";
+      cta.appendChild(a);
+    }
 
     async function ping() {
       try {
@@ -127,6 +243,78 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       return await r.json();
     }
 
+    async function uploadBytes(jobId, file) {
+      const r = await fetch(apiBase + "/v1/jobs/" + jobId + "/upload", {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: file,
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error("POST /v1/jobs/" + jobId + "/upload " + r.status + " — " + text);
+      }
+      return await r.json();
+    }
+
+    async function pollJob(jobId) {
+      const r = await fetch(apiBase + "/v1/jobs/" + jobId, { method: "GET" });
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error("GET /v1/jobs/" + jobId + " " + r.status + " — " + text);
+      }
+      return await r.json();
+    }
+
+    function renderJob(job) {
+      const s = job.status;
+      if (s === "awaiting-upload") {
+        setStatus("uploading", "uploading", "preparing");
+      } else if (s === "uploading") {
+        setStatus("uploading", "uploading", "streaming to Vercel Blob");
+      } else if (s === "queued") {
+        setStatus("queued", "queued", "modal cold-start in flight");
+      } else if (s === "running") {
+        setStatus("running", "running", "splatforge optimize");
+      } else if (s === "done") {
+        setStatus("done", "done", "");
+        if (job.output_url) {
+          const a = document.createElement("a");
+          a.href = job.output_url;
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.className = "btn btn-primary";
+          a.textContent = "Download optimized.gltf →";
+          cta.appendChild(a);
+        }
+      } else if (s === "error") {
+        fail(job.error || "optimize failed");
+      }
+    }
+
+    function waitFor(jobId) {
+      return new Promise(function (resolve, reject) {
+        const started = Date.now();
+        const tick = async function () {
+          try {
+            const job = await pollJob(jobId);
+            renderJob(job);
+            if (job.status === "done" || job.status === "error") {
+              resolve(job);
+              return;
+            }
+            if (Date.now() - started > 10 * 60 * 1000) {
+              reject(new Error("timed out waiting for job (10 min)"));
+              return;
+            }
+            setTimeout(tick, 2000);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        tick();
+      });
+    }
+
     async function handleFile(file) {
       const supportedExts = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       const lower = file.name.toLowerCase();
@@ -144,37 +332,27 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       headline.textContent = "Reaching the hosted API…";
       body.innerHTML =
         "Registering <code>" + file.name + "</code> with the optimize queue";
-      out.hidden = true;
+      setStatus("uploading", "uploading", "creating job");
 
       try {
         const reachable = await ping();
         if (!reachable) throw new Error("/healthz did not return ok");
         const job = await createJob(file.name, file.size);
-        headline.textContent = "Job registered ✓";
-        body.innerHTML =
-          "Direct upload to Vercel Blob is the next step. For now grab the design-partner link to run this through the CLI by hand.";
-        out.textContent = JSON.stringify(job, null, 2);
-        out.hidden = false;
+        headline.textContent = "Optimizing " + file.name;
+        body.innerHTML = "Job " + job.id;
+        setStatus("uploading", "uploading", "streaming " + Math.round(file.size / 1024) + " KB");
+        await uploadBytes(job.id, file);
+        await waitFor(job.id);
       } catch (err) {
-        headline.textContent = "Hosted API unreachable.";
-        body.innerHTML =
-          "Falling back to the design-partner intake — the API may be cold. (" +
-          (err && err.message ? err.message : String(err)) +
-          ")";
-        const status = document.querySelector("[data-api-status]");
-        const statusLbl = document.querySelector("[data-api-status-label]");
-        if (status && statusLbl) {
-          status.classList.add("offline");
-          statusLbl.textContent = "offline";
+        headline.textContent = "Something went wrong.";
+        body.innerHTML = "The hosted API may be cold or the file too large.";
+        const apiStatus = document.querySelector("[data-api-status]");
+        const apiStatusLbl = document.querySelector("[data-api-status-label]");
+        if (apiStatus && apiStatusLbl) {
+          apiStatus.classList.add("offline");
+          apiStatusLbl.textContent = "offline";
         }
-        const a = document.createElement("a");
-        a.href = partnerHref;
-        a.target = "_blank";
-        a.rel = "noopener";
-        a.textContent = "Open the design-partner form →";
-        out.textContent = "";
-        out.appendChild(a);
-        out.hidden = false;
+        fail((err && err.message) ? err.message : String(err));
       }
     }
 
