@@ -447,6 +447,168 @@ def gen_portrait(n_face: int, n_wall: int, seed: int) -> bytes:
     return bytes(buf)
 
 
+def gen_texture(n: int, seed: int) -> bytes:
+    """High-frequency planar texture — checker pattern on a 2x2 plane.
+
+    `n` splats arranged on a planar grid in the z=0 plane. Each cell of a
+    32x32 checker carries an alternating color (white / charcoal), with a
+    small jitter so adjacent cells share no SH coefficients. Stresses any
+    spatial smoothing pass (Morton sort that reorders + nearest-neighbor
+    quantization can blur the high-frequency boundary).
+    """
+    rng = random.Random(seed)
+    buf = bytearray(HEADER_TEMPLATE.format(n=n).encode("utf-8"))
+    grid = 32
+    for _ in range(n):
+        # uniform on the plane with a small z-jitter
+        gx = rng.randrange(grid)
+        gy = rng.randrange(grid)
+        cell = (gx + gy) % 2
+        x = (gx + rng.random()) / grid * 2.0 - 1.0
+        y = (gy + rng.random()) / grid * 2.0 - 1.0
+        z = rng.uniform(-0.01, 0.01)
+        # crisp two-tone palette with small jitter inside each tone
+        if cell == 0:
+            cr = 0.92 + rng.uniform(-0.04, 0.04)
+            cg = 0.92 + rng.uniform(-0.04, 0.04)
+            cb = 0.90 + rng.uniform(-0.04, 0.04)
+        else:
+            cr = 0.10 + rng.uniform(-0.03, 0.03)
+            cg = 0.10 + rng.uniform(-0.03, 0.03)
+            cb = 0.12 + rng.uniform(-0.03, 0.03)
+        scale = (0.018 + rng.random() * 0.004,
+                 0.018 + rng.random() * 0.004,
+                 0.004)
+        write_splat_ex(buf, rng, x, y, z, (cr, cg, cb), scale, 0.92)
+    return bytes(buf)
+
+
+def gen_transparency(n: int, seed: int) -> bytes:
+    """Volumetric translucency — many low-opacity splats in a volume.
+
+    `n` splats packed into a 1.5×1.5×1.5 cube with opacity ∈ [0.05, 0.18].
+    Each pixel along a view ray ends up integrating ~30+ splats, so any
+    over-aggressive OpacityPrune or out-of-order render produces visible
+    haze loss / banding.
+    """
+    rng = random.Random(seed)
+    buf = bytearray(HEADER_TEMPLATE.format(n=n).encode("utf-8"))
+    for _ in range(n):
+        x = rng.uniform(-0.75, 0.75)
+        y = rng.uniform(-0.75, 0.75)
+        z = rng.uniform(-0.75, 0.75)
+        # cool blue haze with mild color variance
+        cr = 0.50 + rng.uniform(-0.10, 0.10)
+        cg = 0.70 + rng.uniform(-0.10, 0.10)
+        cb = 0.92 + rng.uniform(-0.04, 0.04)
+        scale = (0.05 + rng.random() * 0.02,
+                 0.05 + rng.random() * 0.02,
+                 0.05 + rng.random() * 0.02)
+        op = 0.05 + rng.random() * 0.13
+        write_splat_ex(buf, rng, x, y, z, (cr, cg, cb), scale, op,
+                       rotation=random_unit_quat(rng))
+    return bytes(buf)
+
+
+def gen_motion(n: int, seed: int) -> bytes:
+    """Motion-blur-like streaks — extremely anisotropic splats along one axis.
+
+    `n` splats with one axis 100× longer than the others, oriented around a
+    primary direction with small rotational jitter. Simulates motion blur in
+    a captured scene. Stresses scale-quantization (a uniform-scale quantizer
+    will collapse the streak into a sphere and the motion smear vanishes).
+    """
+    rng = random.Random(seed)
+    buf = bytearray(HEADER_TEMPLATE.format(n=n).encode("utf-8"))
+    for _ in range(n):
+        x = rng.uniform(-1.0, 1.0)
+        y = rng.uniform(-1.0, 1.0)
+        z = rng.uniform(-1.0, 1.0)
+        # warm streak palette: orange→yellow gradient with strong saturation
+        cr = 0.85 + rng.uniform(-0.05, 0.10)
+        cg = 0.45 + rng.uniform(-0.10, 0.15)
+        cb = 0.10 + rng.uniform(-0.05, 0.10)
+        scale = (0.0008, 0.0008, 0.08 + rng.random() * 0.03)
+        # mostly aligned along world-z, jittered around that direction
+        ang = rng.uniform(-0.25, 0.25)
+        cosA = math.cos(ang / 2.0)
+        sinA = math.sin(ang / 2.0)
+        # rotate around an arbitrary axis in the xy plane
+        ax = rng.uniform(-1.0, 1.0)
+        ay = rng.uniform(-1.0, 1.0)
+        anrm = math.sqrt(ax * ax + ay * ay) or 1.0
+        rotation = (cosA, sinA * ax / anrm, sinA * ay / anrm, 0.0)
+        write_splat_ex(buf, rng, x, y, z, (cr, cg, cb), scale, 0.70,
+                       rotation=rotation)
+    return bytes(buf)
+
+
+def gen_depth(n: int, seed: int) -> bytes:
+    """Near/far depth gradient — 80% near origin, 20% far field.
+
+    `n` splats with a strongly bimodal depth distribution: most clustered in
+    the central ~1.5-unit cube, a tail spread out to ±8 units along z. Tests
+    any LOD generator that buckets by absolute size — the far-field splats
+    look 'tiny' but actually carry important geometry, and aggressive depth
+    pruning will eat them.
+    """
+    rng = random.Random(seed)
+    buf = bytearray(HEADER_TEMPLATE.format(n=n).encode("utf-8"))
+    n_near = int(n * 0.8)
+    n_far = n - n_near
+    for _ in range(n_near):
+        x = rng.uniform(-0.75, 0.75)
+        y = rng.uniform(-0.75, 0.75)
+        z = rng.uniform(-0.75, 0.75)
+        cr = 0.55 + rng.uniform(-0.10, 0.10)
+        cg = 0.55 + rng.uniform(-0.10, 0.10)
+        cb = 0.55 + rng.uniform(-0.10, 0.10)
+        scale = (0.020, 0.020, 0.020)
+        write_splat_ex(buf, rng, x, y, z, (cr, cg, cb), scale, 0.85)
+    for _ in range(n_far):
+        # far field — biased toward positive z, occasionally negative too
+        side = 1.0 if rng.random() < 0.7 else -1.0
+        z = side * rng.uniform(3.0, 8.0)
+        x = rng.uniform(-2.0, 2.0)
+        y = rng.uniform(-2.0, 2.0)
+        # cooler palette so they're visually distinguishable
+        cr = 0.20 + rng.uniform(-0.05, 0.05)
+        cg = 0.30 + rng.uniform(-0.05, 0.05)
+        cb = 0.60 + rng.uniform(-0.05, 0.05)
+        # actually-large-in-world scale so they project to small pixels but
+        # are not microscopic splats
+        scale = (0.10, 0.10, 0.10)
+        write_splat_ex(buf, rng, x, y, z, (cr, cg, cb), scale, 0.85)
+    return bytes(buf)
+
+
+def gen_banding(n: int, seed: int) -> bytes:
+    """Smooth color gradient — stresses u8 color quantization (banding).
+
+    `n` splats arranged on a planar gradient from black-blue → white-yellow
+    along world-x. Each splat's DC color is a continuous function of its x
+    coordinate. Coarse u8 quantization (256 levels across the [0,1] range)
+    surfaces as visible bands on the rendered output; lossless and aware
+    quantizers preserve the smooth transition.
+    """
+    rng = random.Random(seed)
+    buf = bytearray(HEADER_TEMPLATE.format(n=n).encode("utf-8"))
+    for _ in range(n):
+        x = rng.uniform(-1.0, 1.0)
+        y = rng.uniform(-0.5, 0.5)
+        z = rng.uniform(-0.02, 0.02)
+        t = (x + 1.0) * 0.5  # 0..1
+        # gentle two-stop gradient with tiny per-splat noise so it's not
+        # bit-perfectly the same across neighbours
+        jitter = 0.005
+        cr = (0.10 + t * 0.85) + rng.uniform(-jitter, jitter)
+        cg = (0.10 + t * 0.85) + rng.uniform(-jitter, jitter)
+        cb = (0.50 - t * 0.40) + rng.uniform(-jitter, jitter)
+        scale = (0.025, 0.025, 0.005)
+        write_splat_ex(buf, rng, x, y, z, (cr, cg, cb), scale, 0.90)
+    return bytes(buf)
+
+
 def main(out_dir: str) -> None:
     os.makedirs(out_dir, exist_ok=True)
     scenes = [
@@ -460,6 +622,12 @@ def main(out_dir: str) -> None:
         ("splatbench_foliage_proxy.ply",   gen_foliage,         {"n": 30_000, "seed": 7}),
         ("splatbench_lowlight_proxy.ply",  gen_lowlight,        {"n": 8_000,  "seed": 8}),
         ("splatbench_portrait_proxy.ply",  gen_portrait,        {"n_face": 8_000, "n_wall": 4_000, "seed": 9}),
+        # v0.1.3 corpus extension — five more failure-mode probes.
+        ("splatbench_texture_proxy.ply",      gen_texture,      {"n": 15_000, "seed": 10}),
+        ("splatbench_transparency_proxy.ply", gen_transparency, {"n": 25_000, "seed": 11}),
+        ("splatbench_motion_proxy.ply",       gen_motion,       {"n": 12_000, "seed": 12}),
+        ("splatbench_depth_proxy.ply",        gen_depth,        {"n": 15_000, "seed": 13}),
+        ("splatbench_banding_proxy.ply",      gen_banding,      {"n": 10_000, "seed": 14}),
     ]
     for name, fn, kwargs in scenes:
         path = os.path.join(out_dir, name)
