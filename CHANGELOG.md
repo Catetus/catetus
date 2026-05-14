@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **SPEC-0013** (`KHR_mesh_quantization` for splat attributes) implemented. The
+  Rust glTF writer now emits POSITION as `UNSIGNED_SHORT` and
+  `_SCALE` / `_OPACITY` / `_COLOR_DC` as `UNSIGNED_BYTE` (normalized, with
+  per-component `min`/`max`) when `WriteOpts::quantize == true`. `splatforge
+  optimize` flips this on for the web-targeted presets (`web-mobile`,
+  `web-desktop`, `quest-browser`, `visionos-preview`, `thumbnail-preview`,
+  `size-min`); `lossless-repack` and `quality-max` keep f32 accessors so
+  byte-identical round-trips remain possible. `KHR_mesh_quantization` is
+  advertised in `extensionsUsed` only — never `extensionsRequired` — so
+  legacy viewers still load the asset (they just render un-dequantized
+  integer values). Expected wire-size impact on the bonsai `web-mobile`
+  scene: glTF buffer **59.4 MB → 30.9 MB** (1.9×), closing the gap to SPZ
+  from ~5× to ~2.5×.
+- **`@splatforge/viewer`** learns to decode the new integer accessors.
+  `SoaAttributeSlice` now carries `componentType` / `normalized` / `min` /
+  `max`; the SoA decoder dequantizes u16 and u8 attributes against the
+  accessor metadata before re-interleaving to the existing `DecodedSplat`
+  layout.
+- **`apps/api`** ships a `README.md` documenting the dev-mode story — a
+  contributor can `cargo run -p splatforge-api` from a fresh checkout and
+  hit `/healthz` + `POST /v1/jobs` without provisioning Vercel Blob or
+  Modal first (the service degrades to stub backends + an in-memory job
+  store when env vars are absent).
+- GitHub repo metadata polished: topic tags (`gaussian-splatting`, `webgpu`,
+  `3d`, `splat`, `rust`, `gltf`, `splatforge`, `computer-graphics`),
+  description, and homepage URL.
+
 ## [0.1.1] — 2026-05-14
 
 Closes the v0.1.0 "visual fidelity pending" gap and ships the public landing page.
