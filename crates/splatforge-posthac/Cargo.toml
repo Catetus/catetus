@@ -41,3 +41,11 @@ path = "tests/encode_batches.rs"
 [[test]]
 name = "find_divergence"
 path = "tests/find_divergence.rs"
+
+[[test]]
+name = "round_trip_rust_native"
+path = "tests/round_trip_rust_native.rs"
+
+[[test]]
+name = "full_pipeline"
+path = "tests/full_pipeline.rs"

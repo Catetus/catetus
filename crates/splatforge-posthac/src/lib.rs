@@ -484,6 +484,89 @@ pub fn decode_codes(
     Ok(out)
 }
 
+/// High-level container reader: parse a `.pthc` file produced by the
+/// Python encoder (or the Rust `write_container` below) into all the
+/// pieces a decoder needs.
+pub struct Container {
+    /// Bitstream header (scene metadata + hyperprior architecture).
+    pub header: PostHacHeader,
+    /// Hyperprior weights (hash grid tables + MLP).
+    pub weights: HyperpriorWeights,
+    /// Per-splat positions as flat `[x0, y0, z0, x1, y1, z1, ...]`.
+    pub positions: Vec<f32>,
+    /// Range-coded attribute codes.
+    pub compressed: Vec<u32>,
+}
+
+/// Parse the entire `.pthc` container from a byte slice.
+pub fn read_container(bytes: &[u8]) -> Result<Container, PostHacError> {
+    let mut cur = std::io::Cursor::new(bytes);
+    let header = read_header(&mut cur)?;
+    let weights = read_weights(&mut cur, &header.config)?;
+    let mut positions = vec![0f32; 3 * header.n as usize];
+    for v in positions.iter_mut() {
+        *v = cur.read_f32::<LittleEndian>()?;
+    }
+    let comp_len = cur.read_u32::<LittleEndian>()? as usize;
+    let mut compressed = vec![0u32; comp_len];
+    for v in compressed.iter_mut() {
+        *v = cur.read_u32::<LittleEndian>()?;
+    }
+    Ok(Container {
+        header,
+        weights,
+        positions,
+        compressed,
+    })
+}
+
+/// Write a `.pthc` container to a byte vector.
+pub fn write_container<W: Write>(
+    w: &mut W,
+    header: &PostHacHeader,
+    weights: &HyperpriorWeights,
+    positions: &[f32],
+    compressed: &[u32],
+) -> Result<(), PostHacError> {
+    write_header(w, header)?;
+    write_weights(w, &header.config, weights)?;
+    for v in positions {
+        w.write_f32::<LittleEndian>(*v)?;
+    }
+    w.write_u32::<LittleEndian>(compressed.len() as u32)?;
+    for v in compressed {
+        w.write_u32::<LittleEndian>(*v)?;
+    }
+    Ok(())
+}
+
+/// Build a `Vec<Prediction>` for every splat by running `predict()` over
+/// the normalized positions.
+pub fn predict_all(
+    positions: &[f32],
+    pos_mn: [f32; 3],
+    pos_mx: [f32; 3],
+    cfg: &HyperpriorConfig,
+    weights: &HyperpriorWeights,
+) -> Vec<Prediction> {
+    let n = positions.len() / 3;
+    let mut out = Vec::with_capacity(n);
+    let rng = [
+        (pos_mx[0] - pos_mn[0]).max(1e-9),
+        (pos_mx[1] - pos_mn[1]).max(1e-9),
+        (pos_mx[2] - pos_mn[2]).max(1e-9),
+    ];
+    for i in 0..n {
+        let p = [
+            (positions[3 * i] - pos_mn[0]) / rng[0],
+            (positions[3 * i + 1] - pos_mn[1]) / rng[1],
+            (positions[3 * i + 2] - pos_mn[2]) / rng[2],
+        ];
+        out.push(predict(p, cfg, weights));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
