@@ -10,7 +10,7 @@
 import type { CameraPose } from '../camera.js';
 import type { ChunkDescriptor } from '../manifest.js';
 import {
-  decodeSplats,
+  decodeChunkBytes,
   sortBackToFront,
   type DecodedSplat,
   type Renderer,
@@ -197,7 +197,7 @@ export class WebGPURenderer implements Renderer {
 
   uploadChunk(descriptor: ChunkDescriptor, bytes: Uint8Array): void {
     if (!this.device) throw new Error('renderer_init_failed: not initialized');
-    const splats = decodeSplats(bytes);
+    const splats = decodeChunkBytes(bytes, descriptor);
     this.chunks.push({ descriptor, splats });
   }
 

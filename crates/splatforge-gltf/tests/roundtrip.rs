@@ -104,7 +104,11 @@ fn corrupted_chunk_fails_checksum() {
     write_gltf(&scene, &path, &opts).expect("write");
     // Flip one byte in the first chunk's bin file.
     let chunk_path = dir.path().join("buffers").join("chunk_0000.bin");
-    let mut f = fs::OpenOptions::new().read(true).write(true).open(&chunk_path).unwrap();
+    let mut f = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&chunk_path)
+        .unwrap();
     f.seek(SeekFrom::Start(0)).unwrap();
     f.write_all(&[0xFF]).unwrap();
     drop(f);

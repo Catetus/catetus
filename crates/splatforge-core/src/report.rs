@@ -289,12 +289,12 @@ fn detect_floater_warning(scene: &SplatScene) -> Option<Warning> {
     }
     let mut centroid = [0.0f64; 3];
     for s in &scene.splats {
-        for i in 0..3 {
-            centroid[i] += s.position[i] as f64;
+        for (i, c) in centroid.iter_mut().enumerate() {
+            *c += s.position[i] as f64;
         }
     }
-    for i in 0..3 {
-        centroid[i] /= n as f64;
+    for c in &mut centroid {
+        *c /= n as f64;
     }
     let mut sum_sq = 0.0f64;
     let mut dists = Vec::with_capacity(n);
@@ -315,9 +315,7 @@ fn detect_floater_warning(scene: &SplatScene) -> Option<Warning> {
     if count > 0 {
         Some(Warning {
             code: "floater_cluster_detected".to_string(),
-            message: format!(
-                "{count} splats are >5σ from the scene centroid; possible floaters"
-            ),
+            message: format!("{count} splats are >5σ from the scene centroid; possible floaters"),
             severity: "warn".to_string(),
         })
     } else {
@@ -373,11 +371,9 @@ fn emit(value: &serde_json::Value, out: &mut String, pretty: bool, depth: usize)
                 }
                 emit_string(k, out);
                 out.push(':');
-                if pretty {
-                    out.push(' ');
-                } else {
-                    out.push(' ');
-                }
+                // Both pretty and compact emit a single space after the colon
+                // — that's by design to keep the snapshot stable across modes.
+                out.push(' ');
                 emit(&map[*k], out, pretty, depth + 1);
                 if i + 1 < keys.len() {
                     out.push(',');

@@ -29,7 +29,20 @@ fn write_tiny_ply(path: &std::path::Path) {
     for i in 0..3u32 {
         let f = i as f32;
         let record = [
-            f, f * 0.5, -f, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.3,
+            f,
+            f * 0.5,
+            -f,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.1,
+            0.2,
+            0.3,
         ];
         for v in record {
             buf.extend_from_slice(&v.to_le_bytes());
@@ -48,7 +61,11 @@ fn analyze_emits_json() {
         .args(["analyze", ply.to_str().unwrap()])
         .output()
         .expect("run analyze");
-    assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("\"splatCount\": 3"));
     assert!(stdout.contains("\"format\": \"ply\""));
@@ -72,7 +89,11 @@ fn optimize_writes_outputs() {
         ])
         .output()
         .expect("run optimize");
-    assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(out_gltf.exists());
 }
 

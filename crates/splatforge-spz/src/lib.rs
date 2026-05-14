@@ -121,7 +121,11 @@ fn pack_pos(x: f32, fractional_bits: u8) -> [u8; 3] {
     let v = (x * scale).round() as i32;
     let clamped = v.clamp(-(1 << 23), (1 << 23) - 1);
     let u = (clamped as u32) & 0x00FF_FFFF;
-    [(u & 0xFF) as u8, ((u >> 8) & 0xFF) as u8, ((u >> 16) & 0xFF) as u8]
+    [
+        (u & 0xFF) as u8,
+        ((u >> 8) & 0xFF) as u8,
+        ((u >> 16) & 0xFF) as u8,
+    ]
 }
 
 fn unpack_pos(bytes: [u8; 3], fractional_bits: u8) -> f32 {
@@ -177,9 +181,15 @@ fn pack_quat(q: [f32; 4]) -> [u8; 3] {
     // Each "other" lies in [-1/√2, 1/√2]; we encode the first into 6 bits + 2-bit idx; rest in 8 bits.
     // For simplicity: pack (idx in top 2 bits of byte0) + 6 bits of other[0], byte1 = other[1], byte2 = other[2].
     let sqrt2_inv = std::f32::consts::FRAC_1_SQRT_2;
-    let q0 = ((other[0] / sqrt2_inv + 1.0) * 0.5 * 63.0).round().clamp(0.0, 63.0) as u8;
-    let q1 = ((other[1] / sqrt2_inv + 1.0) * 0.5 * 255.0).round().clamp(0.0, 255.0) as u8;
-    let q2 = ((other[2] / sqrt2_inv + 1.0) * 0.5 * 255.0).round().clamp(0.0, 255.0) as u8;
+    let q0 = ((other[0] / sqrt2_inv + 1.0) * 0.5 * 63.0)
+        .round()
+        .clamp(0.0, 63.0) as u8;
+    let q1 = ((other[1] / sqrt2_inv + 1.0) * 0.5 * 255.0)
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let q2 = ((other[2] / sqrt2_inv + 1.0) * 0.5 * 255.0)
+        .round()
+        .clamp(0.0, 255.0) as u8;
     [((idx as u8) << 6) | (q0 & 0x3F), q1, q2]
 }
 
@@ -192,11 +202,12 @@ fn unpack_quat(b: [u8; 3]) -> [f32; 4] {
     let other2 = ((b[2] as f32 / 255.0) * 2.0 - 1.0) * sqrt2_inv;
     let mut q = [0.0f32; 4];
     let mut j = 0;
-    for i in 0..4 {
+    let others = [other0, other1, other2];
+    for (i, q_i) in q.iter_mut().enumerate() {
         if i == idx {
             continue;
         }
-        q[i] = [other0, other1, other2][j];
+        *q_i = others[j];
         j += 1;
     }
     let sum_sq = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
@@ -206,10 +217,18 @@ fn unpack_quat(b: [u8; 3]) -> [f32; 4] {
 }
 
 fn pack_color(rgb: [f32; 3]) -> [u8; 3] {
-    [pack_u8_unit(rgb[0]), pack_u8_unit(rgb[1]), pack_u8_unit(rgb[2])]
+    [
+        pack_u8_unit(rgb[0]),
+        pack_u8_unit(rgb[1]),
+        pack_u8_unit(rgb[2]),
+    ]
 }
 fn unpack_color(b: [u8; 3]) -> [f32; 3] {
-    [unpack_u8_unit(b[0]), unpack_u8_unit(b[1]), unpack_u8_unit(b[2])]
+    [
+        unpack_u8_unit(b[0]),
+        unpack_u8_unit(b[1]),
+        unpack_u8_unit(b[2]),
+    ]
 }
 
 fn encode_payload(
@@ -256,7 +275,11 @@ fn encode_payload(
             };
             // first 3 are DC; the remaining up to 45 (=15 per channel) we pack 8-bit.
             // Map [-1, 1] -> [0, 255]
-            let rest = if coeffs.len() > 3 { &coeffs[3..] } else { &[][..] };
+            let rest = if coeffs.len() > 3 {
+                &coeffs[3..]
+            } else {
+                &[][..]
+            };
             for i in 0..45 {
                 let v = if i < rest.len() { rest[i] } else { 0.0 };
                 let b = ((v.clamp(-1.0, 1.0) + 1.0) * 0.5 * 255.0).round() as u8;
@@ -311,11 +334,19 @@ fn decode_payload(
                 fractional_bits,
             ),
             unpack_pos(
-                [positions[p_off + 3], positions[p_off + 4], positions[p_off + 5]],
+                [
+                    positions[p_off + 3],
+                    positions[p_off + 4],
+                    positions[p_off + 5],
+                ],
                 fractional_bits,
             ),
             unpack_pos(
-                [positions[p_off + 6], positions[p_off + 7], positions[p_off + 8]],
+                [
+                    positions[p_off + 6],
+                    positions[p_off + 7],
+                    positions[p_off + 8],
+                ],
                 fractional_bits,
             ),
         ];
@@ -324,11 +355,7 @@ fn decode_payload(
             unpack_log(scales[i * 3 + 1]),
             unpack_log(scales[i * 3 + 2]),
         ];
-        let r = unpack_quat([
-            rotations[i * 3],
-            rotations[i * 3 + 1],
-            rotations[i * 3 + 2],
-        ]);
+        let r = unpack_quat([rotations[i * 3], rotations[i * 3 + 1], rotations[i * 3 + 2]]);
         let a = unpack_u8_unit(alphas[i]);
         let c = unpack_color([colors[i * 3], colors[i * 3 + 1], colors[i * 3 + 2]]);
 

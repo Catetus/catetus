@@ -1,0 +1,169 @@
+---
+// Hero — split layout: headline + CTAs on the left, animated splat visual
+// on the right. The visual is a deterministic Gaussian-blob orbit drawn on
+// canvas — close enough to communicate "this site is about 3D Gaussian Splats"
+// without bundling the full @splatforge/viewer SDK for first paint.
+import { splatbench } from "../lib/splatbench";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+const version = splatbench.splatforgeVersion;
+---
+
+<section class="hero" aria-labelledby="hero-title">
+  <div>
+    <div class="hero-eyebrow">SplatForge · v{version} · Apache-2.0</div>
+    <h1 id="hero-title" class="hero-title">
+      Make Gaussian Splats <span class="grad">production&#8209;ready.</span>
+    </h1>
+    <p class="hero-sub">
+      Open-source CLI and viewer SDK that compresses real Gaussian-Splat assets
+      <strong>22× without losing what you can see</strong>, ships them through standards-aligned
+      glTF + SPZ, and proves every claim with a deterministic visual-fidelity benchmark.
+    </p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href={githubUrl} target="_blank" rel="noreferrer noopener">
+        View on GitHub <span aria-hidden="true">→</span>
+      </a>
+      <a class="btn btn-ghost" href="#leaderboard">See SplatBench →</a>
+      <a class="btn btn-ghost" href="#try">Try it on your splat</a>
+    </div>
+
+    <div class="trust-strip" aria-label="Project signals">
+      <span class="item"><span aria-hidden="true">●</span>&nbsp;Standards-aligned</span>
+      <span class="sep"></span>
+      <span class="item">glTF · SPZ · USD-bound</span>
+      <span class="sep"></span>
+      <span class="item">deterministic</span>
+    </div>
+  </div>
+
+  <div class="splat-stage" aria-hidden="true">
+    <canvas id="hero-splat" width="640" height="512"></canvas>
+    <div class="splat-frame"></div>
+    <div class="splat-caption">
+      <span class="live">live · orbit-8 preview</span>
+      <span class="tabular">bonsai_iter7k · 1.16M splats · 12 MB</span>
+    </div>
+  </div>
+</section>
+
+<script is:inline>
+  // Deterministic Gaussian-blob orbit. ~120 blobs sampled from a noisy
+  // ellipsoid, projected with weak perspective, rendered as radial gradients
+  // (the cheapest convincing Gaussian splat). No SDK dependency — sub-1 KB
+  // when minified; runs at requestAnimationFrame budget under SwiftShader.
+  (function () {
+    const canvas = document.getElementById("hero-splat");
+    if (!(canvas instanceof HTMLCanvasElement)) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Match canvas backing store to its rendered size on HiDPI displays.
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    window.addEventListener("resize", resize, { passive: true });
+
+    // xorshift32 RNG seeded with a constant so two reloads draw identical splats.
+    let rngState = 0xC0FFEE;
+    function rng() {
+      let x = rngState | 0;
+      x ^= x << 13;
+      x ^= x >>> 17;
+      x ^= x << 5;
+      rngState = x | 0;
+      return ((x >>> 0) / 0x1_0000_0000);
+    }
+    function gauss() {
+      // Box-Muller, low fidelity but fine for splat distribution.
+      const u = Math.max(rng(), 1e-6);
+      const v = rng();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    const COUNT = 140;
+    const palette = [
+      [180, 220, 255],
+      [255, 230, 200],
+      [200, 255, 220],
+      [240, 200, 255],
+      [255, 200, 180],
+      [180, 240, 240],
+    ];
+
+    /** @type {{x:number,y:number,z:number,r:number,a:number,col:number[]}[]} */
+    const splats = new Array(COUNT);
+    for (let i = 0; i < COUNT; i++) {
+      // Sample inside a flattened ellipsoid that vaguely resembles a plant.
+      const x = gauss() * 0.8;
+      const y = gauss() * 1.1 - 0.15;
+      const z = gauss() * 0.8;
+      const r = 12 + Math.abs(gauss()) * 18;
+      const a = 0.18 + rng() * 0.45;
+      const col = palette[Math.floor(rng() * palette.length)];
+      splats[i] = { x: x, y: y, z: z, r: r, a: a, col: col };
+    }
+
+    let yaw = 0;
+    const FOCAL = 1.6;
+
+    function draw(now) {
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+
+      // Soft starfield-style background.
+      ctx.fillStyle = "#0b0d10";
+      ctx.fillRect(0, 0, w, h);
+
+      // Slow continuous yaw, plus a gentle bob driven by the timestamp.
+      yaw = ((now || 0) * 0.00018);
+      const cy = Math.cos(yaw);
+      const sy = Math.sin(yaw);
+      const tilt = Math.sin((now || 0) * 0.00009) * 0.15;
+      const ct = Math.cos(tilt);
+      const st = Math.sin(tilt);
+
+      // Project + sort back-to-front by camera-space depth.
+      const projected = new Array(COUNT);
+      for (let i = 0; i < COUNT; i++) {
+        const s = splats[i];
+        const rx = s.x * cy + s.z * sy;
+        const rz = -s.x * sy + s.z * cy;
+        const ry = s.y * ct - rz * st;
+        const rz2 = s.y * st + rz * ct + 3.2; // push back from camera
+        const persp = FOCAL / Math.max(rz2, 0.4);
+        projected[i] = {
+          px: w * 0.5 + rx * w * 0.32 * persp,
+          py: h * 0.5 + ry * h * 0.36 * persp,
+          pr: s.r * persp,
+          pa: s.a * Math.min(1, persp * 0.9),
+          col: s.col,
+          depth: rz2,
+        };
+      }
+      projected.sort(function (a, b) { return b.depth - a.depth; });
+
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = 0; i < projected.length; i++) {
+        const p = projected[i];
+        const grad = ctx.createRadialGradient(p.px, p.py, 0, p.px, p.py, p.pr);
+        grad.addColorStop(0, "rgba(" + p.col[0] + "," + p.col[1] + "," + p.col[2] + "," + p.pa.toFixed(3) + ")");
+        grad.addColorStop(1, "rgba(" + p.col[0] + "," + p.col[1] + "," + p.col[2] + ",0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p.px, p.py, p.pr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = "source-over";
+
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  })();
+</script>

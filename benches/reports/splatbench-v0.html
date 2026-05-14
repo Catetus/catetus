@@ -53,7 +53,13 @@
   .ratio-high { color: var(--good); }
   .ratio-mid { color: var(--accent); }
   .ratio-low { color: var(--warn); }
-  .footer { color: var(--fg-dim); font-size: 12px; margin-top: 32px; line-height: 1.6; }
+  
+  .fid { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 4px; }
+  .fid-pass { background: rgba(52, 211, 153, 0.18); color: var(--good); }
+  .fid-borderline { background: rgba(251, 191, 36, 0.18); color: var(--warn); }
+  .fid-fail { background: rgba(248, 113, 113, 0.18); color: var(--bad); }
+  .fid-na { color: var(--fg-dim); }
+.footer { color: var(--fg-dim); font-size: 12px; margin-top: 32px; line-height: 1.6; }
   a { color: var(--accent-strong); text-decoration: none; }
   a:hover { text-decoration: underline; }
   .bar {
@@ -72,8 +78,7 @@
 <body>
 <main>
   <h1>SplatBench <span style="color:var(--accent)">v0</span></h1>
-  <div class="sub">
-    The initial public benchmark corpus for <a href="https://github.com/splatforge/splatforge">SplatForge</a>.
+  <div class="sub">Initial benchmark — 7 scenes, 3 presets, 3DGS-format-only. v0.1.1 adds visual fidelity (ΔE94 / pixelmatch / SSIM) via @splatforge/viewer headless renders.<a href="https://github.com/splatforge/splatforge">SplatForge</a>.
     7 scenes · 7.63M splats total · 1.89 GB raw PLY · run on splatforge 0.1.0 · linux-aarch64 · 2026-05-14
   </div>
 
@@ -102,6 +107,7 @@
         <th>Input</th>
         <th>SPZ out</th>
         <th>Ratio</th>
+        <th>Fidelity (ΔE94)</th>
         <th>analyze</th>
       </tr>
     </thead>
@@ -127,7 +133,7 @@
   <table>
     <thead><tr><th>Metric</th><th>Status</th><th>Blocker</th></tr></thead>
     <tbody>
-      <tr><td>Visual fidelity (ΔE94, SSIM, PSNR)</td><td>pending</td><td>needs <code class="inline">playwright-core + chromium</code></td></tr>
+      <tr><td>Visual fidelity (ΔE94, SSIM, PSNR)</td><td><strong>shipped v0.1.1</strong></td><td>—</td></tr>
       <tr><td>Viewer parity matrix</td><td>pending</td><td>needs Playwright across 4 browser projects</td></tr>
       <tr><td>FPS / first-meaningful-paint</td><td>pending</td><td>needs real-device matrix</td></tr>
       <tr><td>Mobile memory peak</td><td>pending</td><td>needs real-device matrix</td></tr>
@@ -144,13 +150,13 @@
 
 <script>
 const DATA = [
-  { id:"bonsai_mipnerf360_iter7k",  cls:"indoor-real-estate",  src:"real",      splats:1157141, bytesIn:286972500, webMobile:{spz:12576301, ratio:22.81}, sizeMin:{spz:9015122,  ratio:31.83}, analyze:1240 },
-  { id:"bicycle_mipnerf360_iter7k", cls:"outdoor-scene",       src:"real",      splats:3616103, bytesIn:896795076, webMobile:{spz:35222089, ratio:25.46}, sizeMin:{spz:23040772, ratio:38.92}, analyze:4457 },
-  { id:"splatbench_product_proxy",  cls:"product-scan",        src:"synthetic", splats:10000,   bytesIn:2481530,   webMobile:{spz:121033,   ratio:20.50}, sizeMin:{spz:121078,   ratio:20.49}, analyze:11   },
-  { id:"splatbench_indoor_proxy",   cls:"indoor-real-estate",  src:"synthetic", splats:100000,  bytesIn:24801531,  webMobile:{spz:1204695,  ratio:20.58}, sizeMin:{spz:1149536,  ratio:21.57}, analyze:105  },
-  { id:"splatbench_floater_proxy",  cls:"noisy-capture",       src:"synthetic", splats:250000,  bytesIn:62001531,  webMobile:{spz:2399049,  ratio:25.84}, sizeMin:{spz:2226050,  ratio:27.85}, analyze:248  },
-  { id:"splatbench_outdoor_proxy",  cls:"outdoor-scene",       src:"synthetic", splats:500000,  bytesIn:124001531, webMobile:{spz:6301960,  ratio:19.67}, sizeMin:{spz:5714469,  ratio:21.69}, analyze:483  },
-  { id:"splatbench_dense_proxy",    cls:"dense-large-scene",   src:"synthetic", splats:2000000, bytesIn:496001532, webMobile:{spz:22794972, ratio:21.75}, sizeMin:{spz:20461015, ratio:24.24}, analyze:2184 }
+  { id:"bonsai_mipnerf360_iter7k",  cls:"indoor-real-estate",  src:"real",      splats:1157141, bytesIn:286972500, webMobile:{spz:12576301, ratio:22.81}, sizeMin:{spz:9015122,  ratio:31.83}, analyze:1240, fidelity:{ webMobile:{ mean:0.0060, max:0.0084, status:"pass" }, sizeMin:{ mean:0.0064, max:0.0087, status:"pass" } } },
+  { id:"bicycle_mipnerf360_iter7k", cls:"outdoor-scene",       src:"real",      splats:3616103, bytesIn:896795076, webMobile:{spz:35222089, ratio:25.46}, sizeMin:{spz:23040772, ratio:38.92}, analyze:4457, fidelity:{ webMobile:{ mean:0.0286, max:0.0356, status:"borderline" }, sizeMin:{ mean:0.0260, max:0.0333, status:"borderline" } } },
+  { id:"splatbench_product_proxy",  cls:"product-scan",        src:"synthetic", splats:10000,   bytesIn:2481530,   webMobile:{spz:121033,   ratio:20.50}, sizeMin:{spz:121078,   ratio:20.49}, analyze:11, fidelity:{ webMobile:{ mean:0.0002, max:0.0003, status:"pass" }, sizeMin:{ mean:0.0004, max:0.0004, status:"pass" } } },
+  { id:"splatbench_indoor_proxy",   cls:"indoor-real-estate",  src:"synthetic", splats:100000,  bytesIn:24801531,  webMobile:{spz:1204695,  ratio:20.58}, sizeMin:{spz:1149536,  ratio:21.57}, analyze:105, fidelity:{ webMobile:{ mean:0.0003, max:0.0004, status:"pass" }, sizeMin:{ mean:0.0010, max:0.0011, status:"pass" } } },
+  { id:"splatbench_floater_proxy",  cls:"noisy-capture",       src:"synthetic", splats:250000,  bytesIn:62001531,  webMobile:{spz:2399049,  ratio:25.84}, sizeMin:{spz:2226050,  ratio:27.85}, analyze:248, fidelity:{ webMobile:{ mean:0.0009, max:0.0009, status:"pass" }, sizeMin:{ mean:0.1448, max:0.1473, status:"fail" } } },
+  { id:"splatbench_outdoor_proxy",  cls:"outdoor-scene",       src:"synthetic", splats:500000,  bytesIn:124001531, webMobile:{spz:6301960,  ratio:19.67}, sizeMin:{spz:5714469,  ratio:21.69}, analyze:483, fidelity:{ webMobile:{ mean:0.0002, max:0.0004, status:"pass" }, sizeMin:{ mean:0.0009, max:0.0014, status:"pass" } } },
+  { id:"splatbench_dense_proxy",    cls:"dense-large-scene",   src:"synthetic", splats:2000000, bytesIn:496001532, webMobile:{spz:22794972, ratio:21.75}, sizeMin:{spz:20461015, ratio:24.24}, analyze:2184, fidelity:{ webMobile:{ mean:0.0000, max:0.0001, status:"pass" }, sizeMin:{ mean:0.0002, max:0.0003, status:"pass" } } }
 ];
 
 function fmtBytes(n) {
@@ -167,6 +173,24 @@ function ratioClass(r) {
   if (r >= 25) return "ratio-high";
   if (r >= 21) return "ratio-mid";
   return "ratio-low";
+}
+// fidelity-helper-injected
+function fidelityKey(preset) {
+  return preset === "webMobile" ? "webMobile" : "sizeMin";
+}
+function fidelityClass(status) {
+  if (status === "pass") return "fid-pass";
+  if (status === "borderline") return "fid-borderline";
+  if (status === "fail") return "fid-fail";
+  return "fid-na";
+}
+function fmtFidelity(r, preset) {
+  if (!r.fidelity) return "<span class=\"fid-na\">—</span>";
+  const f = r.fidelity[fidelityKey(preset)];
+  if (!f) return "<span class=\"fid-na\">—</span>";
+  const cls = fidelityClass(f.status);
+  const pct = (v) => (v * 100).toFixed(2) + "%";
+  return '<span class="fid ' + cls + '">' + pct(f.mean) + ' / ' + pct(f.max) + '</span>';
 }
 function renderTable() {
   const preset = document.getElementById("preset").value;
@@ -188,6 +212,7 @@ function renderTable() {
       <td>${fmtBytes(r.bytesIn)}</td>
       <td>${fmtBytes(pr.spz)}</td>
       <td><span class="ratio ${cls}">${pr.ratio.toFixed(2)}×</span><span class="bar"><span class="bar-fill" style="width:${w}%"></span></span></td>
+      <td>${fmtFidelity(r, preset)}</td>
       <td>${fmtMs(r.analyze)}</td>
     </tr>`;
   }).join("");

@@ -71,6 +71,7 @@ export type ViewerEvent =
   | { type: 'manifestLoaded'; chunkCount: number }
   | { type: 'chunkLoaded'; chunkIndex: number; byteLength: number }
   | { type: 'firstRender' }
+  | { type: 'frameRendered'; index: number; total: number }
   | { type: 'qualityChanged'; level: number }
   | { type: 'complete' }
   | { type: 'warning'; code: string; message: string }

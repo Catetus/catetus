@@ -1,0 +1,49 @@
+---
+import Base from "../layouts/Base.astro";
+import Hero from "../components/Hero.astro";
+import StatTriptych from "../components/StatTriptych.astro";
+import Install from "../components/Install.astro";
+import Leaderboard from "../components/Leaderboard.astro";
+import TryIt from "../components/TryIt.astro";
+import { splatbench } from "../lib/splatbench";
+
+const title = "SplatForge — Production-ready Gaussian Splats";
+const description =
+  "Open-source CLI + viewer SDK that compresses Gaussian-Splat assets 22× on real 3D scenes, deterministically, with standards-aligned glTF + SPZ output.";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="#leaderboard">SplatBench</a>
+      <a href={`${githubUrl}#getting-started`} target="_blank" rel="noreferrer noopener">Docs</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <Hero />
+  <StatTriptych />
+  <Install />
+  <Leaderboard />
+  <TryIt />
+
+  <footer class="site-footer">
+    <span>
+      SplatBench {splatbench.name.replace(/^SplatBench\s*/, "")} ·
+      splatforge <span class="tabular">v{splatbench.splatforgeVersion}</span> ·
+      <span class="tabular">{splatbench.platform}</span> ·
+      <span class="tabular">{splatbench.runDate}</span>
+    </span>
+    <span>
+      <a href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.json`}>splatbench-v0.json</a> ·
+      <a href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.html`}>standalone HTML</a> ·
+      Apache-2.0
+    </span>
+  </footer>
+</Base>

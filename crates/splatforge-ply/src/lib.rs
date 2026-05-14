@@ -8,7 +8,7 @@ use std::io::{BufRead, Cursor, Write};
 use std::path::Path;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use splatforge_core::{Color, CoordinateSystem, SplatScene, Splat, TemporalMode};
+use splatforge_core::{Color, CoordinateSystem, Splat, SplatScene, TemporalMode};
 use thiserror::Error;
 
 /// All errors produced by PLY ingest.
@@ -131,7 +131,9 @@ fn parse_header(bytes: &[u8]) -> Result<Header, PlyError> {
                     "ascii" => Format::Ascii,
                     "binary_big_endian" => return Err(PlyError::UnsupportedEndian),
                     other => {
-                        return Err(PlyError::MalformedHeader(format!("unknown format: {other}")))
+                        return Err(PlyError::MalformedHeader(format!(
+                            "unknown format: {other}"
+                        )))
                     }
                 });
             }
@@ -248,11 +250,7 @@ fn check_required(elem: &Element) -> Result<(), PlyError> {
     Ok(())
 }
 
-fn read_binary(
-    bytes: &[u8],
-    header: &Header,
-    vertex_idx: usize,
-) -> Result<Vec<Splat>, PlyError> {
+fn read_binary(bytes: &[u8], header: &Header, vertex_idx: usize) -> Result<Vec<Splat>, PlyError> {
     let vertex = &header.elements[vertex_idx];
     // Compute byte stride per record.
     let stride: usize = vertex.properties.iter().map(|p| p.ty.size()).sum();
@@ -315,7 +313,11 @@ fn read_ascii(bytes: &[u8], header: &Header, vertex_idx: usize) -> Result<Vec<Sp
 
 fn build_splat(vertex: &Element, values: &[f32], f_rest_indices: &[usize]) -> Splat {
     let lookup = |name: &str| -> f32 {
-        let i = vertex.properties.iter().position(|p| p.name == name).unwrap();
+        let i = vertex
+            .properties
+            .iter()
+            .position(|p| p.name == name)
+            .unwrap();
         values[i]
     };
     let pos = [lookup("x"), lookup("y"), lookup("z")];
@@ -434,7 +436,9 @@ pub fn write_ply_bytes(scene: &SplatScene) -> Result<Vec<u8>, PlyError> {
     for name in &f_rest_names {
         header.push_str(&format!("property float {name}\n"));
     }
-    for name in ["opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"] {
+    for name in [
+        "opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3",
+    ] {
         header.push_str(&format!("property float {name}\n"));
     }
     header.push_str("end_header\n");

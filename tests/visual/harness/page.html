@@ -69,36 +69,17 @@
         setStatus(`error: ${e.code}`);
       });
 
-      // The viewer's 'complete' event fires after the orbit-8 path finishes
-      // rendering all 8 frames in deterministic mode. We capture each frame
-      // by hooking 'firstRender' for frame 0 and a synthetic per-frame
-      // 'frameRendered' event from the viewer — but to keep the harness
-      // simple and robust to viewer-SDK churn, we instead poll the canvas
-      // on every requestAnimationFrame tick until 'complete' fires, and
-      // dedupe by a hash of the pixel data.
-      //
-      // NOTE: the viewer SDK is expected to drive its deterministic clock
-      // such that exactly 8 distinct frames are presented before 'complete'.
-      const seen = new Set();
-      let captureRunning = true;
-      function tick() {
-        if (!captureRunning) return;
+      // Capture each frame from the viewer's per-frame `frameRendered` event.
+      // This runs after `renderFrame` has submitted the draw and before the
+      // next orbit pose overwrites the canvas backing store.
+      viewer.on('frameRendered', (e) => {
         const url = canvas.toDataURL('image/png');
-        // Cheap fingerprint: last 64 chars of the base64 payload. PNG output
-        // is deterministic for identical pixels because we render at fixed
-        // size and the encoder is browser-native.
-        const fp = url.slice(-64);
-        if (!seen.has(fp)) {
-          seen.add(fp);
-          sf.frames.push({ index: sf.frames.length + 1, dataUrl: url });
-        }
-        requestAnimationFrame(tick);
-      }
-      requestAnimationFrame(tick);
+        sf.frames.push({ index: e.index + 1, dataUrl: url });
+      });
 
       viewer.on('complete', () => {
-        captureRunning = false;
-        // Trim or pad to 8 — the orbit-8 path is contractually 8 frames.
+        // The viewer is contractually 8 frames for `orbit-8`; trim/pad if a
+        // future camera path emits a different count.
         sf.frames = sf.frames.slice(0, 8);
         sf.ready = true;
         setStatus(`ready (${sf.frames.length} frames)`);

@@ -1,0 +1,86 @@
+---
+// Tabbed install snippet — Cargo / Homebrew / build-from-source.
+// Sits between the stat triptych and the leaderboard so visitors get
+// "what do I run?" inside the first viewport, per Linear / Raycast pattern.
+const tabs = [
+  { id: "cargo", label: "Cargo", cmd: "cargo install splatforge" },
+  { id: "brew", label: "Homebrew", cmd: "brew install splatforge" },
+  { id: "src", label: "Build from source", cmd: "git clone https://github.com/montabano1/SplatForge && make build" },
+];
+---
+
+<section class="install" aria-labelledby="install-title">
+  <h2 id="install-title" class="section-title">Install</h2>
+  <div class="install-card" data-install-card>
+    <div role="tablist" class="install-tabs">
+      {tabs.map((t, i) => (
+        <button
+          type="button"
+          role="tab"
+          class="install-tab"
+          aria-selected={i === 0 ? "true" : "false"}
+          aria-controls={`install-${t.id}`}
+          id={`tab-${t.id}`}
+          data-tab={t.id}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+    {tabs.map((t, i) => (
+      <div
+        role="tabpanel"
+        id={`install-${t.id}`}
+        aria-labelledby={`tab-${t.id}`}
+        class="install-body"
+        data-panel={t.id}
+        hidden={i !== 0}
+      >
+        <pre><span class="prompt">$</span><code data-install-cmd>{t.cmd}</code></pre>
+        <button type="button" class="install-copy" data-copy>Copy</button>
+      </div>
+    ))}
+  </div>
+</section>
+
+<script is:inline>
+  (function () {
+    const card = document.querySelector("[data-install-card]");
+    if (!(card instanceof HTMLElement)) return;
+    const tabs = card.querySelectorAll("[data-tab]");
+    const panels = card.querySelectorAll("[data-panel]");
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        const id = tab.getAttribute("data-tab");
+        tabs.forEach(function (t) {
+          t.setAttribute("aria-selected", t === tab ? "true" : "false");
+        });
+        panels.forEach(function (p) {
+          p.hidden = p.getAttribute("data-panel") !== id;
+        });
+      });
+    });
+
+    card.querySelectorAll("[data-copy]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const panel = btn.closest("[data-panel]");
+        if (!panel) return;
+        const cmd = panel.querySelector("[data-install-cmd]");
+        if (!cmd) return;
+        const text = cmd.textContent || "";
+        navigator.clipboard.writeText(text).then(function () {
+          btn.classList.add("copied");
+          const original = btn.textContent;
+          btn.textContent = "Copied";
+          setTimeout(function () {
+            btn.classList.remove("copied");
+            btn.textContent = original || "Copy";
+          }, 1400);
+        }).catch(function () {
+          btn.textContent = "Copy failed";
+        });
+      });
+    });
+  })();
+</script>

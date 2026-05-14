@@ -184,7 +184,7 @@ fn object_aware_prune_flat_scene_is_conservative() {
         .run(&mut scene, &mut ctx)
         .unwrap();
     // Strict upper bound: never prune more than ~the lowest decile.
-    let decile = (n + 9) / 10;
+    let decile = n.div_ceil(10);
     assert!(
         stats.removed <= decile,
         "pruned {} but decile is {}",

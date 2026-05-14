@@ -2,7 +2,7 @@
   "schema": "splatforge.splatbench/0.1",
   "name": "SplatBench v0",
   "description": "Initial public benchmark corpus for SplatForge. Combines a real Mip-NeRF360 anchor scene with deterministic synthetic scenes covering five PRD corpus classes.",
-  "splatforgeVersion": "0.1.0",
+  "splatforgeVersion": "0.1.1",
   "runDate": "2026-05-14",
   "platform": "linux-aarch64",
   "preset": "web-mobile",
@@ -21,7 +21,40 @@
       "webMobileSpzBytes": 12576301,
       "webMobileRatio": 22.81,
       "sizeMinSpzBytes": 9015122,
-      "sizeMinRatio": 31.83
+      "sizeMinRatio": 31.83,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.006006,
+          "maxDeltaE94": 0.008392,
+          "p95DeltaE94": 0.008174,
+          "meanPixelMatch": 0.014172,
+          "meanSsimLoss": 0.021123,
+          "status": "pass",
+          "passed": true
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.006406,
+          "maxDeltaE94": 0.008697,
+          "p95DeltaE94": 0.008634,
+          "meanPixelMatch": 0.015096,
+          "meanSsimLoss": 0.023345,
+          "status": "pass",
+          "passed": true
+        }
+      }
     },
     {
       "id": "bicycle_mipnerf360_iter7k",
@@ -37,7 +70,40 @@
       "webMobileSpzBytes": 35222089,
       "webMobileRatio": 25.46,
       "sizeMinSpzBytes": 23040772,
-      "sizeMinRatio": 38.92
+      "sizeMinRatio": 38.92,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.028615,
+          "maxDeltaE94": 0.035559,
+          "p95DeltaE94": 0.034129,
+          "meanPixelMatch": 0.031236,
+          "meanSsimLoss": 0.082897,
+          "status": "borderline",
+          "passed": true
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.026016,
+          "maxDeltaE94": 0.033287,
+          "p95DeltaE94": 0.032217,
+          "meanPixelMatch": 0.028473,
+          "meanSsimLoss": 0.073273,
+          "status": "borderline",
+          "passed": true
+        }
+      }
     },
     {
       "id": "splatbench_product_proxy",
@@ -51,9 +117,42 @@
       "hash": "blake3:136841e98cd55e44a2",
       "analyzeMs": 11,
       "webMobileSpzBytes": 121033,
-      "webMobileRatio": 20.50,
+      "webMobileRatio": 20.5,
       "sizeMinSpzBytes": 121078,
-      "sizeMinRatio": 20.49
+      "sizeMinRatio": 20.49,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000222,
+          "maxDeltaE94": 0.000252,
+          "p95DeltaE94": 0.000247,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000072,
+          "status": "pass",
+          "passed": true
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.000351,
+          "maxDeltaE94": 0.000386,
+          "p95DeltaE94": 0.000378,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000121,
+          "status": "pass",
+          "passed": true
+        }
+      }
     },
     {
       "id": "splatbench_indoor_proxy",
@@ -69,7 +168,40 @@
       "webMobileSpzBytes": 1204695,
       "webMobileRatio": 20.58,
       "sizeMinSpzBytes": 1149536,
-      "sizeMinRatio": 21.57
+      "sizeMinRatio": 21.57,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000325,
+          "maxDeltaE94": 0.000356,
+          "p95DeltaE94": 0.000352,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000073,
+          "status": "pass",
+          "passed": true
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.00101,
+          "maxDeltaE94": 0.001149,
+          "p95DeltaE94": 0.00114,
+          "meanPixelMatch": 0.000006,
+          "meanSsimLoss": 0.000331,
+          "status": "pass",
+          "passed": true
+        }
+      }
     },
     {
       "id": "splatbench_floater_proxy",
@@ -85,7 +217,40 @@
       "webMobileSpzBytes": 2399049,
       "webMobileRatio": 25.84,
       "sizeMinSpzBytes": 2226050,
-      "sizeMinRatio": 27.85
+      "sizeMinRatio": 27.85,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000887,
+          "maxDeltaE94": 0.000949,
+          "p95DeltaE94": 0.000949,
+          "meanPixelMatch": 0.000017,
+          "meanSsimLoss": 0.007589,
+          "status": "pass",
+          "passed": true
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.144802,
+          "maxDeltaE94": 0.147303,
+          "p95DeltaE94": 0.147293,
+          "meanPixelMatch": 0.273118,
+          "meanSsimLoss": 0.283179,
+          "status": "fail",
+          "passed": false
+        }
+      }
     },
     {
       "id": "splatbench_outdoor_proxy",
@@ -101,7 +266,40 @@
       "webMobileSpzBytes": 6301960,
       "webMobileRatio": 19.67,
       "sizeMinSpzBytes": 5714469,
-      "sizeMinRatio": 21.69
+      "sizeMinRatio": 21.69,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000234,
+          "maxDeltaE94": 0.000361,
+          "p95DeltaE94": 0.000345,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000063,
+          "status": "pass",
+          "passed": true
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.000908,
+          "maxDeltaE94": 0.001361,
+          "p95DeltaE94": 0.001298,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000339,
+          "status": "pass",
+          "passed": true
+        }
+      }
     },
     {
       "id": "splatbench_dense_proxy",
@@ -117,7 +315,40 @@
       "webMobileSpzBytes": 22794972,
       "webMobileRatio": 21.75,
       "sizeMinSpzBytes": 20461015,
-      "sizeMinRatio": 24.24
+      "sizeMinRatio": 24.24,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000048,
+          "maxDeltaE94": 0.000055,
+          "p95DeltaE94": 0.000054,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000021,
+          "status": "pass",
+          "passed": true
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.000244,
+          "maxDeltaE94": 0.000265,
+          "p95DeltaE94": 0.000264,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000136,
+          "status": "pass",
+          "passed": true
+        }
+      }
     }
   ],
   "aggregates": {

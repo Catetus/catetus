@@ -21,7 +21,7 @@ import {
   resolveChunkUri,
   validateChecksum,
 } from './loader.js';
-import { orbitPose } from './camera.js';
+import { orbitFrames, orbitPose } from './camera.js';
 import { StatsOverlay } from './stats.js';
 import type { Renderer } from './renderer/base.js';
 import { isWebGPUAvailable, WebGPURenderer } from './renderer/webgpu.js';
@@ -39,6 +39,7 @@ type EmitterMap = {
   manifestLoaded: Extract<ViewerEvent, { type: 'manifestLoaded' }>;
   chunkLoaded: Extract<ViewerEvent, { type: 'chunkLoaded' }>;
   firstRender: Extract<ViewerEvent, { type: 'firstRender' }>;
+  frameRendered: Extract<ViewerEvent, { type: 'frameRendered' }>;
   qualityChanged: Extract<ViewerEvent, { type: 'qualityChanged' }>;
   complete: Extract<ViewerEvent, { type: 'complete' }>;
   warning: Extract<ViewerEvent, { type: 'warning' }>;
@@ -137,6 +138,7 @@ export class SplatForgeViewer {
       });
 
       await this.streamChunks(manifest);
+      await this.runCameraPath(manifest);
       this.emitter.emit('complete', { type: 'complete' });
     } catch (err) {
       const { code, message } = normalizeError(err);
@@ -211,6 +213,60 @@ export class SplatForgeViewer {
         this.firstRenderFired = true;
         this.emitter.emit('firstRender', { type: 'firstRender' });
       }
+    }
+  }
+
+  /**
+   * Execute the configured camera path: render each pose, emit
+   * `frameRendered` between renders, and yield to the next animation frame so
+   * the canvas backing store reflects every frame for any external observer.
+   */
+  private async runCameraPath(manifest: Manifest): Promise<void> {
+    const renderer = this.renderer;
+    if (!renderer) return;
+    const path = this.opts.cameraPath;
+    if (path === 'static') return; // initial firstRender already covers this.
+
+    const aspect = this.opts.canvas.width > 0
+      ? this.opts.canvas.width / Math.max(this.opts.canvas.height, 1)
+      : 16 / 9;
+
+    let yaws: number[];
+    if (typeof path === 'object' && path && path.type === 'custom') {
+      // Custom positions are absolute eye points; synthesize yaws from them by
+      // projecting onto the XZ plane relative to bbox center.
+      const center = [
+        (manifest.bbox.min[0] + manifest.bbox.max[0]) * 0.5,
+        (manifest.bbox.min[1] + manifest.bbox.max[1]) * 0.5,
+        (manifest.bbox.min[2] + manifest.bbox.max[2]) * 0.5,
+      ];
+      yaws = path.positions.map((p) =>
+        Math.atan2(p[0] - center[0], p[2] - center[2]),
+      );
+    } else {
+      const count = path === 'orbit-8' ? 8 : 8;
+      yaws = orbitFrames(count);
+    }
+
+    for (let i = 0; i < yaws.length; i++) {
+      const pose = orbitPose(manifest.bbox, yaws[i]!, aspect);
+      await renderer.renderFrame(pose);
+      this.emitter.emit('frameRendered', {
+        type: 'frameRendered',
+        index: i,
+        total: yaws.length,
+      });
+      // Yield to the host so observers can sample the canvas before we draw
+      // the next pose. Use rAF when available (browser), otherwise a microtask.
+      await new Promise<void>((resolve) => {
+        const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number })
+          .requestAnimationFrame;
+        if (typeof raf === 'function') {
+          raf(() => resolve());
+        } else {
+          resolve();
+        }
+      });
     }
   }
 

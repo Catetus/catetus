@@ -26,8 +26,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r run lint
-      - run: pnpm -r run test
+      # Build the viewer dist first — report-ui and visual depend on it via
+      # `workspace:*`, and the viewer's own `lint`/`test` need its type graph.
+      - run: pnpm -F @splatforge/viewer run build
+      # Lint/test the JS workspaces, but skip splatforge-visual: its `test`
+      # script is Playwright (covered by the visual workflow) and needs a
+      # built viewer + browsers + CLI binary.
+      - run: pnpm --filter='!splatforge-visual' -r --if-present run lint
+      - run: pnpm --filter='!splatforge-visual' -r --if-present run test
 
   cli-smoke:
     runs-on: ubuntu-latest

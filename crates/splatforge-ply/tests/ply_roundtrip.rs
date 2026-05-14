@@ -27,11 +27,20 @@ fn synthesize_binary_ply() -> Vec<u8> {
     for i in 0..3u32 {
         let f = i as f32;
         let record = [
-            f, f * 0.5, -f, // pos
-            0.0, 0.0, 0.0, // log scale 0 -> scale 1
-            1.0, 0.0, 0.0, 0.0, // rot (w, x, y, z) -> identity
+            f,
+            f * 0.5,
+            -f, // pos
+            0.0,
+            0.0,
+            0.0, // log scale 0 -> scale 1
+            1.0,
+            0.0,
+            0.0,
+            0.0, // rot (w, x, y, z) -> identity
             0.0, // opacity logit 0 -> sigmoid 0.5
-            0.1, 0.2, 0.3, // f_dc
+            0.1,
+            0.2,
+            0.3, // f_dc
         ];
         for v in record {
             buf.extend_from_slice(&v.to_le_bytes());
