@@ -24,6 +24,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde_json = { workspace = true }
 tiny_http = "0.12"
+# Pure-Rust zstd encoder for the optional `--compress` flag on `optimize`.
+# v0.13.x is API-stable, no system zstd required.
+zstd = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 assert_cmd = "2"
