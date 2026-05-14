@@ -46,6 +46,12 @@ pub struct Job {
     /// after the upload proxy finishes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blob_url: Option<String>,
+    /// User-supplied source URL the worker fetches from directly. Mutually
+    /// exclusive with the upload path: when set, the job skips `AwaitingUpload`
+    /// + `Uploading` and lands in `Queued` immediately. Used for inputs that
+    /// already live on the internet (HuggingFace, S3, GCS, R2, …).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
     /// Actual bytes received by the upload proxy (may differ from
     /// the `size_bytes` hint the client gave us at job creation).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,6 +59,16 @@ pub struct Job {
     /// Downloadable URL for the optimized artifact, set by the worker callback.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_url: Option<String>,
+    /// Webhook the API fires when this job reaches a terminal state (Done
+    /// or Error). Lets callers run a 40-tile batch without polling 40
+    /// endpoints. POST body is the Job JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
+    /// Group identifier when this job was created via `POST /v1/jobs/batch`.
+    /// All jobs in the same `/batch` call share a batch_id so clients can
+    /// reassemble results, and webhooks can identify which batch fired.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     /// Populated on failure with a short, user-safe message.
     pub error: Option<String>,
