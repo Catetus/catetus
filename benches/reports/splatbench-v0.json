@@ -1,8 +1,8 @@
 {
   "schema": "splatforge.splatbench/0.1",
   "name": "SplatBench v0",
-  "description": "Initial public benchmark corpus for SplatForge. Combines a real Mip-NeRF360 anchor scene with deterministic synthetic scenes covering five PRD corpus classes. (v0.1.1: differentiable-repack column refreshed with N=5 seed medians ± stdev; honest failure modes preserved.)",
-  "splatforgeVersion": "0.1.1",
+  "description": "Initial public benchmark corpus for SplatForge. Combines a real Mip-NeRF360 anchor scene with deterministic synthetic scenes covering five PRD corpus classes. (v0.1.1: differentiable-repack column refreshed with N=5 seed medians \u00b1 stdev; honest failure modes preserved.)",
+  "splatforgeVersion": "0.1.2",
   "runDate": "2026-05-14",
   "platform": "linux-aarch64",
   "preset": "web-mobile",
@@ -181,7 +181,7 @@
           "maxDeltaE94": 0.000252,
           "p95DeltaE94": 0.000247,
           "meanPixelMatch": 0,
-          "meanSsimLoss": 0.000072,
+          "meanSsimLoss": 7.2e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.952798,
@@ -215,7 +215,9 @@
         "psnrDeltaDbStdev": 2.071,
         "psnrDeltaDbMin": 11.27,
         "psnrDeltaDbMax": 16.956
-      }
+      },
+      "webMobileZstdBytes": 132781,
+      "webMobileZstdRatio": 18.69
     },
     {
       "id": "splatbench_indoor_proxy",
@@ -251,7 +253,7 @@
           "maxDeltaE94": 0.000356,
           "p95DeltaE94": 0.000352,
           "meanPixelMatch": 0,
-          "meanSsimLoss": 0.000073,
+          "meanSsimLoss": 7.3e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.951183,
@@ -262,7 +264,7 @@
           "meanDeltaE94": 0.00101,
           "maxDeltaE94": 0.001149,
           "p95DeltaE94": 0.00114,
-          "meanPixelMatch": 0.000006,
+          "meanPixelMatch": 6e-06,
           "meanSsimLoss": 0.000331,
           "status": "pass",
           "passed": true,
@@ -285,7 +287,9 @@
         "psnrDeltaDbStdev": 0.765,
         "psnrDeltaDbMin": 5.425,
         "psnrDeltaDbMax": 7.15
-      }
+      },
+      "webMobileZstdBytes": 1227410,
+      "webMobileZstdRatio": 20.21
     },
     {
       "id": "splatbench_floater_proxy",
@@ -355,7 +359,9 @@
         "psnrDeltaDbStdev": 3.213,
         "psnrDeltaDbMin": -8.54,
         "psnrDeltaDbMax": -0.545
-      }
+      },
+      "webMobileZstdBytes": 2125281,
+      "webMobileZstdRatio": 29.17
     },
     {
       "id": "splatbench_outdoor_proxy",
@@ -391,7 +397,7 @@
           "maxDeltaE94": 0.000361,
           "p95DeltaE94": 0.000345,
           "meanPixelMatch": 0,
-          "meanSsimLoss": 0.000063,
+          "meanSsimLoss": 6.3e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.951584,
@@ -425,7 +431,9 @@
         "psnrDeltaDbStdev": 0.228,
         "psnrDeltaDbMin": 5.503,
         "psnrDeltaDbMax": 5.968
-      }
+      },
+      "webMobileZstdBytes": 6006492,
+      "webMobileZstdRatio": 20.64
     },
     {
       "id": "splatbench_dense_proxy",
@@ -457,11 +465,11 @@
           "passed": true
         },
         "webMobile": {
-          "meanDeltaE94": 0.000048,
-          "maxDeltaE94": 0.000055,
-          "p95DeltaE94": 0.000054,
+          "meanDeltaE94": 4.8e-05,
+          "maxDeltaE94": 5.5e-05,
+          "p95DeltaE94": 5.4e-05,
           "meanPixelMatch": 0,
-          "meanSsimLoss": 0.000021,
+          "meanSsimLoss": 2.1e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.955351,
@@ -495,7 +503,9 @@
         "psnrDeltaDbStdev": 0.659,
         "psnrDeltaDbMin": 6.203,
         "psnrDeltaDbMax": 7.865
-      }
+      },
+      "webMobileZstdBytes": 22097990,
+      "webMobileZstdRatio": 22.45
     },
     {
       "id": "splatbench_specular_proxy",
@@ -565,7 +575,9 @@
         "psnrDeltaDbStdev": 0.201,
         "psnrDeltaDbMin": 15.198,
         "psnrDeltaDbMax": 15.692
-      }
+      },
+      "webMobileZstdBytes": 142862,
+      "webMobileZstdRatio": 20.84
     },
     {
       "id": "splatbench_foliage_proxy",
@@ -635,7 +647,9 @@
         "psnrDeltaDbStdev": 0.469,
         "psnrDeltaDbMin": 10.15,
         "psnrDeltaDbMax": 11.241
-      }
+      },
+      "webMobileZstdBytes": 725675,
+      "webMobileZstdRatio": 10.25
     },
     {
       "id": "splatbench_lowlight_proxy",
@@ -705,7 +719,9 @@
         "psnrDeltaDbStdev": 0.805,
         "psnrDeltaDbMin": 13.834,
         "psnrDeltaDbMax": 15.446
-      }
+      },
+      "webMobileZstdBytes": 102576,
+      "webMobileZstdRatio": 19.36
     },
     {
       "id": "splatbench_portrait_proxy",
@@ -741,7 +757,7 @@
           "maxDeltaE94": 0.00078,
           "p95DeltaE94": 0.000687,
           "meanPixelMatch": 0,
-          "meanSsimLoss": 0.000055,
+          "meanSsimLoss": 5.5e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.951174,
@@ -752,8 +768,8 @@
           "meanDeltaE94": 0.000571,
           "maxDeltaE94": 0.001095,
           "p95DeltaE94": 0.000952,
-          "meanPixelMatch": 0.000003,
-          "meanSsimLoss": 0.000086,
+          "meanPixelMatch": 3e-06,
+          "meanSsimLoss": 8.6e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.947619,
@@ -775,13 +791,15 @@
         "psnrDeltaDbStdev": 0.307,
         "psnrDeltaDbMin": 23.422,
         "psnrDeltaDbMax": 24.202
-      }
+      },
+      "webMobileZstdBytes": 136871,
+      "webMobileZstdRatio": 21.75
     },
     {
       "id": "splatbench_texture_proxy",
       "source": "synthetic",
       "class": "high-frequency-texture",
-      "origin": "synth:texture v1 — 32×32 checker plane (seed 10, 15k splats)",
+      "origin": "synth:texture v1 \u2014 32\u00d732 checker plane (seed 10, 15k splats)",
       "license": "Apache-2.0",
       "splatCount": 15000,
       "bytesIn": 3721530,
@@ -810,8 +828,8 @@
           "meanDeltaE94": 0.000933,
           "maxDeltaE94": 0.001235,
           "p95DeltaE94": 0.001235,
-          "meanPixelMatch": 0.000021,
-          "meanSsimLoss": 0.000031,
+          "meanPixelMatch": 2.1e-05,
+          "meanSsimLoss": 3.1e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.942636,
@@ -845,13 +863,15 @@
         "psnrDeltaDbStdev": 2.704,
         "psnrDeltaDbMin": 8.063,
         "psnrDeltaDbMax": 13.239
-      }
+      },
+      "webMobileZstdBytes": 186822,
+      "webMobileZstdRatio": 19.92
     },
     {
       "id": "splatbench_transparency_proxy",
       "source": "synthetic",
       "class": "volumetric-translucency",
-      "origin": "synth:transparency v1 — 1.5³ cube, opacity ∈ [0.05, 0.18] (seed 11, 25k splats)",
+      "origin": "synth:transparency v1 \u2014 1.5\u00b3 cube, opacity \u2208 [0.05, 0.18] (seed 11, 25k splats)",
       "license": "Apache-2.0",
       "splatCount": 25000,
       "bytesIn": 6201530,
@@ -915,13 +935,15 @@
         "psnrDeltaDbStdev": 3.16,
         "psnrDeltaDbMin": -10.073,
         "psnrDeltaDbMax": -2.81
-      }
+      },
+      "webMobileZstdBytes": 603430,
+      "webMobileZstdRatio": 10.28
     },
     {
       "id": "splatbench_motion_proxy",
       "source": "synthetic",
       "class": "anisotropic-streak",
-      "origin": "synth:motion v1 — anisotropic streaks along z (seed 12, 12k splats)",
+      "origin": "synth:motion v1 \u2014 anisotropic streaks along z (seed 12, 12k splats)",
       "license": "Apache-2.0",
       "splatCount": 12000,
       "bytesIn": 2977530,
@@ -985,13 +1007,15 @@
         "psnrDeltaDbStdev": 0.524,
         "psnrDeltaDbMin": 9.954,
         "psnrDeltaDbMax": 11.235
-      }
+      },
+      "webMobileZstdBytes": 152464,
+      "webMobileZstdRatio": 19.53
     },
     {
       "id": "splatbench_depth_proxy",
       "source": "synthetic",
       "class": "depth-bimodal",
-      "origin": "synth:depth v1 — bimodal near/far gradient (seed 13, 15k splats)",
+      "origin": "synth:depth v1 \u2014 bimodal near/far gradient (seed 13, 15k splats)",
       "license": "Apache-2.0",
       "splatCount": 15000,
       "bytesIn": 3721530,
@@ -1021,7 +1045,7 @@
           "maxDeltaE94": 0.000189,
           "p95DeltaE94": 0.000187,
           "meanPixelMatch": 0,
-          "meanSsimLoss": 0.000076,
+          "meanSsimLoss": 7.6e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.953402,
@@ -1033,7 +1057,7 @@
           "maxDeltaE94": 0.000255,
           "p95DeltaE94": 0.000255,
           "meanPixelMatch": 0,
-          "meanSsimLoss": 0.000093,
+          "meanSsimLoss": 9.3e-05,
           "status": "pass",
           "passed": true,
           "mlScore": 0.952153,
@@ -1055,13 +1079,15 @@
         "psnrDeltaDbStdev": 0.978,
         "psnrDeltaDbMin": 21.248,
         "psnrDeltaDbMax": 23.693
-      }
+      },
+      "webMobileZstdBytes": 151945,
+      "webMobileZstdRatio": 24.49
     },
     {
       "id": "splatbench_banding_proxy",
       "source": "synthetic",
       "class": "smooth-color-gradient",
-      "origin": "synth:banding v1 — smooth color gradient (seed 14, 10k splats)",
+      "origin": "synth:banding v1 \u2014 smooth color gradient (seed 14, 10k splats)",
       "license": "Apache-2.0",
       "splatCount": 10000,
       "bytesIn": 2481530,
@@ -1125,7 +1151,9 @@
         "psnrDeltaDbStdev": 3.609,
         "psnrDeltaDbMin": 4.93,
         "psnrDeltaDbMax": 14.119
-      }
+      },
+      "webMobileZstdBytes": 103817,
+      "webMobileZstdRatio": 23.9
     }
   ],
   "aggregates": {
@@ -1145,6 +1173,10 @@
     "sizeMinRatioMedian": 23.19,
     "sizeMinRatioMax": 38.92,
     "fidelityWebMobilePass": 16,
-    "fidelitySizeMinPass": 16
+    "fidelitySizeMinPass": 16,
+    "webMobileZstdRatioMin": 10.25,
+    "webMobileZstdRatioMedian": 20.43,
+    "webMobileZstdRatioMax": 29.17,
+    "webMobileZstdScenesCovered": 14
   }
 }
