@@ -65,3 +65,4 @@ export class StatsOverlay {
         this.el.remove();
     }
 }
+//# sourceMappingURL=stats.js.map

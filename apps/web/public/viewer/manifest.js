@@ -233,3 +233,4 @@ function normalizeChunk(c, index, sceneBbox, totalSplats, g, attrs) {
         attributeLayout: layout,
     };
 }
+//# sourceMappingURL=manifest.js.map

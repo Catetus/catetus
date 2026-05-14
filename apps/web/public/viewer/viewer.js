@@ -46,7 +46,16 @@ export class SplatForgeViewer {
             autoRotate: options.autoRotate ?? false,
             autoRotateSpeed: options.autoRotateSpeed ?? 10,
             autoRotateFraming: options.autoRotateFraming ?? 1.0,
+            cameraBbox: options.cameraBbox,
         };
+    }
+    /**
+     * Resolve which bbox to use for camera-pose math. Honors `cameraBbox` when
+     * supplied (visual-regression cases that need a stable frame across presets);
+     * otherwise falls back to the loaded scene's manifest bbox.
+     */
+    cameraBboxFor(manifest) {
+        return this.opts.cameraBbox ?? manifest.bbox;
     }
     /**
      * Subscribe to a viewer event.
@@ -139,14 +148,15 @@ export class SplatForgeViewer {
             }
             const aspect = canvas.width > 0 ? canvas.width / Math.max(canvas.height, 1) : 16 / 9;
             const yaw = ((now - t0) / 1000) * speedRad;
-            const pose = orbitPose(this.cachedManifest.bbox, yaw, aspect);
+            const camBbox = this.cameraBboxFor(this.cachedManifest);
+            const pose = orbitPose(camBbox, yaw, aspect);
             // Apply the marketing framing multiplier by lerping the eye toward the
             // target. We do this here rather than inside `orbitPose` so the
             // deterministic camera paths used by SPEC-0009 keep their canonical
             // distance — only the live auto-rotate is reframed.
             const framing = this.opts.autoRotateFraming;
             if (framing !== 1.0) {
-                const center = bboxCenter(this.cachedManifest.bbox);
+                const center = bboxCenter(camBbox);
                 pose.position = [
                     center[0] + (pose.position[0] - center[0]) * framing,
                     center[1] + (pose.position[1] - center[1]) * framing,
@@ -210,7 +220,7 @@ export class SplatForgeViewer {
         const aspect = this.opts.canvas.width > 0
             ? this.opts.canvas.width / Math.max(this.opts.canvas.height, 1)
             : 16 / 9;
-        const camera = orbitPose(manifest.bbox, 0, aspect);
+        const camera = orbitPose(this.cameraBboxFor(manifest), 0, aspect);
         for (let i = 0; i < manifest.chunks.length; i++) {
             const chunk = manifest.chunks[i];
             await this.streamOneChunk(renderer, chunk, i);
@@ -236,14 +246,15 @@ export class SplatForgeViewer {
         const aspect = this.opts.canvas.width > 0
             ? this.opts.canvas.width / Math.max(this.opts.canvas.height, 1)
             : 16 / 9;
+        const camBbox = this.cameraBboxFor(manifest);
         let yaws;
         if (typeof path === 'object' && path && path.type === 'custom') {
             // Custom positions are absolute eye points; synthesize yaws from them by
             // projecting onto the XZ plane relative to bbox center.
             const center = [
-                (manifest.bbox.min[0] + manifest.bbox.max[0]) * 0.5,
-                (manifest.bbox.min[1] + manifest.bbox.max[1]) * 0.5,
-                (manifest.bbox.min[2] + manifest.bbox.max[2]) * 0.5,
+                (camBbox.min[0] + camBbox.max[0]) * 0.5,
+                (camBbox.min[1] + camBbox.max[1]) * 0.5,
+                (camBbox.min[2] + camBbox.max[2]) * 0.5,
             ];
             yaws = path.positions.map((p) => Math.atan2(p[0] - center[0], p[2] - center[2]));
         }
@@ -252,7 +263,7 @@ export class SplatForgeViewer {
             yaws = orbitFrames(count);
         }
         for (let i = 0; i < yaws.length; i++) {
-            const pose = orbitPose(manifest.bbox, yaws[i], aspect);
+            const pose = orbitPose(camBbox, yaws[i], aspect);
             await renderer.renderFrame(pose);
             this.emitter.emit('frameRendered', {
                 type: 'frameRendered',
@@ -315,3 +326,4 @@ function normalizeError(err) {
     }
     return { code: 'unknown', message };
 }
+//# sourceMappingURL=viewer.js.map

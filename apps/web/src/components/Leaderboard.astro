@@ -133,6 +133,9 @@ const clientData = scenes.map((s) => ({
         <span>
           <span class="ml-tag">premium</span> — differentiable repack
           PSNR delta vs naive opacity-prune at the same byte budget.
+          Negative cells (translucent volumes) are a known failure mode
+          where opacity-prune is structurally near-optimal; we publish them
+          honestly rather than tune them away.
         </span>
       )}
       Values are published; both columns require <code>splatforge-pro</code> to
@@ -208,8 +211,12 @@ const clientData = scenes.map((s) => ({
                     {(() => {
                       if (!s.repack) return <span class="fidelity-pending">—</span>;
                       const d = s.repack.psnrDeltaDb;
+                      const cls = d >= 0 ? "repack-win" : "repack-loss";
+                      const title = d < 0
+                        ? "Repack loses to opacity-prune on this scene. Translucent volumes are a structural failure mode for saliency-based hard-pruning."
+                        : undefined;
                       return (
-                        <span class="repack-win">{d >= 0 ? "+" : ""}{d.toFixed(2)} dB</span>
+                        <span class={cls} title={title}>{d >= 0 ? "+" : ""}{d.toFixed(2)} dB</span>
                       );
                     })()}
                   </td>
@@ -319,8 +326,12 @@ const clientData = scenes.map((s) => ({
           if (showRepack) {
             if (r.repack && typeof r.repack.psnrDeltaDb === "number") {
               const d = r.repack.psnrDeltaDb;
+              const cls = d >= 0 ? "repack-win" : "repack-loss";
+              const title = d < 0
+                ? ' title="Repack loses to opacity-prune on this scene. Translucent volumes are a structural failure mode for saliency-based hard-pruning."'
+                : "";
               repackCell =
-                '<td><span class="repack-win">' +
+                '<td><span class="' + cls + '"' + title + '>' +
                 (d >= 0 ? "+" : "") +
                 d.toFixed(2) +
                 " dB</span></td>";
