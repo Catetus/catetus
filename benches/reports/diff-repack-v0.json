@@ -1,11 +1,11 @@
 {
   "schema": "splatforge.diff-repack-v0",
-  "name": "Differentiable repack — premium tier results",
-  "description": "PSNR delta of the gsplat-based differentiable repack pass vs naive opacity-prune at the same byte budget. Algorithm lives in splatforge-private; reproducing the numbers requires the proprietary build + ~$0.10/scene of A100 spot time. Values are published; the optimizer is not.",
-  "version": "0.1.1-alpha-loss-beer-lambert",
+  "name": "Differentiable repack \u2014 premium tier results",
+  "description": "PSNR delta of the gsplat-based differentiable repack pass vs naive opacity-prune at the same byte budget. Algorithm lives in splatforge-private; reproducing the numbers requires the proprietary build + ~$0.10/scene of A100 spot time. Values are published; the optimizer is not. N=5 seed medians \u00b1 stdev. Honest failure modes: transparency (median -8.30 dB) and floater (median -2.23 dB) regress against opacity-prune at the same byte budget.",
+  "version": "0.1.1-v4-baseline-n5",
   "target_ratio": 0.5,
-  "approach": "gsplat 1.5.3 + self-distillation against 32 inside-the-cloud orbit-camera pseudo-photos (192px); hard-prune by saliency (alpha * |sigma scale|) every N iters; v0.1.1 additions: (1) gated Beer-Lambert opacity compensation rescales α to preserve integrated transmittance (1-α_new) = (1-α_old)^(N_old/N_new) when surviving cohort mean α < 0.4; (2) alpha-channel MSE supervision alongside RGB-MSE during training — the rasterizer already returns per-pixel α; supervising it gives the optimizer a direct signal for volume composition that RGB-MSE saturates over. Alpha-loss weight is tapered by baseline alpha distribution.",
-  "generated_at": "2026-05-14T15:59:05.980Z",
+  "approach": "gsplat 1.5.3 + self-distillation against 32 inside-the-cloud orbit-camera pseudo-photos (192px); hard-prune by saliency (alpha * |sigma scale|) every N iters; v0.1.1 additions: (1) gated Beer-Lambert opacity compensation rescales \u03b1 to preserve integrated transmittance (1-\u03b1_new) = (1-\u03b1_old)^(N_old/N_new) when surviving cohort mean \u03b1 < 0.4; (2) alpha-channel MSE supervision alongside RGB-MSE during training \u2014 the rasterizer already returns per-pixel \u03b1; supervising it gives the optimizer a direct signal for volume composition that RGB-MSE saturates over. Alpha-loss weight is tapered by baseline alpha distribution.",
+  "generated_at": "2026-05-14T19:53:55.951599Z",
   "results": [
     {
       "scene_id": "bonsai_mipnerf360_iter7k",
@@ -13,12 +13,17 @@
       "splats_out": 578573,
       "bytes_in": 286972500,
       "bytes_out": 143487635,
-      "psnr_repack_db": 38.326,
+      "psnr_repack_db": 39.352,
       "psnr_opacity_prune_db": 31.918,
-      "psnr_delta_db": 6.408,
+      "psnr_delta_db": 7.434,
       "wall_secs": 79.07,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 6.9,
+      "psnr_delta_db_stdev": 1.822,
+      "psnr_delta_db_min": 4.15,
+      "psnr_delta_db_max": 8.849,
+      "seed_count": 5
     },
     {
       "scene_id": "bicycle_mipnerf360_iter7k",
@@ -26,12 +31,17 @@
       "splats_out": 1808054,
       "bytes_in": 896795076,
       "bytes_out": 448398924,
-      "psnr_repack_db": 34.623,
+      "psnr_repack_db": 35.435,
       "psnr_opacity_prune_db": 29.638,
-      "psnr_delta_db": 4.986,
+      "psnr_delta_db": 5.797,
       "wall_secs": 254.5,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 6.081,
+      "psnr_delta_db_stdev": 1.104,
+      "psnr_delta_db_min": 4.864,
+      "psnr_delta_db_max": 7.497,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_dense_proxy",
@@ -39,12 +49,17 @@
       "splats_out": 1000003,
       "bytes_in": 496001532,
       "bytes_out": 248002276,
-      "psnr_repack_db": 32.7,
+      "psnr_repack_db": 32.956,
       "psnr_opacity_prune_db": 25.962,
-      "psnr_delta_db": 6.737,
+      "psnr_delta_db": 6.993,
       "wall_secs": 169.31,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 7.019,
+      "psnr_delta_db_stdev": 0.659,
+      "psnr_delta_db_min": 6.203,
+      "psnr_delta_db_max": 7.865,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_product_proxy",
@@ -52,12 +67,17 @@
       "splats_out": 5003,
       "bytes_in": 2481530,
       "bytes_out": 1242273,
-      "psnr_repack_db": 31.774,
+      "psnr_repack_db": 32.911,
       "psnr_opacity_prune_db": 18.221,
-      "psnr_delta_db": 13.553,
+      "psnr_delta_db": 14.689,
       "wall_secs": 19.84,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 14.679,
+      "psnr_delta_db_stdev": 2.071,
+      "psnr_delta_db_min": 11.27,
+      "psnr_delta_db_max": 16.956,
+      "seed_count": 7
     },
     {
       "scene_id": "splatbench_indoor_proxy",
@@ -65,12 +85,17 @@
       "splats_out": 50003,
       "bytes_in": 24801531,
       "bytes_out": 12402274,
-      "psnr_repack_db": 23.825,
+      "psnr_repack_db": 23.256,
       "psnr_opacity_prune_db": 16.675,
-      "psnr_delta_db": 7.15,
+      "psnr_delta_db": 6.58,
       "wall_secs": 22.38,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 6.306,
+      "psnr_delta_db_stdev": 0.765,
+      "psnr_delta_db_min": 5.425,
+      "psnr_delta_db_max": 7.15,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_floater_proxy",
@@ -78,12 +103,17 @@
       "splats_out": 125003,
       "bytes_in": 62001531,
       "bytes_out": 31002275,
-      "psnr_repack_db": 39.615,
+      "psnr_repack_db": 37.944,
       "psnr_opacity_prune_db": 40.172,
-      "psnr_delta_db": -0.556,
+      "psnr_delta_db": -2.228,
       "wall_secs": 35.34,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": -3.747,
+      "psnr_delta_db_stdev": 3.213,
+      "psnr_delta_db_min": -8.54,
+      "psnr_delta_db_max": -0.545,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_outdoor_proxy",
@@ -91,12 +121,17 @@
       "splats_out": 250003,
       "bytes_in": 124001531,
       "bytes_out": 62002275,
-      "psnr_repack_db": 28.39,
+      "psnr_repack_db": 28.492,
       "psnr_opacity_prune_db": 22.888,
-      "psnr_delta_db": 5.502,
+      "psnr_delta_db": 5.603,
       "wall_secs": 64.91,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 5.71,
+      "psnr_delta_db_stdev": 0.228,
+      "psnr_delta_db_min": 5.503,
+      "psnr_delta_db_max": 5.968,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_specular_proxy",
@@ -104,12 +139,17 @@
       "splats_out": 6003,
       "bytes_in": 2977530,
       "bytes_out": 1490273,
-      "psnr_repack_db": 28.951,
+      "psnr_repack_db": 29.169,
       "psnr_opacity_prune_db": 13.758,
-      "psnr_delta_db": 15.193,
+      "psnr_delta_db": 15.411,
       "wall_secs": 16.08,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 15.418,
+      "psnr_delta_db_stdev": 0.201,
+      "psnr_delta_db_min": 15.198,
+      "psnr_delta_db_max": 15.692,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_foliage_proxy",
@@ -117,12 +157,17 @@
       "splats_out": 15003,
       "bytes_in": 7441530,
       "bytes_out": 3722274,
-      "psnr_repack_db": 28.622,
+      "psnr_repack_db": 28.839,
       "psnr_opacity_prune_db": 18.487,
-      "psnr_delta_db": 10.134,
+      "psnr_delta_db": 10.351,
       "wall_secs": 23.41,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 10.543,
+      "psnr_delta_db_stdev": 0.469,
+      "psnr_delta_db_min": 10.15,
+      "psnr_delta_db_max": 11.241,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_lowlight_proxy",
@@ -130,12 +175,17 @@
       "splats_out": 4003,
       "bytes_in": 1985529,
       "bytes_out": 994273,
-      "psnr_repack_db": 31.127,
+      "psnr_repack_db": 29.787,
       "psnr_opacity_prune_db": 15.818,
-      "psnr_delta_db": 15.309,
+      "psnr_delta_db": 13.97,
       "wall_secs": 15.62,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 14.499,
+      "psnr_delta_db_stdev": 0.805,
+      "psnr_delta_db_min": 13.834,
+      "psnr_delta_db_max": 15.446,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_portrait_proxy",
@@ -143,12 +193,17 @@
       "splats_out": 6003,
       "bytes_in": 2977530,
       "bytes_out": 1490273,
-      "psnr_repack_db": 38.126,
+      "psnr_repack_db": 38.258,
       "psnr_opacity_prune_db": 14.224,
-      "psnr_delta_db": 23.903,
+      "psnr_delta_db": 24.035,
       "wall_secs": 25.91,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 23.938,
+      "psnr_delta_db_stdev": 0.307,
+      "psnr_delta_db_min": 23.422,
+      "psnr_delta_db_max": 24.202,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_texture_proxy",
@@ -156,12 +211,17 @@
       "splats_out": 7503,
       "bytes_in": 3721530,
       "bytes_out": 1862273,
-      "psnr_repack_db": 43.009,
+      "psnr_repack_db": 42.905,
       "psnr_opacity_prune_db": 34.638,
-      "psnr_delta_db": 8.371,
+      "psnr_delta_db": 8.267,
       "wall_secs": 18.27,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 10.103,
+      "psnr_delta_db_stdev": 2.704,
+      "psnr_delta_db_min": 8.063,
+      "psnr_delta_db_max": 13.239,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_transparency_proxy",
@@ -169,12 +229,17 @@
       "splats_out": 12503,
       "bytes_in": 6201530,
       "bytes_out": 3102274,
-      "psnr_repack_db": 39.285,
+      "psnr_repack_db": 39.267,
       "psnr_opacity_prune_db": 47.567,
-      "psnr_delta_db": -8.282,
+      "psnr_delta_db": -8.299,
       "wall_secs": 18.21,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": -7.171,
+      "psnr_delta_db_stdev": 3.16,
+      "psnr_delta_db_min": -10.073,
+      "psnr_delta_db_max": -2.81,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_motion_proxy",
@@ -182,12 +247,17 @@
       "splats_out": 6003,
       "bytes_in": 2977530,
       "bytes_out": 1490273,
-      "psnr_repack_db": 24.913,
+      "psnr_repack_db": 25.319,
       "psnr_opacity_prune_db": 14.805,
-      "psnr_delta_db": 10.108,
+      "psnr_delta_db": 10.514,
       "wall_secs": 36.88,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 10.445,
+      "psnr_delta_db_stdev": 0.524,
+      "psnr_delta_db_min": 9.954,
+      "psnr_delta_db_max": 11.235,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_depth_proxy",
@@ -195,12 +265,17 @@
       "splats_out": 7503,
       "bytes_in": 3721530,
       "bytes_out": 1862273,
-      "psnr_repack_db": 35.953,
+      "psnr_repack_db": 35.152,
       "psnr_opacity_prune_db": 13.241,
-      "psnr_delta_db": 22.712,
+      "psnr_delta_db": 21.912,
       "wall_secs": 27.97,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 22.235,
+      "psnr_delta_db_stdev": 0.978,
+      "psnr_delta_db_min": 21.248,
+      "psnr_delta_db_max": 23.693,
+      "seed_count": 5
     },
     {
       "scene_id": "splatbench_banding_proxy",
@@ -208,12 +283,17 @@
       "splats_out": 5003,
       "bytes_in": 2481530,
       "bytes_out": 1242273,
-      "psnr_repack_db": 43.079,
+      "psnr_repack_db": 50.923,
       "psnr_opacity_prune_db": 38.3,
-      "psnr_delta_db": 4.779,
+      "psnr_delta_db": 12.623,
       "wall_secs": 25.96,
       "image_size": 192,
-      "iters": 1000
+      "iters": 1000,
+      "psnr_delta_db_mean": 11.146,
+      "psnr_delta_db_stdev": 3.609,
+      "psnr_delta_db_min": 4.93,
+      "psnr_delta_db_max": 14.119,
+      "seed_count": 5
     }
   ]
 }

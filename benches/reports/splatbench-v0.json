@@ -1,7 +1,7 @@
 {
   "schema": "splatforge.splatbench/0.1",
   "name": "SplatBench v0",
-  "description": "Initial public benchmark corpus for SplatForge. Combines a real Mip-NeRF360 anchor scene with deterministic synthetic scenes covering five PRD corpus classes.",
+  "description": "Initial public benchmark corpus for SplatForge. Combines a real Mip-NeRF360 anchor scene with deterministic synthetic scenes covering five PRD corpus classes. (v0.1.1: differentiable-repack column refreshed with N=5 seed medians ± stdev; honest failure modes preserved.)",
   "splatforgeVersion": "0.1.1",
   "runDate": "2026-05-14",
   "platform": "linux-aarch64",
@@ -67,9 +67,14 @@
         "splatsOut": 578573,
         "bytesIn": 286972500,
         "bytesOut": 143487635,
-        "psnrRepackDb": 38.326,
+        "psnrRepackDb": 39.352,
         "psnrOpacityPruneDb": 31.918,
-        "psnrDeltaDb": 6.408
+        "psnrDeltaDb": 7.434,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 6.9,
+        "psnrDeltaDbStdev": 1.822,
+        "psnrDeltaDbMin": 4.15,
+        "psnrDeltaDbMax": 8.849
       }
     },
     {
@@ -132,9 +137,14 @@
         "splatsOut": 1808054,
         "bytesIn": 896795076,
         "bytesOut": 448398924,
-        "psnrRepackDb": 34.623,
+        "psnrRepackDb": 35.435,
         "psnrOpacityPruneDb": 29.638,
-        "psnrDeltaDb": 4.986
+        "psnrDeltaDb": 5.797,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 6.081,
+        "psnrDeltaDbStdev": 1.104,
+        "psnrDeltaDbMin": 4.864,
+        "psnrDeltaDbMax": 7.497
       }
     },
     {
@@ -197,9 +207,14 @@
         "splatsOut": 5003,
         "bytesIn": 2481530,
         "bytesOut": 1242273,
-        "psnrRepackDb": 31.774,
+        "psnrRepackDb": 32.911,
         "psnrOpacityPruneDb": 18.221,
-        "psnrDeltaDb": 13.553
+        "psnrDeltaDb": 14.689,
+        "seedCount": 7,
+        "psnrDeltaDbMean": 14.679,
+        "psnrDeltaDbStdev": 2.071,
+        "psnrDeltaDbMin": 11.27,
+        "psnrDeltaDbMax": 16.956
       }
     },
     {
@@ -262,9 +277,14 @@
         "splatsOut": 50003,
         "bytesIn": 24801531,
         "bytesOut": 12402274,
-        "psnrRepackDb": 23.825,
+        "psnrRepackDb": 23.256,
         "psnrOpacityPruneDb": 16.675,
-        "psnrDeltaDb": 7.15
+        "psnrDeltaDb": 6.58,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 6.306,
+        "psnrDeltaDbStdev": 0.765,
+        "psnrDeltaDbMin": 5.425,
+        "psnrDeltaDbMax": 7.15
       }
     },
     {
@@ -327,9 +347,14 @@
         "splatsOut": 125003,
         "bytesIn": 62001531,
         "bytesOut": 31002275,
-        "psnrRepackDb": 39.615,
+        "psnrRepackDb": 37.944,
         "psnrOpacityPruneDb": 40.172,
-        "psnrDeltaDb": -0.556
+        "psnrDeltaDb": -2.228,
+        "seedCount": 5,
+        "psnrDeltaDbMean": -3.747,
+        "psnrDeltaDbStdev": 3.213,
+        "psnrDeltaDbMin": -8.54,
+        "psnrDeltaDbMax": -0.545
       }
     },
     {
@@ -392,9 +417,14 @@
         "splatsOut": 250003,
         "bytesIn": 124001531,
         "bytesOut": 62002275,
-        "psnrRepackDb": 28.39,
+        "psnrRepackDb": 28.492,
         "psnrOpacityPruneDb": 22.888,
-        "psnrDeltaDb": 5.502
+        "psnrDeltaDb": 5.603,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 5.71,
+        "psnrDeltaDbStdev": 0.228,
+        "psnrDeltaDbMin": 5.503,
+        "psnrDeltaDbMax": 5.968
       }
     },
     {
@@ -457,9 +487,14 @@
         "splatsOut": 1000003,
         "bytesIn": 496001532,
         "bytesOut": 248002276,
-        "psnrRepackDb": 32.7,
+        "psnrRepackDb": 32.956,
         "psnrOpacityPruneDb": 25.962,
-        "psnrDeltaDb": 6.737
+        "psnrDeltaDb": 6.993,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 7.019,
+        "psnrDeltaDbStdev": 0.659,
+        "psnrDeltaDbMin": 6.203,
+        "psnrDeltaDbMax": 7.865
       }
     },
     {
@@ -522,9 +557,14 @@
         "splatsOut": 6003,
         "bytesIn": 2977530,
         "bytesOut": 1490273,
-        "psnrRepackDb": 28.951,
+        "psnrRepackDb": 29.169,
         "psnrOpacityPruneDb": 13.758,
-        "psnrDeltaDb": 15.193
+        "psnrDeltaDb": 15.411,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 15.418,
+        "psnrDeltaDbStdev": 0.201,
+        "psnrDeltaDbMin": 15.198,
+        "psnrDeltaDbMax": 15.692
       }
     },
     {
@@ -587,9 +627,14 @@
         "splatsOut": 15003,
         "bytesIn": 7441530,
         "bytesOut": 3722274,
-        "psnrRepackDb": 28.622,
+        "psnrRepackDb": 28.839,
         "psnrOpacityPruneDb": 18.487,
-        "psnrDeltaDb": 10.134
+        "psnrDeltaDb": 10.351,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 10.543,
+        "psnrDeltaDbStdev": 0.469,
+        "psnrDeltaDbMin": 10.15,
+        "psnrDeltaDbMax": 11.241
       }
     },
     {
@@ -652,9 +697,14 @@
         "splatsOut": 4003,
         "bytesIn": 1985529,
         "bytesOut": 994273,
-        "psnrRepackDb": 31.127,
+        "psnrRepackDb": 29.787,
         "psnrOpacityPruneDb": 15.818,
-        "psnrDeltaDb": 15.309
+        "psnrDeltaDb": 13.97,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 14.499,
+        "psnrDeltaDbStdev": 0.805,
+        "psnrDeltaDbMin": 13.834,
+        "psnrDeltaDbMax": 15.446
       }
     },
     {
@@ -717,9 +767,14 @@
         "splatsOut": 6003,
         "bytesIn": 2977530,
         "bytesOut": 1490273,
-        "psnrRepackDb": 38.126,
+        "psnrRepackDb": 38.258,
         "psnrOpacityPruneDb": 14.224,
-        "psnrDeltaDb": 23.903
+        "psnrDeltaDb": 24.035,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 23.938,
+        "psnrDeltaDbStdev": 0.307,
+        "psnrDeltaDbMin": 23.422,
+        "psnrDeltaDbMax": 24.202
       }
     },
     {
@@ -782,9 +837,14 @@
         "splatsOut": 7503,
         "bytesIn": 3721530,
         "bytesOut": 1862273,
-        "psnrRepackDb": 43.009,
+        "psnrRepackDb": 42.905,
         "psnrOpacityPruneDb": 34.638,
-        "psnrDeltaDb": 8.371
+        "psnrDeltaDb": 8.267,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 10.103,
+        "psnrDeltaDbStdev": 2.704,
+        "psnrDeltaDbMin": 8.063,
+        "psnrDeltaDbMax": 13.239
       }
     },
     {
@@ -847,9 +907,14 @@
         "splatsOut": 12503,
         "bytesIn": 6201530,
         "bytesOut": 3102274,
-        "psnrRepackDb": 39.285,
+        "psnrRepackDb": 39.267,
         "psnrOpacityPruneDb": 47.567,
-        "psnrDeltaDb": -8.282
+        "psnrDeltaDb": -8.299,
+        "seedCount": 5,
+        "psnrDeltaDbMean": -7.171,
+        "psnrDeltaDbStdev": 3.16,
+        "psnrDeltaDbMin": -10.073,
+        "psnrDeltaDbMax": -2.81
       }
     },
     {
@@ -912,9 +977,14 @@
         "splatsOut": 6003,
         "bytesIn": 2977530,
         "bytesOut": 1490273,
-        "psnrRepackDb": 24.913,
+        "psnrRepackDb": 25.319,
         "psnrOpacityPruneDb": 14.805,
-        "psnrDeltaDb": 10.108
+        "psnrDeltaDb": 10.514,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 10.445,
+        "psnrDeltaDbStdev": 0.524,
+        "psnrDeltaDbMin": 9.954,
+        "psnrDeltaDbMax": 11.235
       }
     },
     {
@@ -977,9 +1047,14 @@
         "splatsOut": 7503,
         "bytesIn": 3721530,
         "bytesOut": 1862273,
-        "psnrRepackDb": 35.953,
+        "psnrRepackDb": 35.152,
         "psnrOpacityPruneDb": 13.241,
-        "psnrDeltaDb": 22.712
+        "psnrDeltaDb": 21.912,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 22.235,
+        "psnrDeltaDbStdev": 0.978,
+        "psnrDeltaDbMin": 21.248,
+        "psnrDeltaDbMax": 23.693
       }
     },
     {
@@ -1042,9 +1117,14 @@
         "splatsOut": 5003,
         "bytesIn": 2481530,
         "bytesOut": 1242273,
-        "psnrRepackDb": 43.079,
+        "psnrRepackDb": 50.923,
         "psnrOpacityPruneDb": 38.3,
-        "psnrDeltaDb": 4.779
+        "psnrDeltaDb": 12.623,
+        "seedCount": 5,
+        "psnrDeltaDbMean": 11.146,
+        "psnrDeltaDbStdev": 3.609,
+        "psnrDeltaDbMin": 4.93,
+        "psnrDeltaDbMax": 14.119
       }
     }
   ],
