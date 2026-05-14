@@ -25,6 +25,16 @@ tests/visual/.cache/
 /benches/scratch/
 /benches/runs/
 
+# Pre-v0.1.2 SplatBench scenes regenerate via `python3 benches/synth_scenes.py
+# benches/scenes`; they're large (the dense proxy is 473 MB) and not committed.
+# The v0.1.2 failure-mode scenes are small enough to ship as fixtures and ARE
+# committed under benches/scenes/.
+/benches/scenes/splatbench_product_proxy.ply
+/benches/scenes/splatbench_indoor_proxy.ply
+/benches/scenes/splatbench_outdoor_proxy.ply
+/benches/scenes/splatbench_floater_proxy.ply
+/benches/scenes/splatbench_dense_proxy.ply
+
 # Editor / OS
 .DS_Store
 *.swp

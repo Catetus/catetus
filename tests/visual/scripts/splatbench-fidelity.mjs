@@ -64,6 +64,11 @@ const SCENE_ORDER = [
   { file: 'splatbench_floater_proxy.ply', id: 'splatbench_floater_proxy' },
   { file: 'splatbench_outdoor_proxy.ply', id: 'splatbench_outdoor_proxy' },
   { file: 'splatbench_dense_proxy.ply', id: 'splatbench_dense_proxy' },
+  // v0.1.2 corpus extension: PRD failure-mode probes.
+  { file: 'splatbench_specular_proxy.ply', id: 'splatbench_specular_proxy' },
+  { file: 'splatbench_foliage_proxy.ply', id: 'splatbench_foliage_proxy' },
+  { file: 'splatbench_lowlight_proxy.ply', id: 'splatbench_lowlight_proxy' },
+  { file: 'splatbench_portrait_proxy.ply', id: 'splatbench_portrait_proxy' },
 ];
 
 /* -------------------------------------------------- color-difference math */

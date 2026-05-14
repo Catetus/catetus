@@ -391,6 +391,226 @@
           "mlScoreVersion": "0.2.0-empirical"
         }
       }
+    },
+    {
+      "id": "splatbench_specular_proxy",
+      "source": "synthetic",
+      "class": "specular-highlights",
+      "origin": "benches/synth_scenes.py (seed=6)",
+      "license": "Apache-2.0 (reproducible)",
+      "splatCount": 12000,
+      "bytesIn": 2977530,
+      "shDegree": 3,
+      "hash": "blake3:a8686929efb1849920",
+      "analyzeMs": 16,
+      "webMobileSpzBytes": 135510,
+      "webMobileRatio": 21.97,
+      "sizeMinSpzBytes": 132766,
+      "sizeMinRatio": 22.43,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000395,
+          "maxDeltaE94": 0.000404,
+          "p95DeltaE94": 0.000403,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000116,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.993288,
+          "mlScoreMax": 0.993467,
+          "mlScoreVersion": "0.2.0-empirical"
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.00046,
+          "maxDeltaE94": 0.000463,
+          "p95DeltaE94": 0.000462,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000138,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.991955,
+          "mlScoreMax": 0.992585,
+          "mlScoreVersion": "0.2.0-empirical"
+        }
+      }
+    },
+    {
+      "id": "splatbench_foliage_proxy",
+      "source": "synthetic",
+      "class": "dense-translucency",
+      "origin": "benches/synth_scenes.py (seed=7)",
+      "license": "Apache-2.0 (reproducible)",
+      "splatCount": 30000,
+      "bytesIn": 7441530,
+      "shDegree": 3,
+      "hash": "blake3:70295dca7ed5911c3b",
+      "analyzeMs": 34,
+      "webMobileSpzBytes": 422201,
+      "webMobileRatio": 17.63,
+      "sizeMinSpzBytes": 414399,
+      "sizeMinRatio": 17.96,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000928,
+          "maxDeltaE94": 0.000946,
+          "p95DeltaE94": 0.000944,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000446,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.983746,
+          "mlScoreMax": 0.983985,
+          "mlScoreVersion": "0.2.0-empirical"
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.001024,
+          "maxDeltaE94": 0.001045,
+          "p95DeltaE94": 0.001041,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000536,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.981953,
+          "mlScoreMax": 0.982189,
+          "mlScoreVersion": "0.2.0-empirical"
+        }
+      }
+    },
+    {
+      "id": "splatbench_lowlight_proxy",
+      "source": "synthetic",
+      "class": "low-light-dynamic-range",
+      "origin": "benches/synth_scenes.py (seed=8)",
+      "license": "Apache-2.0 (reproducible)",
+      "splatCount": 8000,
+      "bytesIn": 1985529,
+      "shDegree": 3,
+      "hash": "blake3:e0059125b85a91a36d",
+      "analyzeMs": 11,
+      "webMobileSpzBytes": 98785,
+      "webMobileRatio": 20.1,
+      "sizeMinSpzBytes": 97190,
+      "sizeMinRatio": 20.43,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000342,
+          "maxDeltaE94": 0.000346,
+          "p95DeltaE94": 0.000345,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000126,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.994312,
+          "mlScoreMax": 0.994363,
+          "mlScoreVersion": "0.2.0-empirical"
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.000398,
+          "maxDeltaE94": 0.000401,
+          "p95DeltaE94": 0.000401,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000154,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.993721,
+          "mlScoreMax": 0.99377,
+          "mlScoreVersion": "0.2.0-empirical"
+        }
+      }
+    },
+    {
+      "id": "splatbench_portrait_proxy",
+      "source": "synthetic",
+      "class": "salient-region-portrait",
+      "origin": "benches/synth_scenes.py (seed=9)",
+      "license": "Apache-2.0 (reproducible)",
+      "splatCount": 12000,
+      "bytesIn": 2977530,
+      "shDegree": 3,
+      "hash": "blake3:6fe7009fb5f5d7727d",
+      "analyzeMs": 15,
+      "webMobileSpzBytes": 132069,
+      "webMobileRatio": 22.55,
+      "sizeMinSpzBytes": 124383,
+      "sizeMinRatio": 23.94,
+      "fidelity": {
+        "baseline": "lossless-repack",
+        "renderer": "webgl2",
+        "cameraPath": "orbit-8",
+        "frameSize": "512x512",
+        "losslessRepack": {
+          "meanDeltaE94": 0,
+          "maxDeltaE94": 0,
+          "p95DeltaE94": 0,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0,
+          "status": "baseline",
+          "passed": true
+        },
+        "webMobile": {
+          "meanDeltaE94": 0.000424,
+          "maxDeltaE94": 0.00078,
+          "p95DeltaE94": 0.000687,
+          "meanPixelMatch": 0,
+          "meanSsimLoss": 0.000055,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.993108,
+          "mlScoreMax": 0.99577,
+          "mlScoreVersion": "0.2.0-empirical"
+        },
+        "sizeMin": {
+          "meanDeltaE94": 0.000571,
+          "maxDeltaE94": 0.001095,
+          "p95DeltaE94": 0.000952,
+          "meanPixelMatch": 0.000003,
+          "meanSsimLoss": 0.000086,
+          "status": "pass",
+          "passed": true,
+          "mlScore": 0.990231,
+          "mlScoreMax": 0.993231,
+          "mlScoreVersion": "0.2.0-empirical"
+        }
+      }
     }
   ],
   "aggregates": {
