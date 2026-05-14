@@ -4,6 +4,7 @@ members = [
     "crates/splatforge-core",
     "crates/splatforge-ply",
     "crates/splatforge-spz",
+    "crates/splatforge-posthac",
     "crates/splatforge-gltf",
     "crates/splatforge-optimize",
     "crates/splatforge-bench",
@@ -24,6 +25,7 @@ repository = "https://github.com/splatforge/splatforge"
 splatforge-core      = { path = "crates/splatforge-core" }
 splatforge-ply       = { path = "crates/splatforge-ply" }
 splatforge-spz       = { path = "crates/splatforge-spz" }
+splatforge-posthac   = { path = "crates/splatforge-posthac" }
 splatforge-gltf      = { path = "crates/splatforge-gltf" }
 splatforge-optimize  = { path = "crates/splatforge-optimize" }
 splatforge-bench     = { path = "crates/splatforge-bench" }
