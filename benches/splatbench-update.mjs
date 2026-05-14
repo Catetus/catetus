@@ -332,20 +332,116 @@ if (md.includes('Leaderboard — visual fidelity')) {
   md = md.replace(/## Corpus composition/, `${fidelitySection}## Corpus composition`);
 }
 
-// Update headline KPIs to mention fidelity.
+// Recompute corpus aggregates from the scenes array so the JSON's `aggregates`
+// block and the markdown headline never drift apart from the actual data.
+const wmRatios = splatbench.scenes.map((s) => s.webMobileRatio).sort((a, b) => a - b);
+const smRatios = splatbench.scenes.map((s) => s.sizeMinRatio).sort((a, b) => a - b);
+const median = (arr) => {
+  if (arr.length === 0) return 0;
+  const m = Math.floor(arr.length / 2);
+  return arr.length % 2 ? arr[m] : (arr[m - 1] + arr[m]) / 2;
+};
 const presetWMpass = splatbench.scenes.filter(
   (s) => s.fidelity?.webMobile?.status !== 'fail',
 ).length;
 const presetSMpass = splatbench.scenes.filter(
   (s) => s.fidelity?.sizeMin?.status !== 'fail',
 ).length;
-const fidHeadline = `| \`web-mobile\` fidelity passing | **${presetWMpass} / ${splatbench.scenes.length}** scenes within PRD threshold |
-| \`size-min\` fidelity passing | **${presetSMpass} / ${splatbench.scenes.length}** scenes within PRD threshold |
+const scenesReal = splatbench.scenes.filter((s) => s.source === 'real').length;
+const scenesSynthetic = splatbench.scenes.filter((s) => s.source === 'synthetic').length;
+const splatTotal = splatbench.scenes.reduce((a, s) => a + (s.splatCount || 0), 0);
+const bytesInTotal = splatbench.scenes.reduce((a, s) => a + (s.bytesIn || 0), 0);
+const webMobileSpzTotal = splatbench.scenes.reduce((a, s) => a + (s.webMobileSpzBytes || 0), 0);
+const sizeMinSpzTotal = splatbench.scenes.reduce((a, s) => a + (s.sizeMinSpzBytes || 0), 0);
+
+splatbench.aggregates = {
+  scenesTotal: splatbench.scenes.length,
+  scenesReal,
+  scenesSynthetic,
+  splatCountTotal: splatTotal,
+  bytesInTotal,
+  webMobileSpzTotal,
+  sizeMinSpzTotal,
+  webMobileRatioOverall: +(bytesInTotal / Math.max(1, webMobileSpzTotal)).toFixed(2),
+  sizeMinRatioOverall: +(bytesInTotal / Math.max(1, sizeMinSpzTotal)).toFixed(2),
+  webMobileRatioMin: +wmRatios[0]?.toFixed(2) || 0,
+  webMobileRatioMedian: +median(wmRatios).toFixed(2),
+  webMobileRatioMax: +wmRatios[wmRatios.length - 1]?.toFixed(2) || 0,
+  sizeMinRatioMin: +smRatios[0]?.toFixed(2) || 0,
+  sizeMinRatioMedian: +median(smRatios).toFixed(2),
+  sizeMinRatioMax: +smRatios[smRatios.length - 1]?.toFixed(2) || 0,
+  fidelityWebMobilePass: presetWMpass,
+  fidelitySizeMinPass: presetSMpass,
+};
+writeFileSync(SPLATBENCH_JSON, JSON.stringify(splatbench, null, 2) + '\n');
+
+const fmtSplatCount = (n) => {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return String(n);
+};
+
+// Rebuild the Headline table from scratch so re-runs can't accumulate
+// duplicate "fidelity passing" rows.
+const a = splatbench.aggregates;
+const headline = `## Headline
+
+| Metric | Value |
+| ---: | ---: |
+| Scenes total | **${a.scenesTotal}** (${a.scenesReal} real + ${a.scenesSynthetic} synthetic) |
+| Splats total | **${fmtSplatCount(a.splatCountTotal)}** across the corpus |
+| Input total | **${fmtBytes(a.bytesInTotal)}** raw PLY |
+| Corpus total \`web-mobile\` | **${fmtBytes(a.bytesInTotal)} → ${fmtBytes(a.webMobileSpzTotal)}** (${a.webMobileRatioOverall}× overall) |
+| Corpus total \`size-min\` | **${fmtBytes(a.bytesInTotal)} → ${fmtBytes(a.sizeMinSpzTotal)}** (${a.sizeMinRatioOverall}× overall) |
+| \`web-mobile\` ratio (min / median / max) | **${a.webMobileRatioMin}× / ${a.webMobileRatioMedian}× / ${a.webMobileRatioMax}×** |
+| \`size-min\` ratio (min / median / max) | **${a.sizeMinRatioMin}× / ${a.sizeMinRatioMedian}× / ${a.sizeMinRatioMax}×** |
+| \`web-mobile\` fidelity passing | **${a.fidelityWebMobilePass} / ${a.scenesTotal}** scenes within PRD threshold |
+| \`size-min\` fidelity passing | **${a.fidelitySizeMinPass} / ${a.scenesTotal}** scenes within PRD threshold |
+
 `;
-md = md.replace(/(\| \`size-min\` ratio[^\n]+\n)/, `$1${fidHeadline}`);
+md = md.replace(/## Headline\n[^]*?(?=\n## )/, headline.trimEnd() + '\n\n');
+
+// Rebuild the per-preset leaderboards from the JSON so new corpus scenes show
+// up here too. Sorted by ratio descending.
+const fmtMs = (n) => `${n.toLocaleString('en-US')} ms`;
+const fmtSplats = (n) => n.toLocaleString('en-US');
+const fmtBytesShort = (n) => {
+  if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${n} B`;
+};
+const wmRows = [...splatbench.scenes].sort((x, y) => y.webMobileRatio - x.webMobileRatio);
+const smRows = [...splatbench.scenes].sort((x, y) => y.sizeMinRatio - x.sizeMinRatio);
+const wmTable =
+  `## Leaderboard — \`web-mobile\` preset\n\n` +
+  `| Rank | Scene | Class | Source | Splats | Input | SPZ out | **Ratio** | analyze |\n` +
+  `| ---: | ----- | ----- | ------ | ---: | ---: | ---: | ---: | ---: |\n` +
+  wmRows
+    .map(
+      (s, i) =>
+        `| ${i + 1} | \`${s.id}\` | ${s.class} | ${s.source === 'real' ? '**real**' : 'synthetic'} | ${fmtSplats(s.splatCount)} | ${fmtBytesShort(s.bytesIn)} | ${fmtBytesShort(s.webMobileSpzBytes)} | **${s.webMobileRatio.toFixed(2)}×** | ${fmtMs(s.analyzeMs)} |`,
+    )
+    .join('\n') +
+  '\n\n';
+const smTable =
+  `## Leaderboard — \`size-min\` preset\n\n` +
+  `| Rank | Scene | SPZ out | **Ratio** |\n` +
+  `| ---: | ----- | ---: | ---: |\n` +
+  smRows
+    .map(
+      (s, i) =>
+        `| ${i + 1} | \`${s.id}\` | ${fmtBytesShort(s.sizeMinSpzBytes)} | **${s.sizeMinRatio.toFixed(2)}×** |`,
+    )
+    .join('\n') +
+  '\n\n';
+md = md.replace(/## Leaderboard — `web-mobile` preset\n[^]*?(?=\n## )/, wmTable.trimEnd() + '\n\n');
+md = md.replace(/## Leaderboard — `size-min` preset\n[^]*?(?=\n## )/, smTable.trimEnd() + '\n\n');
 
 // Bump the version line and run date.
 md = md.replace(/\*\*SplatForge version:\*\* `0\.1\.0`/, `**SplatForge version:** \`${VERSION}\``);
+md = md.replace(/\*\*Run date:\*\* `?[^\n`]+`?/, `**Run date:** ${splatbench.runDate}`);
 
 writeFileSync(SPLATBENCH_MD, md);
 

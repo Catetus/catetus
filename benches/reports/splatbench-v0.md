@@ -11,79 +11,60 @@
 
 | Metric | Value |
 | ---: | ---: |
-| Scenes total | **7** (2 real + 5 synthetic) |
-| Splats total | **7.63M** across the corpus |
-| Input total | **1.89 GB** raw PLY |
-| `web-mobile` ratio (min / median / max) | **19.67× / 21.75× / 25.84×** |
-| `size-min` ratio (min / median / max) | **20.49× / 24.24× / 38.92×** |
+| Scenes total | **16** (2 real + 14 synthetic) |
+| Splats total | **7.77M** across the corpus |
+| Input total | **1.80 GB** raw PLY |
+| Corpus total `web-mobile` | **1.80 GB → 78.5 MB** (23.43× overall) |
+| Corpus total `size-min` | **1.80 GB → 60.4 MB** (30.43× overall) |
+| `web-mobile` ratio (min / median / max) | **17.63× / 21.88× / 26.6×** |
+| `size-min` ratio (min / median / max) | **17.96× / 23.19× / 38.92×** |
 | `web-mobile` fidelity passing | **16 / 16** scenes within PRD threshold |
 | `size-min` fidelity passing | **15 / 16** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
-| `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
-| `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
-| `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **11 / 11** scenes within PRD threshold |
-| `size-min` fidelity passing | **10 / 11** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
-| `web-mobile` fidelity passing | **7 / 7** scenes within PRD threshold |
-| `size-min` fidelity passing | **6 / 7** scenes within PRD threshold |
 
-Every scene exceeds the PRD's stated bar of "median 8–20× compression vs raw PLY." The lowest ratio in the corpus (`outdoor_proxy` at 19.67× web-mobile) is still right at the top of the PRD's target range.
 
 ## Leaderboard — `web-mobile` preset
 
 | Rank | Scene | Class | Source | Splats | Input | SPZ out | **Ratio** | analyze |
 | ---: | ----- | ----- | ------ | ---: | ---: | ---: | ---: | ---: |
-| 1 | `splatbench_floater_proxy` | noisy-capture | synthetic | 250,000 | 60 MB | 2.3 MB | **25.84×** | 248 ms |
-| 2 | `bicycle_mipnerf360_iter7k` | outdoor | **real (Inria 3DGS)** | 3,616,103 | 856 MB | 34 MB | **25.46×** | 4,457 ms |
-| 3 | `bonsai_mipnerf360_iter7k`  | indoor  | **real (Inria 3DGS)** | 1,157,141 | 273 MB | 12 MB | **22.81×** | 1,240 ms |
-| 4 | `splatbench_dense_proxy` | dense-large | synthetic | 2,000,000 | 474 MB | 22 MB | **21.75×** | 2,184 ms |
-| 5 | `splatbench_indoor_proxy` | indoor | synthetic | 100,000 | 24 MB | 1.2 MB | **20.58×** | 105 ms |
-| 6 | `splatbench_product_proxy` | product-scan | synthetic | 10,000 | 2.4 MB | 119 KB | **20.50×** | 11 ms |
-| 7 | `splatbench_outdoor_proxy` | outdoor | synthetic | 500,000 | 119 MB | 6.0 MB | **19.67×** | 483 ms |
+| 1 | `splatbench_banding_proxy` | smooth-color-gradient | synthetic | 10,000 | 2.4 MB | 91 KB | **26.60×** | 29 ms |
+| 2 | `splatbench_floater_proxy` | noisy-capture | synthetic | 250,000 | 59.1 MB | 2.3 MB | **25.84×** | 248 ms |
+| 3 | `splatbench_texture_proxy` | high-frequency-texture | synthetic | 15,000 | 3.5 MB | 143 KB | **25.48×** | 32 ms |
+| 4 | `bicycle_mipnerf360_iter7k` | outdoor-scene | **real** | 3,616,103 | 855.3 MB | 33.6 MB | **25.46×** | 4,457 ms |
+| 5 | `splatbench_depth_proxy` | depth-bimodal | synthetic | 15,000 | 3.5 MB | 150 KB | **24.30×** | 33 ms |
+| 6 | `bonsai_mipnerf360_iter7k` | indoor-real-estate | **real** | 1,157,141 | 273.7 MB | 12.0 MB | **22.81×** | 1,240 ms |
+| 7 | `splatbench_portrait_proxy` | salient-region-portrait | synthetic | 12,000 | 2.8 MB | 129 KB | **22.55×** | 15 ms |
+| 8 | `splatbench_specular_proxy` | specular-highlights | synthetic | 12,000 | 2.8 MB | 132 KB | **21.97×** | 16 ms |
+| 9 | `splatbench_motion_proxy` | anisotropic-streak | synthetic | 12,000 | 2.8 MB | 133 KB | **21.79×** | 30 ms |
+| 10 | `splatbench_dense_proxy` | dense-large-scene | synthetic | 2,000,000 | 473.0 MB | 21.7 MB | **21.75×** | 2,184 ms |
+| 11 | `splatbench_indoor_proxy` | indoor-real-estate | synthetic | 100,000 | 23.7 MB | 1.1 MB | **20.58×** | 105 ms |
+| 12 | `splatbench_product_proxy` | product-scan | synthetic | 10,000 | 2.4 MB | 118 KB | **20.50×** | 11 ms |
+| 13 | `splatbench_lowlight_proxy` | low-light-dynamic-range | synthetic | 8,000 | 1.9 MB | 96 KB | **20.10×** | 11 ms |
+| 14 | `splatbench_outdoor_proxy` | outdoor-scene | synthetic | 500,000 | 118.3 MB | 6.0 MB | **19.67×** | 483 ms |
+| 15 | `splatbench_transparency_proxy` | volumetric-translucency | synthetic | 25,000 | 5.9 MB | 337 KB | **17.96×** | 51 ms |
+| 16 | `splatbench_foliage_proxy` | dense-translucency | synthetic | 30,000 | 7.1 MB | 412 KB | **17.63×** | 34 ms |
+
 
 ## Leaderboard — `size-min` preset
 
-| Rank | Scene | Splats kept | SPZ out | **Ratio** |
-| ---: | ----- | ---: | ---: | ---: |
-| 1 | `bicycle_mipnerf360_iter7k` | ~2.83M | 22 MB | **38.92×** |
-| 2 | `bonsai_mipnerf360_iter7k`  | 904,511 | 8.6 MB | **31.83×** |
-| 3 | `splatbench_floater_proxy`  | ~200K | 2.1 MB | **27.85×** |
-| 4 | `splatbench_dense_proxy`    | ~1.6M | 19.5 MB | **24.24×** |
-| 5 | `splatbench_outdoor_proxy`  | ~400K | 5.4 MB | **21.69×** |
-| 6 | `splatbench_indoor_proxy`   | ~80K | 1.1 MB | **21.57×** |
-| 7 | `splatbench_product_proxy`  | ~8K | 119 KB | **20.49×** |
+| Rank | Scene | SPZ out | **Ratio** |
+| ---: | ----- | ---: | ---: |
+| 1 | `bicycle_mipnerf360_iter7k` | 22.0 MB | **38.92×** |
+| 2 | `bonsai_mipnerf360_iter7k` | 8.6 MB | **31.83×** |
+| 3 | `splatbench_floater_proxy` | 2.1 MB | **27.85×** |
+| 4 | `splatbench_banding_proxy` | 90 KB | **26.86×** |
+| 5 | `splatbench_texture_proxy` | 141 KB | **25.84×** |
+| 6 | `splatbench_depth_proxy` | 141 KB | **25.83×** |
+| 7 | `splatbench_dense_proxy` | 19.5 MB | **24.24×** |
+| 8 | `splatbench_portrait_proxy` | 121 KB | **23.94×** |
+| 9 | `splatbench_specular_proxy` | 130 KB | **22.43×** |
+| 10 | `splatbench_motion_proxy` | 131 KB | **22.16×** |
+| 11 | `splatbench_outdoor_proxy` | 5.4 MB | **21.69×** |
+| 12 | `splatbench_indoor_proxy` | 1.1 MB | **21.57×** |
+| 13 | `splatbench_product_proxy` | 118 KB | **20.49×** |
+| 14 | `splatbench_lowlight_proxy` | 95 KB | **20.43×** |
+| 15 | `splatbench_transparency_proxy` | 334 KB | **18.14×** |
+| 16 | `splatbench_foliage_proxy` | 405 KB | **17.96×** |
 
-The two real scenes top the `size-min` chart because their opacity distribution is heavy-tailed (median opacity ≈ 0.16 on bonsai) — opacity-prune is dramatically more effective on trained 3DGS data than on uniform synthetic scenes.
 
 ## Leaderboard — visual fidelity (v0.1.1)
 

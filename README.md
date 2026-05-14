@@ -32,18 +32,20 @@ make bench-splatbench
 
 ## SplatBench v0 — what the pipeline does on real data
 
+Corpus total: **1.80 GB → 78.5 MB at web-mobile (23.43× overall)** across 16 scenes (2 real Mip-NeRF360 anchors + 14 deterministic synthetic probes for product / indoor / outdoor / dense / specular / foliage / lowlight / portrait / texture / transparency / motion / depth / banding / noisy-capture failure modes).
+
 | Scene | Splats | PLY in | SPZ out (web-mobile) | **Ratio** |
 | ----- | ---: | ---: | ---: | ---: |
 | `bicycle_mipnerf360_iter7k` (real) | **3.62M** | 856 MB | 34 MB | **25.46×** |
 | `bonsai_mipnerf360_iter7k` (real)  | 1.16M | 273 MB | 12 MB | **22.81×** |
 | `splatbench_dense_proxy` (synth)   | 2.0M  | 474 MB | 22 MB | 21.75× |
 | `splatbench_floater_proxy` (synth) | 250K  |  60 MB | 2.3 MB | **25.84×** |
-| _full leaderboard →_ | | | | [splatbench-v0.html](./benches/reports/splatbench-v0.html) |
+| _full leaderboard, 16 rows →_ | | | | [splatbench-v0.html](./benches/reports/splatbench-v0.html) |
 
-Median compression across 7 scenes: **21.75× (web-mobile)** / **24.24× (size-min)**.
+Median compression across 16 scenes: **21.88× (web-mobile)** / **23.19× (size-min)**.
 Median analyze wall time on real splats: **~1 µs/splat**.
 
-**v0.1.1** adds a Fidelity column to the leaderboard: every preset is now measured for perceptual degradation (CIE ΔE94 + pixelmatch + per-block SSIM) against the lossless baseline using deterministic 8-orbit-frame renders through `@splatforge/viewer`. Bonsai passes the 3% attentive-observer threshold with ΔE94 mean **0.6%**; bicycle is borderline (mean ~2.9%, max ~3.6%).
+**v0.1.1** adds three new leaderboard columns: **Fidelity** (CIE ΔE94 + pixelmatch + per-block SSIM against the lossless baseline via deterministic 8-orbit-frame renders through `@splatforge/viewer`), **ML Score** (the splat-aware perceptual metric from `splatforge-pro` v0.3.0-perkind — values are published; the model is proprietary), and **Repack ΔPSNR** (differentiable gsplat-based repack vs naive opacity-prune at the same byte budget, 10 of 16 scenes show double-digit dB wins).
 
 Public landing page (Astro static, Vercel-deployed): [`apps/web/`](./apps/web).
 

@@ -87,6 +87,14 @@ const clientData = scenes.map((s) => ({
         {splatbench.aggregates.sizeMinRatioMax.toFixed(2)}<span class="unit">× (size-min)</span>
       </div>
     </div>
+    {splatbench.aggregates.webMobileRatioOverall !== undefined && (
+      <div class="kpi">
+        <div class="kpi-label">Corpus total</div>
+        <div class="kpi-value">
+          {splatbench.aggregates.webMobileRatioOverall.toFixed(2)}<span class="unit">× across {splatbench.aggregates.scenesTotal} scenes</span>
+        </div>
+      </div>
+    )}
   </div>
 
   <div class="controls">
