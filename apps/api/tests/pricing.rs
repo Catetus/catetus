@@ -83,6 +83,25 @@ fn breakdown_adds_up_to_total() {
     );
 }
 
+#[test]
+fn capture_and_compress_preset_registered_with_heavy_curve() {
+    // capture-and-compress is the photos.zip → COLMAP → 3DGS → encode
+    // pipeline. Its compute curve is intentionally the heaviest one in
+    // the rate card: a typical 50-photo / ~250 MB scene must quote in
+    // the 25-60 min wall-clock band so the worker doesn't timeout
+    // mid-training and the buyer-facing quote matches the meter.
+    let p = preview_job_cost(250 * 1024 * 1024, "capture-and-compress", 0);
+    assert!(
+        p.estimated_compute_seconds >= 1500 && p.estimated_compute_seconds <= 3600,
+        "capture-and-compress 250 MB quote should land in [1500, 3600] s, got {}",
+        p.estimated_compute_seconds
+    );
+    // Distinct from web-mobile fallback — the dispatcher would otherwise
+    // route capture jobs to the CPU repack container and starve them.
+    let fallback = preview_job_cost(250 * 1024 * 1024, "web-mobile", 0);
+    assert!(p.estimated_compute_seconds > fallback.estimated_compute_seconds * 10);
+}
+
 /* ----------------------------------------------------------------------- */
 /* 2. SDK MAU pricing                                                       */
 /* ----------------------------------------------------------------------- */

@@ -113,6 +113,7 @@ class WorkerDispatchTests(unittest.TestCase):
         for key in (
             "SPLATFORGE_CODEC_GS_MIXED_URL",
             "SPLATFORGE_FCGS_URL",
+            "SPLATFORGE_CAPTURE_URL",
         ):
             os.environ.pop(key, None)
         # Drop cached module so module-level `PRESET_DISPATCH_URLS`
@@ -181,6 +182,64 @@ class WorkerDispatchTests(unittest.TestCase):
         self.assertIsNotNone(ack["error"])
         self.assertIn("fcgs-instant", ack["error"])
         self.assertIn("SPLATFORGE_FCGS_URL", ack["error"])
+
+    def test_capture_and_compress_without_url_returns_clear_error(self) -> None:
+        """`capture-and-compress` is the photos → COLMAP → 3DGS pipeline.
+        Until the private `splatforge-capture` Modal app is deployed and
+        its URL is wired into `SPLATFORGE_CAPTURE_URL`, the worker MUST
+        surface a synchronous error naming the env var — same contract
+        as the other forwarded presets."""
+        worker = self._import_worker()
+        ack = worker.enqueue(
+            {
+                "job_id": "00000000-0000-0000-0000-00000000000c",
+                "preset": "capture-and-compress",
+                "blob_url": "https://blob.example/photos.zip",
+                "callback_url": "https://api.example/v1/jobs/c/result",
+                "filename": "photos.zip",
+            }
+        )
+        self.assertFalse(ack["queued"])
+        self.assertIsNotNone(ack["error"])
+        self.assertIn("capture-and-compress", ack["error"])
+        self.assertIn("SPLATFORGE_CAPTURE_URL", ack["error"])
+
+    def test_capture_and_compress_forwards_to_configured_url(self) -> None:
+        """Happy path for the photos pipeline: when `SPLATFORGE_CAPTURE_URL`
+        is set, the enqueue payload (including `photos.zip` filename and
+        the API callback URL) is forwarded verbatim to the private app."""
+        os.environ["SPLATFORGE_CAPTURE_URL"] = (
+            "https://example--splatforge-capture-enqueue.modal.run"
+        )
+        worker = self._import_worker()
+
+        fake_response = mock.MagicMock()
+        fake_response.status_code = 200
+        fake_response.json.return_value = {"queued": True, "error": None}
+        with mock.patch("requests.post", return_value=fake_response) as post:
+            ack = worker.enqueue(
+                {
+                    "job_id": "00000000-0000-0000-0000-00000000000d",
+                    "preset": "capture-and-compress",
+                    "blob_url": "https://blob.example/photos.zip",
+                    "callback_url": "https://api.example/v1/jobs/p/result",
+                    "filename": "photos.zip",
+                }
+            )
+
+        self.assertTrue(ack["queued"])
+        self.assertIsNone(ack["error"])
+        post.assert_called_once()
+        self.assertEqual(
+            post.call_args.args[0],
+            "https://example--splatforge-capture-enqueue.modal.run",
+        )
+        body = post.call_args.kwargs["json"]
+        self.assertEqual(body["preset"], "capture-and-compress")
+        self.assertEqual(body["filename"], "photos.zip")
+        self.assertEqual(
+            body["callback_url"], "https://api.example/v1/jobs/p/result"
+        )
 
     def test_codec_gs_mixed_forwards_payload_to_configured_url(self) -> None:
         """Happy path: the configured Modal app gets the original payload
@@ -357,6 +416,10 @@ class WorkerDispatchTests(unittest.TestCase):
         self.assertTrue(flags["fcgs-instant"])
         self.assertFalse(flags["codec-gs-mixed"])
         self.assertFalse(flags["codec-gs-mixed-k5"])
+        # capture-and-compress is part of the dispatch table from inception;
+        # operators rely on this flag to confirm the photos pipeline is
+        # wired before announcing the endpoint to design partners.
+        self.assertFalse(flags["capture-and-compress"])
 
 
 if __name__ == "__main__":

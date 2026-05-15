@@ -79,6 +79,13 @@ returns a clear synchronous error so the API can surface the gap.
 | ----------------------------------- | -------------------------------- |
 | `codec-gs-mixed`, `codec-gs-mixed-k5` | `SPLATFORGE_CODEC_GS_MIXED_URL` |
 | `fcgs-instant`                      | `SPLATFORGE_FCGS_URL`            |
+| `capture-and-compress`              | `SPLATFORGE_CAPTURE_URL`         |
+
+`capture-and-compress` is the photos → COLMAP → 3DGS-train → encode
+pipeline (private Modal app `splatforge-capture`). Its `blob_url`
+points at a photos.zip rather than a PLY; the downstream app does
+its own COLMAP + training before encoding. Same `/enqueue` contract
+as the other forwarded presets, including the terminal callback.
 
 Each URL must point at a `fastapi_endpoint` whose `/enqueue` accepts the
 same payload shape this worker does (`job_id`, `preset`, `blob_url`,

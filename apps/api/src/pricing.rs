@@ -145,6 +145,32 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // set regardless of file size on disk.
         // Anchor: bicycle 855 MB → ~95 s end-to-end on A100.
         "fcgs-instant" => (90.0, 0.005),
+        // capture-and-compress — photos.zip → COLMAP → 3DGS training →
+        // compression. The full "no PLY required" pipeline. This is the
+        // single preset that closes the loop vs Polycam/Luma — buyers
+        // upload raw photos, never see a PLY, get back a compressed
+        // .mgs2 / .ply / .lodge depending on the inner-encode preset.
+        //
+        // Cost composition (Modal A100 anchor, MVP at 7k training iters):
+        //   * COLMAP sparse reconstruction:   ~300-600 s (CPU heavy)
+        //   * 3DGS training (7k iters MVP):  ~900-1500 s (A100)
+        //   * Encode (default codec-gs-mixed): ~95-150 s
+        //   * Upload/marshalling overhead:     ~50-100 s
+        //   Total floor ≈ 1500 s; typical ≈ 2400-3000 s; ceiling ≈ 3600 s
+        //   (training timeout). FastGS / DashGaussian variants replace
+        //   the 7k iter training step in a later milestone; that drops
+        //   the typical case toward 1800 s without changing the rate card.
+        //
+        // The `size_bytes` parameter for this preset is the photos.zip
+        // payload (NOT a PLY size). The per-MB slope is calibrated to
+        // approximate the per-photo cost: a 50-photo, 5 MB/photo zip is
+        // ~250 MB and lands at 2400 + 250*2.4 ≈ 3000 s ≈ $3.00 compute
+        // (+ flat fee). The 5-10 USD target line in the spec includes
+        // operator margin on top of Modal pass-through.
+        //
+        // Anchor (synthetic, MVP): 250 MB photo zip → ~3000 s end-to-end.
+        // Will re-anchor against real captures once the Modal app ships.
+        "capture-and-compress" => (2400.0, 2.4),
         // Unknown / future preset: assume web-mobile shape so the
         // preview doesn't 400 on a new preset before the operator
         // tunes a curve for it.
@@ -616,6 +642,42 @@ mod tests {
         assert!(
             bicycle.estimated_compute_seconds < stacked.estimated_compute_seconds,
             "fcgs-instant should be cheaper than codec-gs-stacked on bicycle"
+        );
+    }
+
+    #[test]
+    fn capture_and_compress_has_dedicated_curve_in_expected_band() {
+        // capture-and-compress is the photos → COLMAP → 3DGS → encode
+        // pipeline. The compute curve MUST be (a) registered (not the
+        // web-mobile fallback) and (b) land a typical 50-photo / ~250 MB
+        // zip in the 1500-3600 s wall-clock band that the Modal app
+        // budget targets. If a future tune drops the curve below the
+        // 1500 s floor we're under-quoting and will leak margin; if it
+        // rises above the 3600 s ceiling the worker will time out
+        // before the meter event fires.
+        let typical = preview_job_cost(250 * 1024 * 1024, "capture-and-compress", 0);
+        assert!(
+            typical.estimated_compute_seconds >= 1500
+                && typical.estimated_compute_seconds <= 3600,
+            "capture-and-compress typical (250 MB) should land in [1500, 3600] s, got {}",
+            typical.estimated_compute_seconds
+        );
+        // Cost band: at PER_COMPUTE_SECOND_CENTS=0.1, 1500-3600 s →
+        // $1.50-$3.60 of compute, plus the $0.01 flat fee. Operator
+        // markup lands the retail $5-10 figure separately; here we just
+        // bound the meter-side cost.
+        let dollars = typical.estimated_cost_usd;
+        assert!(
+            dollars >= 1.50 && dollars <= 3.61,
+            "capture-and-compress quote band drifted: ${dollars}"
+        );
+        // Sanity vs fallback: confirm the entry doesn't collapse to the
+        // web-mobile curve (which would put 250 MB at ~37 s, way under
+        // floor).
+        let fallback = preview_job_cost(250 * 1024 * 1024, "web-mobile", 0);
+        assert!(
+            typical.estimated_compute_seconds > fallback.estimated_compute_seconds * 10,
+            "capture-and-compress must be its own (much heavier) curve, not web-mobile"
         );
     }
 
