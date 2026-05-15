@@ -57,8 +57,16 @@ pub struct Job {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upload_size_bytes: Option<u64>,
     /// Downloadable URL for the optimized artifact, set by the worker callback.
+    /// Points to a self-contained `.glb` (binary glTF) that bundles the splat
+    /// manifest and buffer data in a single file — drag into any viewer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_url: Option<String>,
+    /// Companion URL for in-browser preview using the splatforge viewer. Points
+    /// to a `.gltf` JSON manifest whose buffer URIs have been rewritten to
+    /// absolute Vercel Blob URLs, so the viewer can lazy-stream chunks. Set
+    /// alongside `output_url` by the worker callback when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_url: Option<String>,
     /// Webhook the API fires when this job reaches a terminal state (Done
     /// or Error). Lets callers run a 40-tile batch without polling 40
     /// endpoints. POST body is the Job JSON.
