@@ -25,11 +25,9 @@
 //! a separate set from the regular API keys so a leaked customer key
 //! can't read the audit trail.
 
-use std::sync::Arc;
-
 use tracing::warn;
 
-use crate::store::JobStore;
+use crate::store::DynJobStore;
 
 /// Hard cap on the number of audit rows returned by the admin endpoint.
 /// Matches the spec deliverable. Larger queries would have to page,
@@ -104,7 +102,7 @@ fn classify_path(path: &str) -> Option<&'static str> {
 /// — we don't re-mask here so test code can write a known prefix.
 #[allow(clippy::too_many_arguments)]
 pub async fn record(
-    store: &Arc<JobStore>,
+    store: &DynJobStore,
     key_prefix: &str,
     route: &str,
     method: &str,

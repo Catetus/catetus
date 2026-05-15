@@ -17,7 +17,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use splatforge_api::ratings::{
     respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR,
 };
-use splatforge_api::store::JobStore;
+use splatforge_api::store::{JobStore, JobStoreApi};
 
 /* ----------------------------------------------------------------------- */
 /* 1. POST happy path                                                       */

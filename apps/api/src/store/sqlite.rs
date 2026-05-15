@@ -1,177 +1,33 @@
-//! Job + blob storage. Jobs persist to SQLite via sqlx; blob bytes proxy
-//! through Vercel Blob. SQLite is enough for the single-instance droplet
-//! deploy — swap to Postgres by changing the `Pool<Sqlite>` to a generic
-//! `Pool<Any>` once we outgrow it; the call sites here are the only place
-//! that touches the concrete backend.
+//! SQLite-backed `JobStoreApi` implementation.
+//!
+//! Lifted verbatim from the pre-refactor `store.rs` and reshaped to fit
+//! the trait. Keeping the SQL byte-for-byte identical is deliberate: the
+//! design-partner deploy is on SQLite today, and any behavior drift here
+//! would be a silent regression. The trait-level tests in
+//! `apps/api/tests/store_trait.rs` exercise this impl alongside the
+//! Postgres one to keep the two backends honest.
 
 use std::str::FromStr;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
-use reqwest::Body;
-use serde::{Deserialize, Serialize};
+use async_trait::async_trait;
+use chrono::Utc;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
-use sqlx::{Row, Sqlite, SqlitePool};
+use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
-/// Lifecycle of an optimize job.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum JobStatus {
-    AwaitingUpload,
-    Uploading,
-    Queued,
-    Running,
-    Done,
-    Error,
-}
+use super::{
+    DateTime, Job, JobStatus, JobStoreApi, RatingSummaryRow, StoreError, TeamSignupRow, Tier,
+};
 
-impl JobStatus {
-    fn as_db_str(self) -> &'static str {
-        match self {
-            JobStatus::AwaitingUpload => "awaiting-upload",
-            JobStatus::Uploading => "uploading",
-            JobStatus::Queued => "queued",
-            JobStatus::Running => "running",
-            JobStatus::Done => "done",
-            JobStatus::Error => "error",
-        }
-    }
-    fn from_db_str(s: &str) -> Option<Self> {
-        Some(match s {
-            "awaiting-upload" => JobStatus::AwaitingUpload,
-            "uploading" => JobStatus::Uploading,
-            "queued" => JobStatus::Queued,
-            "running" => JobStatus::Running,
-            "done" => JobStatus::Done,
-            "error" => JobStatus::Error,
-            _ => return None,
-        })
-    }
-}
-
-/// Tier the job is being charged against. Free runs the public deterministic
-/// pipeline (Modal CPU worker); Paid runs the gsplat A100 differentiable
-/// repack. Stamped at job creation time so callbacks and webhooks can
-/// surface the SKU without consulting the routing layer.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum Tier {
-    Free,
-    Paid,
-}
-
-impl Tier {
-    fn as_db_str(self) -> &'static str {
-        match self {
-            Tier::Free => "free",
-            Tier::Paid => "paid",
-        }
-    }
-    fn from_db_str(s: &str) -> Option<Self> {
-        Some(match s {
-            "free" => Tier::Free,
-            "paid" => Tier::Paid,
-            _ => return None,
-        })
-    }
-}
-
-impl Default for Tier {
-    fn default() -> Self {
-        Tier::Free
-    }
-}
-
-/// One optimize job — created by `POST /v1/jobs`, polled via `GET /v1/jobs/:id`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Job {
-    pub id: Uuid,
-    pub preset: String,
-    pub filename: String,
-    pub size_bytes: u64,
-    pub label: Option<String>,
-    pub status: JobStatus,
-    pub blob_key: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub blob_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub upload_size_bytes: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preview_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub phase: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub percent: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub webhook_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub batch_id: Option<Uuid>,
-    #[serde(default)]
-    pub tier: Tier,
-    /// Stripe customer (`cus_xxx`) that owns this job, if the bearer key
-    /// was associated with one at creation time. `None` means "free /
-    /// untracked" — the billing module short-circuits on these and never
-    /// emits meter events. Stored as a string because Stripe customer IDs
-    /// aren't UUIDs and we never parse them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub customer_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub error: Option<String>,
-}
-
-/// One row of the per-pair rating summary returned by
-/// `JobStore::summarize_ratings`. Surfaced verbatim through
-/// `GET /v1/ratings/summary` so the v0.4 training pipeline can pull
-/// numbers without re-running the aggregation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RatingSummaryRow {
-    pub scene_id: String,
-    pub left_preset: String,
-    pub right_preset: String,
-    pub left_wins: i64,
-    pub right_wins: i64,
-    pub ties: i64,
-    pub total: i64,
-}
-
-/// SQLite-backed job store.
+/// SQLite-backed job store. Single-file, WAL-journalled, suitable for the
+/// single-instance Fly deploy.
 #[derive(Clone)]
-pub struct JobStore {
+pub struct SqliteJobStore {
     pool: SqlitePool,
 }
 
-/// One row of the `team_signups` ledger. Returned by
-/// `JobStore::get_team_signup_by_session` so the checkout module can
-/// gate `/v1/checkout/reveal` on the `claim_token` + `key_revealed_at`
-/// pair without re-running the query.
-#[derive(Debug, Clone)]
-pub struct TeamSignupRow {
-    pub claim_token: String,
-    pub key_prefix: String,
-    pub key_hash: String,
-    pub stripe_customer_id: String,
-    pub email: String,
-    /// `Some(rfc3339)` if the plaintext has already been revealed —
-    /// the `/reveal` endpoint MUST refuse the second hit.
-    pub key_revealed_at: Option<String>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum StoreError {
-    #[error("sqlite: {0}")]
-    Sqlx(#[from] sqlx::Error),
-    #[error("migrate: {0}")]
-    Migrate(#[from] sqlx::migrate::MigrateError),
-    #[error("decoding row: {0}")]
-    Decode(String),
-}
-
-impl JobStore {
+impl SqliteJobStore {
     /// Connect to (and migrate) the SQLite database at `url`. Accepts the
     /// usual `sqlite:` URLs plus the bare path form `./data/jobs.db` for
     /// convenience in dev. Creates the file if missing.
@@ -197,15 +53,14 @@ impl JobStore {
             .connect_with(opts)
             .await?;
 
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        sqlx::migrate!("./migrations/sqlite").run(&pool).await?;
         Ok(Self { pool })
     }
 
     /// In-memory database. Used by unit + integration tests; also handy
     /// for ad-hoc dry-runs that don't want to touch disk. The same
-    /// `migrations/` directory is replayed so callers get the full
-    /// schema (including the billing_events ledger). Not gated on
-    /// `#[cfg(test)]` so integration tests under `tests/` can reach it.
+    /// `migrations/sqlite/` directory is replayed so callers get the full
+    /// schema (including the billing_events ledger).
     pub async fn in_memory() -> Result<Self, StoreError> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -214,17 +69,22 @@ impl JobStore {
                     .create_if_missing(true),
             )
             .await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        sqlx::migrate!("./migrations/sqlite").run(&pool).await?;
         Ok(Self { pool })
     }
 
-    /// Direct pool accessor for read-only listing endpoints (e.g. `/v1/jobs`
-    /// admin view). Kept public so we don't grow a new method per query.
+    /// Direct pool accessor — kept inherent (not part of the trait) so
+    /// SQLite-only tests like `tests/checkout.rs`'s plaintext-leak scan
+    /// can run raw SQL. The trait surface stays narrow on purpose; if a
+    /// test wants raw SQL it must concretely depend on one backend.
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
+}
 
-    pub async fn insert(&self, job: &Job) -> Result<(), StoreError> {
+#[async_trait]
+impl JobStoreApi for SqliteJobStore {
+    async fn insert(&self, job: &Job) -> Result<(), StoreError> {
         let now = Utc::now();
         sqlx::query(
             r#"
@@ -263,7 +123,7 @@ impl JobStore {
         Ok(())
     }
 
-    pub async fn update(&self, job: &Job) -> Result<(), StoreError> {
+    async fn update(&self, job: &Job) -> Result<(), StoreError> {
         sqlx::query(
             r#"
             UPDATE jobs SET
@@ -301,7 +161,7 @@ impl JobStore {
         Ok(())
     }
 
-    pub async fn get(&self, id: &Uuid) -> Result<Option<Job>, StoreError> {
+    async fn get(&self, id: &Uuid) -> Result<Option<Job>, StoreError> {
         let row = sqlx::query("SELECT * FROM jobs WHERE id = ?1")
             .bind(id.to_string())
             .fetch_optional(&self.pool)
@@ -309,16 +169,15 @@ impl JobStore {
         row.map(row_to_job).transpose()
     }
 
-    /// Idempotently claim a (job_id, sku) slot in the billing ledger. Returns
-    /// `Ok(true)` if this is a fresh claim (the caller should post the meter
-    /// event to Stripe); `Ok(false)` if a row already exists (someone else got
-    /// here first — *do not* post another event). Backed by SQLite's UNIQUE
-    /// constraint on (job_id, sku), so concurrent callers serialize cleanly.
-    ///
-    /// This is the no-double-charge invariant. Even if the Modal callback
-    /// fires twice for the same job (flaky webhooks, retries), only one
-    /// caller's INSERT succeeds.
-    pub async fn claim_billing_event(
+    async fn list_by_batch(&self, batch_id: &Uuid) -> Result<Vec<Job>, StoreError> {
+        let rows = sqlx::query("SELECT * FROM jobs WHERE batch_id = ?1 ORDER BY created_at ASC")
+            .bind(batch_id.to_string())
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(row_to_job).collect()
+    }
+
+    async fn claim_billing_event(
         &self,
         job_id: &Uuid,
         customer_id: &str,
@@ -348,9 +207,7 @@ impl JobStore {
         Ok(res.rows_affected() == 1)
     }
 
-    /// Stamp the Stripe-side event id onto a previously-claimed billing row.
-    /// Best-effort: a missing row (e.g. if the ledger was wiped) is a no-op.
-    pub async fn mark_billing_event_posted(
+    async fn mark_billing_event_posted(
         &self,
         job_id: &Uuid,
         sku: &str,
@@ -367,19 +224,7 @@ impl JobStore {
         Ok(())
     }
 
-    /// Idempotently record a Team-tier Stripe Checkout completion.
-    ///
-    /// `INSERT … ON CONFLICT(stripe_session_id) DO NOTHING` is the
-    /// no-double-issuance gate: a Stripe webhook retry that lands a
-    /// second time finds the row already present, gets `Ok(false)`, and
-    /// skips the (one-time-only) plaintext-key minting. The first call
-    /// owns the (`key_prefix`, `key_hash`) pair and the plaintext that
-    /// will be revealed exactly once at `/welcome`.
-    ///
-    /// Returns `Ok(true)` if this row is freshly inserted (the caller
-    /// should also cache the plaintext for the reveal endpoint);
-    /// `Ok(false)` if a row already existed for this session.
-    pub async fn claim_team_signup(
+    async fn claim_team_signup(
         &self,
         stripe_session_id: &str,
         stripe_customer_id: &str,
@@ -416,12 +261,7 @@ impl JobStore {
         Ok(res.rows_affected() == 1)
     }
 
-    /// Look up a team signup by Stripe Checkout Session id. Returns
-    /// `(claim_token, key_prefix, key_hash, customer_id, key_revealed_at, email)`.
-    /// The full row is exposed via a tuple instead of a struct because
-    /// only the checkout module touches it; the public surface is
-    /// `/v1/checkout/reveal`'s response shape.
-    pub async fn get_team_signup_by_session(
+    async fn get_team_signup_by_session(
         &self,
         stripe_session_id: &str,
     ) -> Result<Option<TeamSignupRow>, StoreError> {
@@ -446,12 +286,7 @@ impl JobStore {
         }))
     }
 
-    /// Mark the plaintext as revealed. Returns `Ok(true)` if this call
-    /// flipped the column (the caller is the legitimate first reveal);
-    /// `Ok(false)` if the row was already revealed (the caller MUST
-    /// refuse to return the plaintext — this is the "plaintext shown
-    /// exactly once" invariant the deliverable names).
-    pub async fn mark_team_signup_revealed(
+    async fn mark_team_signup_revealed(
         &self,
         stripe_session_id: &str,
     ) -> Result<bool, StoreError> {
@@ -470,12 +305,7 @@ impl JobStore {
         Ok(res.rows_affected() == 1)
     }
 
-    /// Insert one human pairwise rating from `splatforge.com/rate`. The
-    /// caller is expected to have already enforced the 100/hour cap via
-    /// `count_recent_ratings`; this method just writes. Returns the
-    /// freshly-assigned auto-increment id so the handler can echo it
-    /// back to the page (useful for the "your last vote is in" toast).
-    pub async fn insert_rating(
+    async fn insert_rating(
         &self,
         scene_id: &str,
         left_preset: &str,
@@ -501,13 +331,7 @@ impl JobStore {
         Ok(res.last_insert_rowid())
     }
 
-    /// Count ratings posted by this respondent in the trailing `window`.
-    /// Used to enforce the 100/hour rate limit. Stored as RFC3339 strings,
-    /// so the threshold is computed in Rust and compared lexicographically
-    /// — that ordering matches numeric ordering for RFC3339 dates as long
-    /// as the format is consistent (which it is, because we generate all
-    /// rows with `Utc::now().to_rfc3339()`).
-    pub async fn count_recent_ratings(
+    async fn count_recent_ratings(
         &self,
         respondent_hash: &str,
         window: chrono::Duration,
@@ -523,13 +347,7 @@ impl JobStore {
         Ok(row.0)
     }
 
-    /// Aggregated rating counts for the v0.4 training pipeline. One row
-    /// per (scene, left_preset, right_preset) pair with the winner
-    /// breakdown. The aggregator deliberately preserves left/right
-    /// ordering (rather than normalizing to a canonical pair) so
-    /// downstream analysis can detect side-bias before the
-    /// Bradley-Terry fit ingests these.
-    pub async fn summarize_ratings(&self) -> Result<Vec<RatingSummaryRow>, StoreError> {
+    async fn summarize_ratings(&self) -> Result<Vec<RatingSummaryRow>, StoreError> {
         let rows = sqlx::query(
             r#"
             SELECT scene_id, left_preset, right_preset,
@@ -559,27 +377,9 @@ impl JobStore {
         Ok(out)
     }
 
-    /// All jobs in a batch, ordered by insertion. Used by the batch-status
-    /// endpoint so a 40-tile client doesn't have to poll 40 IDs.
-    pub async fn list_by_batch(&self, batch_id: &Uuid) -> Result<Vec<Job>, StoreError> {
-        let rows = sqlx::query("SELECT * FROM jobs WHERE batch_id = ?1 ORDER BY created_at ASC")
-            .bind(batch_id.to_string())
-            .fetch_all(&self.pool)
-            .await?;
-        rows.into_iter().map(row_to_job).collect()
-    }
-
-    /// Best-effort audit-event write. Caller has already responded to the
-    /// client; this is forensic-only. The hard constraint from the spec is
-    /// that an INSERT failure here MUST NOT propagate to the user, so this
-    /// method *swallows* its error and returns `()` — failures are logged
-    /// at the call site via the surrounding tracing context.
-    ///
-    /// Returns `Ok(())` on success, `Err(StoreError)` on db failure so the
-    /// caller can decide whether to log. Production wiring discards the
-    /// error and emits a warn! — see `audit::record`.
+    /// Best-effort audit-event write.
     #[allow(clippy::too_many_arguments)]
-    pub async fn insert_audit_event(
+    async fn insert_audit_event(
         &self,
         key_prefix: &str,
         route: &str,
@@ -612,14 +412,11 @@ impl JobStore {
         Ok(())
     }
 
-    /// Last `limit` audit events, newest first. Backs the admin
-    /// `GET /v1/admin/audit` endpoint. `limit` is capped at 1000 by the
-    /// caller — there's no SQL limit imposed here so callers can grep for
-    /// a specific key_prefix without artificial paging.
-    pub async fn list_audit_events(
+    /// Last `limit` audit events, newest first.
+    async fn list_audit_events(
         &self,
         limit: u32,
-    ) -> Result<Vec<AuditEvent>, StoreError> {
+    ) -> Result<Vec<super::AuditEvent>, StoreError> {
         let rows = sqlx::query(
             "SELECT id, key_prefix, route, method, status, body_size, duration_ms, error, created_at \
              FROM audit_events ORDER BY created_at DESC LIMIT ?1",
@@ -631,22 +428,7 @@ impl JobStore {
     }
 }
 
-/// A row from `audit_events`. Serialized as-is on `/v1/admin/audit`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuditEvent {
-    pub id: String,
-    pub key_prefix: String,
-    pub route: String,
-    pub method: String,
-    pub status: u16,
-    pub body_size: u64,
-    pub duration_ms: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    pub created_at: DateTime<Utc>,
-}
-
-fn row_to_audit(row: sqlx::sqlite::SqliteRow) -> Result<AuditEvent, StoreError> {
+fn row_to_audit(row: sqlx::sqlite::SqliteRow) -> Result<super::AuditEvent, StoreError> {
     let status: i64 = row.try_get("status")?;
     let body_size: i64 = row.try_get("body_size")?;
     let duration_ms: i64 = row.try_get("duration_ms")?;
@@ -654,7 +436,7 @@ fn row_to_audit(row: sqlx::sqlite::SqliteRow) -> Result<AuditEvent, StoreError> 
     let created_at = DateTime::parse_from_rfc3339(&created_at_str)
         .map_err(|e| StoreError::Decode(e.to_string()))?
         .with_timezone(&Utc);
-    Ok(AuditEvent {
+    Ok(super::AuditEvent {
         id: row.try_get("id")?,
         key_prefix: row.try_get("key_prefix")?,
         route: row.try_get("route")?,
@@ -716,92 +498,6 @@ fn row_to_job(row: sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {
     })
 }
 
-// Avoid "unused" lint on Sqlite alias when only used in path positions.
-const _: Option<Sqlite> = None;
-
-/* ---------- Blob backend ---------- */
-
-#[derive(Debug, thiserror::Error)]
-pub enum BlobError {
-    #[error("blob storage not configured (set BLOB_READ_WRITE_TOKEN)")]
-    NotConfigured,
-    #[error("blob api: {0}")]
-    Api(String),
-    #[error("blob transport: {0}")]
-    Transport(String),
-}
-
-pub struct BlobBackend {
-    token: Option<String>,
-    http: reqwest::Client,
-}
-
-const BLOB_HOST: &str = "https://blob.vercel-storage.com";
-const BLOB_API_VERSION: &str = "7";
-
-impl BlobBackend {
-    pub fn new(token: Option<String>) -> Self {
-        Self {
-            token,
-            http: reqwest::Client::builder()
-                .timeout(Duration::from_secs(600))
-                .pool_max_idle_per_host(4)
-                .build()
-                .expect("reqwest client"),
-        }
-    }
-
-    pub async fn presign_upload(&self, key: &str, _ttl: Duration) -> Result<String, BlobError> {
-        let suffix = if self.token.is_some() {
-            "?ttl=900&mode=server-proxy"
-        } else {
-            "?ttl=900&mode=stub"
-        };
-        Ok(format!("blob://stub/{key}{suffix}"))
-    }
-
-    pub fn public_url(&self, key: &str) -> String {
-        format!("blob://stub/{key}")
-    }
-
-    pub async fn put_bytes(
-        &self,
-        key: &str,
-        body: Body,
-        content_type: &str,
-    ) -> Result<String, BlobError> {
-        let token = self
-            .token
-            .as_ref()
-            .ok_or(BlobError::NotConfigured)?
-            .clone();
-        let url = format!("{BLOB_HOST}/{}?addRandomSuffix=0", key.trim_start_matches('/'));
-        let resp = self
-            .http
-            .put(&url)
-            .header("authorization", format!("Bearer {token}"))
-            .header("x-content-type", content_type)
-            .header("x-api-version", BLOB_API_VERSION)
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| BlobError::Transport(e.to_string()))?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(BlobError::Api(format!("{status}: {text}")));
-        }
-        let body: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| BlobError::Api(format!("decoding blob response: {e}")))?;
-        body.get("url")
-            .and_then(|v| v.as_str())
-            .map(str::to_owned)
-            .ok_or_else(|| BlobError::Api(format!("blob response missing url field: {body}")))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -833,7 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn roundtrip_insert_get_update() {
-        let store = JobStore::in_memory().await.expect("store");
+        let store = SqliteJobStore::in_memory().await.expect("store");
         let mut job = sample_job();
         store.insert(&job).await.expect("insert");
         let got = store.get(&job.id).await.expect("get").expect("present");
@@ -854,7 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_by_batch_returns_grouped_jobs() {
-        let store = JobStore::in_memory().await.expect("store");
+        let store = SqliteJobStore::in_memory().await.expect("store");
         let batch_id = Uuid::new_v4();
         for i in 0..3 {
             let mut j = sample_job();
@@ -873,7 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_id_returns_none() {
-        let store = JobStore::in_memory().await.expect("store");
+        let store = SqliteJobStore::in_memory().await.expect("store");
         let got = store.get(&Uuid::new_v4()).await.expect("get");
         assert!(got.is_none());
     }

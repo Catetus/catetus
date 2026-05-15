@@ -49,17 +49,29 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # Env config
 dotenvy = "0.15"
 
-# Persistent job store. SQLite is enough for the single-instance droplet
-# deploy; the surface in `store.rs` is the only place that depends on the
-# concrete backend so swapping to Postgres later is a one-file change.
+# Persistent job store. Two backends are compiled in: SQLite (single-
+# instance Fly deploy — what the design-partner program runs on) and
+# Postgres (multi-instance promotion path called out in v2 plan §3b).
+# The trait abstraction in `store/mod.rs` is the only place that knows
+# which backend is in use; everything above it talks `dyn JobStoreApi`.
+# Swapping at deploy time is `DATABASE_URL=sqlite://…` vs `postgres://…`.
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio-rustls",
     "sqlite",
+    "postgres",
     "chrono",
     "uuid",
     "macros",
     "migrate",
 ] }
+
+# Trait abstraction over the two store backends. Native `async fn` in
+# traits is stable, but the resulting traits are NOT object-safe — and
+# `AppState` holds an `Arc<dyn JobStoreApi + Send + Sync>` so handlers
+# can be backend-agnostic. `async-trait` desugars to boxed futures
+# which restores object-safety. The runtime cost (one extra heap
+# allocation per call) is negligible next to a DB round-trip.
+async-trait = "0.1"
 
 # Stripe webhook signature verification — HMAC-SHA256 against the raw body.
 # We deliberately avoid `async-stripe`: its Meter Events surface lags the
@@ -76,3 +88,19 @@ subtle = "2.5"
 # the same source the WorkOS branch's auth.rs uses, so the contract
 # carries forward byte-for-byte once that branch merges.
 rand = "0.8"
+
+[dev-dependencies]
+# testcontainers spins up a real Postgres in Docker for the trait-level
+# integration tests. The Postgres impl can't be tested against an
+# in-memory backend the way SQLite can — Postgres-flavored SQL (the
+# COALESCE(SUM(…))::BIGINT cast in `summarize_ratings`, the BIGSERIAL
+# vs AUTOINCREMENT split, the DOUBLE PRECISION binding) has no
+# in-process simulator that matches the real wire protocol.
+#
+# Tests gracefully skip when Docker isn't available — see
+# `tests/store_trait.rs::skip_if_no_docker`. CI MUST run with Docker
+# available; the operator instructions in `STORE-BACKENDS.md` call
+# this out.
+testcontainers = "0.20"
+testcontainers-modules = { version = "0.8", features = ["postgres"] }
+tokio = { version = "1.40", features = ["full"] }

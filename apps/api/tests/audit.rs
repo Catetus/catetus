@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use splatforge_api::audit::{self, is_audited, route_template, ADMIN_AUDIT_DEFAULT_LIMIT};
 use splatforge_api::ratelimit::key_prefix;
-use splatforge_api::store::JobStore;
+use splatforge_api::store::{DynJobStore, JobStore, JobStoreApi};
 
 #[test]
 fn route_template_strips_uuid_segment() {
@@ -56,7 +56,7 @@ fn mutating_routes_are_audited() {
 
 #[tokio::test]
 async fn write_then_query_roundtrip() {
-    let store = Arc::new(JobStore::in_memory().await.expect("store"));
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
     audit::record(
         &store,
         "key_aaa_",
@@ -92,7 +92,7 @@ async fn write_then_query_roundtrip() {
 
 #[tokio::test]
 async fn key_prefix_is_what_lands_in_audit() {
-    let store = Arc::new(JobStore::in_memory().await.expect("store"));
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
     let full_key = "sk_test_super_long_secret_xyz";
     let prefix = key_prefix(full_key);
     audit::record(
@@ -115,7 +115,7 @@ async fn key_prefix_is_what_lands_in_audit() {
 
 #[tokio::test]
 async fn list_audit_respects_limit() {
-    let store = Arc::new(JobStore::in_memory().await.expect("store"));
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
     for i in 0..25 {
         audit::record(
             &store,
@@ -141,7 +141,7 @@ async fn admin_default_limit_is_1000() {
     // future operator can't silently drop it.
     assert_eq!(ADMIN_AUDIT_DEFAULT_LIMIT, 1000);
     // And confirm the store can return that many.
-    let store = Arc::new(JobStore::in_memory().await.expect("store"));
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
     for _ in 0..1200 {
         audit::record(&store, "k_", "/v1/jobs", "POST", 200, 0, 0, None).await;
     }
@@ -154,7 +154,7 @@ async fn admin_default_limit_is_1000() {
 
 #[tokio::test]
 async fn error_field_is_optional() {
-    let store = Arc::new(JobStore::in_memory().await.expect("store"));
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
     audit::record(&store, "k_", "/v1/jobs", "POST", 200, 0, 0, None).await;
     audit::record(
         &store,

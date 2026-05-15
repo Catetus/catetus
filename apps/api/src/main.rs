@@ -47,14 +47,17 @@ use splatforge_api::ratelimit::{self, Decision, Limiter, Limits, RouteClass};
 use splatforge_api::ratings::{
     respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR,
 };
-use splatforge_api::store::{self, AuditEvent, Job, JobStatus, JobStore, RatingSummaryRow, Tier};
+use splatforge_api::store::{self, AuditEvent, DynJobStore, Job, JobStatus, RatingSummaryRow, Tier};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
 pub struct AppState {
-    /// In-memory job store. Swapped for Postgres once we have multi-instance
-    /// deployment; everything below treats it as an opaque trait object.
-    pub jobs: Arc<JobStore>,
+    /// Trait-object handle to whichever backend `DATABASE_URL`'s scheme
+    /// selected at startup (SQLite for the single-instance Fly deploy,
+    /// Postgres for multi-instance promotion — see v2 plan §3b and
+    /// `apps/api/STORE-BACKENDS.md`). Every handler talks `JobStoreApi`;
+    /// no production code touches the concrete impl.
+    pub jobs: DynJobStore,
     /// Modal worker client.
     pub modal: Arc<ModalClient>,
     /// Blob storage adapter (Vercel Blob today; R2/S3 later).
@@ -202,11 +205,13 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .expect("reqwest client");
 
-    let jobs = JobStore::connect(&database_url)
+    // `store::connect` is the only place in the binary that knows which
+    // backend is in play. SQLite vs Postgres is selected by URL scheme;
+    // see `store/mod.rs::connect` for the dispatch rule.
+    let jobs: DynJobStore = store::connect(&database_url)
         .await
         .with_context(|| format!("opening jobs db at {database_url}"))?;
     info!(%database_url, "job store ready");
-    let jobs = Arc::new(jobs);
 
     // Billing setup. Mode is one of "live" / "test" / "dry-run" per
     // BillingClient::from_env. The dry-run fallback keeps `cargo run`
@@ -1983,3 +1988,4 @@ async fn admin_audit(
     let events = state.jobs.list_audit_events(limit).await?;
     Ok(Json(AuditListResponse { events }))
 }
+
