@@ -13,13 +13,13 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use axum::{
     body::{Body, Bytes},
-    extract::{Path, State},
-    http::{HeaderMap, Request, StatusCode},
+    extract::{Path, Query, State},
+    http::{HeaderMap, HeaderValue, Request, StatusCode},
     middleware::{self, Next},
     response::IntoResponse,
     routing::{get, post},
@@ -36,16 +36,18 @@ use uuid::Uuid;
 // reach them via the library crate name (`splatforge_api`). The bin
 // crate is a thin wrapper that wires the handlers; no per-module
 // re-instantiation happens here.
+use splatforge_api::audit;
 use splatforge_api::billing::{self, BillingClient, KeyCustomerMap};
 use splatforge_api::checkout::{
     self, CheckoutConfig, CheckoutError, CreateSessionRequest, PendingClaimTokens, PendingKeyCache,
     RevealRequest, StripeCheckoutClient,
 };
 use splatforge_api::modal_client::{self, ModalClient};
+use splatforge_api::ratelimit::{self, Decision, Limiter, Limits, RouteClass};
 use splatforge_api::ratings::{
     respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR,
 };
-use splatforge_api::store::{self, Job, JobStatus, JobStore, RatingSummaryRow, Tier};
+use splatforge_api::store::{self, AuditEvent, Job, JobStatus, JobStore, RatingSummaryRow, Tier};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
@@ -104,6 +106,15 @@ pub struct AppState {
     /// endpoint configured for both event categories) or different
     /// (separate endpoint per event category). Operator decision.
     pub checkout_webhook_secret: Option<Arc<String>>,
+    /// Per-API-key token-bucket rate limiter. Wrapped in `Arc` so the
+    /// `AppState` clone stays cheap; the limiter itself holds an
+    /// internal mutex for the bucket map.
+    pub limiter: Arc<Limiter>,
+    /// Bearer tokens permitted to read the audit log via
+    /// `GET /v1/admin/audit`. Separate from `api_keys` so a leaked
+    /// customer key cannot read other customers' activity. Empty
+    /// means the admin endpoint is fully disabled (returns 503).
+    pub admin_api_keys: Arc<HashSet<String>>,
 }
 
 #[tokio::main]
@@ -146,6 +157,26 @@ async fn main() -> anyhow::Result<()> {
     // at least one key set).
     let api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_API_KEYS").ok());
     let paid_api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_PAID_API_KEYS").ok());
+    let admin_api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_ADMIN_API_KEYS").ok());
+    if admin_api_keys.is_empty() {
+        warn!(
+            "SPLATFORGE_ADMIN_API_KEYS is empty — /v1/admin/audit is disabled (503). \
+             Set this to enable the audit-log read endpoint."
+        );
+    } else {
+        info!(n_admin_keys = admin_api_keys.len(), "admin audit endpoint enabled");
+    }
+    let rate_limits = Limits::from_env(std::env::var("SPLATFORGE_RATE_LIMITS").ok().as_deref());
+    info!(
+        create_free = rate_limits.create_free.capacity,
+        create_paid = rate_limits.create_paid.capacity,
+        upload_free = rate_limits.upload_free.capacity,
+        upload_paid = rate_limits.upload_paid.capacity,
+        repack = rate_limits.repack.capacity,
+        get_job = rate_limits.get_job.capacity,
+        batch_paid = rate_limits.batch_paid.capacity,
+        "rate limits (per hour, per API key)"
+    );
     if api_keys.is_empty() {
         warn!(
             "SPLATFORGE_API_KEYS is empty — running with NO authentication. \
@@ -267,6 +298,8 @@ async fn main() -> anyhow::Result<()> {
         pending_keys: Arc::new(PendingKeyCache::new()),
         pending_claim_tokens: Arc::new(PendingClaimTokens::new()),
         checkout_webhook_secret,
+        limiter: Arc::new(Limiter::new(rate_limits)),
+        admin_api_keys: Arc::new(admin_api_keys),
     };
 
     // Background sweep: drop any pending plaintext / claim_token entry
@@ -289,14 +322,22 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Three routers:
-    //   - `open`  — always public (healthz, worker callback). The worker
-    //               callback is protected by the per-job UUID, not the
-    //               bearer token, so a worker doesn't need an API key.
+    // Router layout:
+    //   - `open`  — always public (healthz, worker callback, stripe webhook,
+    //               openapi spec, docs UI). Worker callback is protected by
+    //               the per-job UUID, the webhook by HMAC, the spec/docs are
+    //               static. No rate limiting or audit (operator-targeted).
     //   - `paid`  — gated on the bearer token when SPLATFORGE_API_KEYS is set.
+    //               Rate-limited per-key per-class, audited on completion.
     //               Job creation + GET (clients poll their own job state).
-    //   - `upload`— same auth as `paid` but with a 250 MB body cap.
+    //   - `repack`— additionally requires a paid-tier key.
+    //   - `upload`— same auth as `paid` but with a 2 GB body cap.
+    //   - `admin` — gated on SPLATFORGE_ADMIN_API_KEYS; serves the audit log.
     let auth_layer = middleware::from_fn_with_state(state.clone(), require_api_key);
+    let rate_audit_layer =
+        middleware::from_fn_with_state(state.clone(), rate_limit_and_audit);
+    let admin_layer =
+        middleware::from_fn_with_state(state.clone(), require_admin_api_key);
 
     let open = Router::new()
         .route("/healthz", get(healthz))
@@ -321,6 +362,10 @@ async fn main() -> anyhow::Result<()> {
         // flood the corpus.
         .route("/v1/ratings", post(post_rating))
         .route("/v1/ratings/summary", get(ratings_summary))
+        // Self-served OpenAPI spec + Swagger UI. Both static, no auth.
+        .route("/openapi.yaml", get(openapi_yaml))
+        .route("/openapi.json", get(openapi_json_passthrough))
+        .route("/docs", get(docs_ui))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
 
     let paid_layer =
@@ -331,14 +376,18 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/jobs/batch", post(create_jobs_batch))
         .route("/v1/jobs/:id", get(get_job))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
+        // Order matters: layers apply outermost-first. Auth must run
+        // before the rate-limit layer so the limiter has a verified key
+        // to bucket by.
+        .layer(rate_audit_layer.clone())
         .layer(auth_layer.clone());
 
     let repack = Router::new()
         .route("/v1/jobs/:id/repack", post(repack_job))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
-        // Order matters: tower layers apply outermost-first. Free gate runs
-        // first (rejects unauthenticated requests early), paid gate runs
-        // second so it only sees pre-authenticated calls.
+        .layer(rate_audit_layer.clone())
+        // Free gate runs first (rejects unauthenticated requests early),
+        // paid gate runs second so it only sees pre-authenticated calls.
         .layer(paid_layer)
         .layer(auth_layer.clone());
 
@@ -350,13 +399,19 @@ async fn main() -> anyhow::Result<()> {
         // buffer it in memory. Users with cloud-hosted data should still
         // prefer the source_url form which skips the proxy entirely.
         .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024 * 1024))
+        .layer(rate_audit_layer)
         .layer(auth_layer);
+
+    let admin = Router::new()
+        .route("/v1/admin/audit", get(admin_audit))
+        .layer(admin_layer);
 
     let app = Router::new()
         .merge(open)
         .merge(paid)
         .merge(repack)
         .merge(upload)
+        .merge(admin)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -449,6 +504,231 @@ async fn require_api_key(
     }
     req.extensions_mut().insert(AuthenticatedKey(presented));
     Ok(next.run(req).await)
+}
+
+/// Admin-tier auth for `/v1/admin/*`. Independent set of bearer tokens
+/// from `SPLATFORGE_API_KEYS` — leaking a customer key must not give
+/// access to the audit log. An empty admin-key set disables the
+/// endpoint entirely (returns 503), which is the safe default for
+/// fresh deployments that haven't provisioned an operator key yet.
+async fn require_admin_api_key(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<axum::response::Response, ApiError> {
+    if state.admin_api_keys.is_empty() {
+        return Err(ApiError::Unauthorized(
+            "admin endpoint disabled (SPLATFORGE_ADMIN_API_KEYS unset)".to_string(),
+        ));
+    }
+    let auth = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let presented = auth.strip_prefix("Bearer ").unwrap_or_default().trim();
+    if presented.is_empty() {
+        return Err(ApiError::Unauthorized(
+            "missing Authorization: Bearer <admin-key>".to_string(),
+        ));
+    }
+    if !state.admin_api_keys.contains(presented) {
+        return Err(ApiError::Unauthorized("invalid admin API key".to_string()));
+    }
+    Ok(next.run(req).await)
+}
+
+/// Pick the rate-limit class for an inbound request based on
+/// (method, path). Returns `None` for routes that aren't rate-limited
+/// — the middleware falls through to `next` in that case. Path
+/// matching is structural so `/v1/jobs/<uuid>/upload` correctly maps
+/// to `RouteClass::Upload`.
+fn classify_for_ratelimit(method: &axum::http::Method, path: &str) -> Option<RouteClass> {
+    let method_str = method.as_str();
+    match method_str {
+        "POST" => {
+            if path == "/v1/jobs" {
+                return Some(RouteClass::CreateJob);
+            }
+            if path == "/v1/jobs/batch" {
+                return Some(RouteClass::CreateBatch);
+            }
+            let rest = path.strip_prefix("/v1/jobs/")?;
+            let (_id, tail) = rest.split_once('/')?;
+            match tail {
+                "upload" => Some(RouteClass::Upload),
+                "repack" => Some(RouteClass::Repack),
+                _ => None,
+            }
+        }
+        "GET" => {
+            let rest = path.strip_prefix("/v1/jobs/")?;
+            // /v1/jobs/<id> with no trailing segment.
+            if !rest.is_empty() && !rest.contains('/') {
+                return Some(RouteClass::GetJob);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Combined rate-limit + audit middleware. Two responsibilities folded
+/// into one pass because they both want the same data (key prefix,
+/// route template, request status, duration) and pulling the request
+/// apart twice would double the path-matching cost on the hot path.
+///
+/// Order of operations:
+///   1. Read the authenticated key from the request extensions.
+///      Unauthenticated requests bypass the limiter (they only reach
+///      open routes; this layer never wraps `/healthz`).
+///   2. Classify the (method, path) into a `RouteClass`. Unknown
+///      routes pass straight through to `next` without limiting or
+///      auditing.
+///   3. Decide tier from the paid-key set. Limiter caps differ.
+///   4. `Limiter::take` — returns Allow (with remaining) or Deny
+///      (with retry_after). Deny → 429 carrying both headers, and
+///      we still write the audit row (operator wants to see
+///      throttled traffic).
+///   5. Run the inner handler; capture status + duration.
+///   6. Best-effort audit insert. DB failures here are logged but
+///      MUST NOT propagate to the response.
+async fn rate_limit_and_audit(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<axum::response::Response, ApiError> {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let class = classify_for_ratelimit(&method, &path);
+
+    // Read the authenticated key out of extensions. If auth is disabled
+    // (dev mode), there's no key — we use a sentinel "anon" bucket so
+    // a developer poking the API locally still sees the limiter behave
+    // sensibly. In prod this branch never runs because the auth layer
+    // is mandatory.
+    let key = req
+        .extensions()
+        .get::<AuthenticatedKey>()
+        .map(|k| k.0.clone())
+        .unwrap_or_else(|| "anon".to_string());
+
+    let tier = if state.paid_api_keys.contains(&key) {
+        ratelimit::Tier::Paid
+    } else {
+        ratelimit::Tier::Free
+    };
+    let key_prefix = ratelimit::key_prefix(&key);
+
+    // Free-tier callers can't use the batch endpoint at all — return a
+    // structured 403 instead of pretending they have a 0-cap bucket.
+    if matches!(class, Some(RouteClass::CreateBatch)) && tier == ratelimit::Tier::Free {
+        let started = Instant::now();
+        let err_msg = "batch endpoint requires a paid-tier API key";
+        // Audit the rejection so the operator can see "free tier trying
+        // to batch" patterns and reach out about upgrades.
+        let route_tmpl = audit::route_template(method.as_str(), &path).unwrap_or("/v1/jobs/batch");
+        let elapsed = started.elapsed().as_millis() as u64;
+        audit::record(
+            &state.jobs,
+            &key_prefix,
+            route_tmpl,
+            method.as_str(),
+            403,
+            0,
+            elapsed,
+            Some("free-tier-batch-forbidden"),
+        )
+        .await;
+        return Err(ApiError::Forbidden(err_msg.to_string()));
+    }
+
+    // Rate-limit decision.
+    let decision = if let Some(class) = class {
+        Some(state.limiter.take(&key, class, tier))
+    } else {
+        None
+    };
+
+    let started = Instant::now();
+    let (response, body_size, status_code, error_note) = match decision {
+        Some(Decision::Deny {
+            retry_after_s,
+            remaining,
+        }) => {
+            // Build a structured 429 with operator-canonical headers.
+            let body = serde_json::json!({
+                "error": "rate limit exceeded",
+                "retry_after_s": retry_after_s,
+            });
+            let body_bytes = serde_json::to_vec(&body).expect("json");
+            let body_size = body_bytes.len() as u64;
+            let mut response =
+                (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response();
+            response.headers_mut().insert(
+                "Retry-After",
+                HeaderValue::from_str(&retry_after_s.to_string())
+                    .unwrap_or(HeaderValue::from_static("1")),
+            );
+            response.headers_mut().insert(
+                "X-RateLimit-Remaining",
+                HeaderValue::from_str(&remaining.to_string())
+                    .unwrap_or(HeaderValue::from_static("0")),
+            );
+            (response, body_size, 429u16, Some("rate-limited".to_string()))
+        }
+        _ => {
+            // Allowed (or unclassified route): proceed and capture
+            // status + (approximate) body size from the inner response.
+            let remaining_hdr = match decision {
+                Some(Decision::Allow { remaining }) => Some(remaining),
+                _ => None,
+            };
+            let mut response = next.run(req).await;
+            let status = response.status().as_u16();
+            // Body size is opportunistic — axum's body is a Stream; we
+            // don't drain it here (that would buffer the entire upload
+            // response in RAM). The audit row's body_size is therefore
+            // 0 for non-429 paths today. Documented in the audit
+            // schema comment as a known limitation.
+            let body_size = 0u64;
+            if let Some(r) = remaining_hdr {
+                let _ = response.headers_mut().insert(
+                    "X-RateLimit-Remaining",
+                    HeaderValue::from_str(&r.to_string())
+                        .unwrap_or(HeaderValue::from_static("0")),
+                );
+            }
+            let err_note = if status >= 400 {
+                Some(format!("status-{status}"))
+            } else {
+                None
+            };
+            (response, body_size, status, err_note)
+        }
+    };
+
+    // Audit on completion. The spec calls for mutating-only routes;
+    // GET /v1/jobs/:id passes through here too (it has its own bucket)
+    // but `audit::is_audited` returns false for it, so we skip.
+    if audit::is_audited(method.as_str(), &path) {
+        let route_tmpl =
+            audit::route_template(method.as_str(), &path).unwrap_or("/v1/unknown");
+        let elapsed = started.elapsed().as_millis() as u64;
+        audit::record(
+            &state.jobs,
+            &key_prefix,
+            route_tmpl,
+            method.as_str(),
+            status_code,
+            body_size,
+            elapsed,
+            error_note.as_deref(),
+        )
+        .await;
+    }
+
+    Ok(response)
 }
 
 /// Resolve the Stripe customer id for the request's authenticated key.
@@ -1551,6 +1831,8 @@ pub enum ApiError {
     BadRequest(String),
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    #[error("forbidden: {0}")]
+    Forbidden(String),
     #[error("storage error: {0}")]
     Storage(#[from] store::BlobError),
     #[error("modal error: {0}")]
@@ -1561,8 +1843,6 @@ pub enum ApiError {
     ServiceUnavailable(String),
     #[error("gone")]
     Gone,
-    #[error("forbidden")]
-    Forbidden,
     #[error("bad gateway: stripe: {0}")]
     Stripe(String),
     #[error("too many requests: {0}")]
@@ -1578,7 +1858,7 @@ impl From<checkout::CheckoutError> for ApiError {
             CheckoutError::BadRequest(msg) => ApiError::BadRequest(msg),
             CheckoutError::NotFound => ApiError::NotFound,
             CheckoutError::Gone => ApiError::Gone,
-            CheckoutError::Forbidden => ApiError::Forbidden,
+            CheckoutError::Forbidden => ApiError::Forbidden("checkout".to_string()),
             CheckoutError::Stripe { status: _, body } => ApiError::Stripe(body),
             CheckoutError::Transport(s) | CheckoutError::BadResponse(s) => ApiError::Stripe(s),
             CheckoutError::Store(s) => ApiError::Internal(s),
@@ -1592,7 +1872,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ApiError::Unauthorized(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
-            ApiError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
+            ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             ApiError::Gone => (StatusCode::GONE, self.to_string()),
             ApiError::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             ApiError::Storage(_) | ApiError::Modal(_) | ApiError::Stripe(_) => {
@@ -1605,4 +1885,101 @@ impl IntoResponse for ApiError {
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }
+}
+
+/* ---------- openapi spec + docs ---------- */
+
+/// The OpenAPI spec is shipped as a static asset baked into the binary
+/// so the deploy is single-artifact: no sidecar file path to mount, no
+/// CDN dependency. `include_str!` resolves at compile time, which means
+/// `cargo build` will refuse to compile if the spec is missing — that's
+/// a feature, not a bug, since shipping a binary with a stale spec is
+/// strictly worse than a build failure.
+const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
+
+#[instrument]
+async fn openapi_yaml() -> impl IntoResponse {
+    (
+        [("content-type", "application/yaml; charset=utf-8")],
+        OPENAPI_YAML,
+    )
+}
+
+/// Some tooling (Stripe Workbench, Postman) prefers JSON OpenAPI. We
+/// ship YAML and let clients use any standard yaml→json converter;
+/// returning 406 here is the least-surprise behavior.
+#[instrument]
+async fn openapi_json_passthrough() -> impl IntoResponse {
+    (
+        StatusCode::NOT_ACCEPTABLE,
+        Json(serde_json::json!({
+            "error": "JSON OpenAPI not served. Convert /openapi.yaml client-side.",
+            "yaml_url": "/openapi.yaml"
+        })),
+    )
+}
+
+/// Swagger UI served from CDN — single HTML page, no build step, no
+/// node_modules. The UI is a thin pointer at `/openapi.yaml`. Pinned
+/// to a specific Swagger UI version so the docs UI doesn't silently
+/// shift behavior when the CDN updates.
+const SWAGGER_UI_HTML: &str = r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SplatForge API — docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
+  <style>body{margin:0;background:#fafafa;}</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    window.addEventListener("load", () => {
+      window.ui = SwaggerUIBundle({
+        url: "/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        presets: [SwaggerUIBundle.presets.apis],
+      });
+    });
+  </script>
+</body>
+</html>"##;
+
+#[instrument]
+async fn docs_ui() -> impl IntoResponse {
+    (
+        [("content-type", "text/html; charset=utf-8")],
+        SWAGGER_UI_HTML,
+    )
+}
+
+/* ---------- admin audit endpoint ---------- */
+
+#[derive(Debug, Deserialize)]
+pub struct AuditQuery {
+    /// How many rows to return, newest-first. Capped at
+    /// `ADMIN_AUDIT_DEFAULT_LIMIT` (1000) — see `audit.rs`.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuditListResponse {
+    pub events: Vec<AuditEvent>,
+}
+
+#[instrument(skip(state))]
+async fn admin_audit(
+    State(state): State<AppState>,
+    Query(q): Query<AuditQuery>,
+) -> Result<Json<AuditListResponse>, ApiError> {
+    let limit = q
+        .limit
+        .unwrap_or(audit::ADMIN_AUDIT_DEFAULT_LIMIT)
+        .min(audit::ADMIN_AUDIT_DEFAULT_LIMIT);
+    let events = state.jobs.list_audit_events(limit).await?;
+    Ok(Json(AuditListResponse { events }))
 }

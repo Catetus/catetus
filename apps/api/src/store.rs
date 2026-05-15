@@ -569,6 +569,102 @@ impl JobStore {
         rows.into_iter().map(row_to_job).collect()
     }
 
+    /// Best-effort audit-event write. Caller has already responded to the
+    /// client; this is forensic-only. The hard constraint from the spec is
+    /// that an INSERT failure here MUST NOT propagate to the user, so this
+    /// method *swallows* its error and returns `()` — failures are logged
+    /// at the call site via the surrounding tracing context.
+    ///
+    /// Returns `Ok(())` on success, `Err(StoreError)` on db failure so the
+    /// caller can decide whether to log. Production wiring discards the
+    /// error and emits a warn! — see `audit::record`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_audit_event(
+        &self,
+        key_prefix: &str,
+        route: &str,
+        method: &str,
+        status: u16,
+        body_size: u64,
+        duration_ms: u64,
+        error: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            INSERT INTO audit_events
+                (id, key_prefix, route, method, status, body_size, duration_ms, error, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+        )
+        .bind(id)
+        .bind(key_prefix)
+        .bind(route)
+        .bind(method)
+        .bind(status as i64)
+        .bind(body_size as i64)
+        .bind(duration_ms as i64)
+        .bind(error)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Last `limit` audit events, newest first. Backs the admin
+    /// `GET /v1/admin/audit` endpoint. `limit` is capped at 1000 by the
+    /// caller — there's no SQL limit imposed here so callers can grep for
+    /// a specific key_prefix without artificial paging.
+    pub async fn list_audit_events(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<AuditEvent>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT id, key_prefix, route, method, status, body_size, duration_ms, error, created_at \
+             FROM audit_events ORDER BY created_at DESC LIMIT ?1",
+        )
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(row_to_audit).collect()
+    }
+}
+
+/// A row from `audit_events`. Serialized as-is on `/v1/admin/audit`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub id: String,
+    pub key_prefix: String,
+    pub route: String,
+    pub method: String,
+    pub status: u16,
+    pub body_size: u64,
+    pub duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+fn row_to_audit(row: sqlx::sqlite::SqliteRow) -> Result<AuditEvent, StoreError> {
+    let status: i64 = row.try_get("status")?;
+    let body_size: i64 = row.try_get("body_size")?;
+    let duration_ms: i64 = row.try_get("duration_ms")?;
+    let created_at_str: String = row.try_get("created_at")?;
+    let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+        .map_err(|e| StoreError::Decode(e.to_string()))?
+        .with_timezone(&Utc);
+    Ok(AuditEvent {
+        id: row.try_get("id")?,
+        key_prefix: row.try_get("key_prefix")?,
+        route: row.try_get("route")?,
+        method: row.try_get("method")?,
+        status: status as u16,
+        body_size: body_size.max(0) as u64,
+        duration_ms: duration_ms.max(0) as u64,
+        error: row.try_get("error")?,
+        created_at,
+    })
 }
 
 fn row_to_job(row: sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {

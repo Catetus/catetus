@@ -9,8 +9,10 @@
 //! no-double-charge invariant against a Stripe-mock server without
 //! spinning up the whole Axum app.
 
+pub mod audit;
 pub mod billing;
 pub mod checkout;
 pub mod modal_client;
+pub mod ratelimit;
 pub mod ratings;
 pub mod store;

@@ -87,3 +87,7 @@ packages/viewer/dist-bench/
 tasks/todo.md
 /benches/scenes/bonsai_mipnerf360_iter7k.ply
 /benches/scenes/real/
+
+# splatforge-api default local sqlite path — runtime-created.
+/data/
+apps/api/data/

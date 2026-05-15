@@ -1,0 +1,578 @@
+openapi: 3.1.0
+info:
+  title: SplatForge API
+  version: 0.1.0
+  summary: Hosted optimize endpoint for SplatForge.
+  description: |
+    Public surface for SplatForge's hosted optimize / repack pipeline.
+
+    ## Auth
+    All `/v1/jobs*` routes require a bearer API key
+    (`Authorization: Bearer <SPLATFORGE_API_KEY>`).
+    `/v1/jobs/:id/repack` additionally requires a paid-tier key.
+    `/v1/admin/audit` requires an admin-tier key.
+    `/v1/stripe/webhook` is gated on the `Stripe-Signature` HMAC, not bearer auth.
+
+    ## Rate limits
+    Token-bucket per (API-key, route class). Defaults (per hour):
+      * `POST /v1/jobs`: 60 free, 600 paid
+      * `POST /v1/jobs/:id/upload`: 10 free, 100 paid
+      * `POST /v1/jobs/:id/repack`: 5 (paid only)
+      * `GET  /v1/jobs/:id`: 600
+      * `POST /v1/jobs/batch`: 6 (paid only)
+    A 429 response carries `Retry-After` (seconds) and `X-RateLimit-Remaining`.
+
+    ## Errors
+    All non-2xx responses use the same envelope: `{ "error": "<message>" }`.
+  contact:
+    name: SplatForge
+    url: https://splatforge.dev
+  license:
+    name: Apache-2.0
+
+servers:
+  - url: https://splatforge-api.fly.dev
+    description: Production
+  - url: http://localhost:8080
+    description: Local dev (cargo run -p splatforge-api)
+
+tags:
+  - name: jobs
+    description: Free-tier and paid-tier optimize jobs.
+  - name: webhooks
+    description: Stripe billing webhook.
+  - name: admin
+    description: Operator-only routes.
+  - name: meta
+    description: Health, docs, spec.
+
+paths:
+  /healthz:
+    get:
+      tags: [meta]
+      summary: Liveness probe.
+      description: Returns `{ ok, service, version }`. Never rate-limited.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service, version]
+                properties:
+                  ok: { type: boolean }
+                  service: { type: string }
+                  version: { type: string }
+              example:
+                ok: true
+                service: splatforge-api
+                version: 0.1.0
+
+  /openapi.yaml:
+    get:
+      tags: [meta]
+      summary: This document.
+      responses:
+        "200":
+          description: OpenAPI 3.1 spec, YAML.
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /docs:
+    get:
+      tags: [meta]
+      summary: Swagger UI for this spec.
+      responses:
+        "200":
+          description: HTML page.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /v1/jobs:
+    post:
+      tags: [jobs]
+      summary: Create an optimize job.
+      description: |
+        Two mutually exclusive modes:
+
+        1. **Proxy upload** — set `filename` + `size_bytes`. The response
+           includes an `upload_url` you `PUT` the bytes to via
+           `/v1/jobs/:id/upload`.
+        2. **Source URL** — set `source_url` (HTTPS). The worker fetches
+           directly and the job lands `Queued` immediately.
+
+        Rate limit: 60/h free, 600/h paid.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "200":
+          description: Job created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateJobResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/jobs/batch:
+    post:
+      tags: [jobs]
+      summary: Create up to 100 jobs atomically.
+      description: |
+        All-or-nothing validation: if any entry is malformed the whole
+        batch is rejected and no jobs are inserted. Every job carries the
+        same `batch_id` for correlation.
+
+        Paid-tier only. Rate limit: 6/h.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchCreateRequest"
+      responses:
+        "200":
+          description: Batch accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchCreateResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/jobs/{id}:
+    get:
+      tags: [jobs]
+      summary: Poll a job.
+      description: Returns the current state, including `output_url` once `Done`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/jobs/{id}/upload:
+    post:
+      tags: [jobs]
+      summary: Stream splat bytes through to blob storage.
+      description: |
+        Body is the raw splat payload (no JSON wrapper). The server streams
+        it to Vercel Blob without buffering — body cap is 2 GB.
+
+        Rate limit: 10/h free, 100/h paid.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Upload accepted, job is now `Queued`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/BadGateway" }
+
+  /v1/jobs/{id}/repack:
+    post:
+      tags: [jobs]
+      summary: Paid-tier differentiable repack (A100).
+      description: |
+        Requires the job to already be `Done`. Dispatches the original
+        input through gsplat on an A100 against a target byte budget.
+
+        Paid-tier only. Rate limit: 5/h.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepackRequest"
+      responses:
+        "200":
+          description: Repack dispatched; job re-marked `Running`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/BadGateway" }
+
+  /v1/jobs/{id}/result:
+    post:
+      tags: [jobs]
+      summary: Worker callback (NOT for end users).
+      description: |
+        The Modal worker POSTs here when a job moves to a terminal state.
+        Protected by the per-job UUID (caller must know the id) — no
+        bearer token, no rate limit.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResultPayload"
+      responses:
+        "200":
+          description: Acknowledged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+
+  /v1/stripe/webhook:
+    post:
+      tags: [webhooks]
+      summary: Stripe webhook receiver.
+      description: |
+        Verifies the `Stripe-Signature` header against the raw body via
+        HMAC-SHA256. Returns 401 on invalid / missing signature, 200 on
+        success (including for events we ignore).
+      security:
+        - stripeSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Event acknowledged.
+        "401":
+          description: Signature missing / invalid.
+
+  /v1/admin/audit:
+    get:
+      tags: [admin]
+      summary: Read the last N audit events (newest first).
+      description: |
+        Requires a bearer key from `SPLATFORGE_ADMIN_API_KEYS` (separate
+        set from `SPLATFORGE_API_KEYS`). Returns up to 1000 rows.
+      security:
+        - adminBearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 1000
+      responses:
+        "200":
+          description: List of audit events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEvent"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        Bearer token from `SPLATFORGE_API_KEYS`. Paid-tier routes
+        additionally require the token to appear in `SPLATFORGE_PAID_API_KEYS`.
+    adminBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Admin bearer token from `SPLATFORGE_ADMIN_API_KEYS`.
+    stripeSignature:
+      type: apiKey
+      in: header
+      name: Stripe-Signature
+      description: |
+        HMAC-SHA256 over the raw body using the `STRIPE_WEBHOOK_SECRET`
+        signing key. Format `t=<unix>,v1=<hex>` per Stripe spec.
+
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Bad request — invalid input.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing / invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Authenticated but not allowed (e.g. free tier hitting paid-only route).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Rate limit exceeded for this API key + route class.
+      headers:
+        Retry-After:
+          description: Seconds until the bucket refills enough for one more token.
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          description: Tokens left in the bucket (always 0 on a 429).
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadGateway:
+      description: Upstream worker / blob storage error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable explanation.
+        retry_after_s:
+          type: integer
+          description: Only present on 429 responses.
+
+    CreateJobRequest:
+      type: object
+      required: [preset]
+      properties:
+        preset:
+          type: string
+          enum: [lossless-repack, web-mobile, size-min, dev]
+        filename:
+          type: string
+          description: Proxy-upload mode: suggested filename.
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 3221225472
+          description: Proxy-upload mode: size in bytes. Hard cap 3 GB.
+        source_url:
+          type: string
+          format: uri
+          description: URL-mode: HTTPS URL the worker fetches directly.
+        label:
+          type: string
+          description: Optional caller-supplied tag.
+        webhook_url:
+          type: string
+          format: uri
+          description: HTTPS endpoint we POST the final Job JSON to.
+
+    CreateJobResponse:
+      type: object
+      required: [id, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/JobStatus" }
+        upload_url:
+          type: string
+          description: Present only in proxy-upload mode.
+        upload_method:
+          type: string
+          enum: [PUT]
+        created_at:
+          type: string
+          format: date-time
+
+    BatchCreateRequest:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/CreateJobRequest"
+
+    BatchCreateResponse:
+      type: object
+      required: [batch_id, jobs]
+      properties:
+        batch_id: { type: string, format: uuid }
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreateJobResponse"
+
+    RepackRequest:
+      type: object
+      required: [target_bytes]
+      properties:
+        target_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 3221225472
+        iterations:
+          type: integer
+          minimum: 1
+          maximum: 5000
+          default: 1000
+
+    ResultPayload:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [running, done, succeeded, error, failed]
+        output_url: { type: string, format: uri }
+        preview_url: { type: string, format: uri }
+        phase: { type: string }
+        percent: { type: number, format: float, minimum: 0, maximum: 1 }
+        compute_seconds: { type: integer, minimum: 0 }
+        error: { type: string }
+
+    JobStatus:
+      type: string
+      enum:
+        - awaiting-upload
+        - uploading
+        - queued
+        - running
+        - done
+        - error
+
+    Tier:
+      type: string
+      enum: [free, paid]
+
+    Job:
+      type: object
+      required: [id, preset, filename, size_bytes, status, blob_key, tier, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        preset: { type: string }
+        filename: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        label: { type: string }
+        status: { $ref: "#/components/schemas/JobStatus" }
+        blob_key: { type: string }
+        blob_url: { type: string }
+        source_url: { type: string, format: uri }
+        upload_size_bytes: { type: integer, format: int64 }
+        output_url: { type: string, format: uri }
+        preview_url: { type: string, format: uri }
+        phase: { type: string }
+        percent: { type: number, format: float }
+        webhook_url: { type: string, format: uri }
+        batch_id: { type: string, format: uuid }
+        tier: { $ref: "#/components/schemas/Tier" }
+        customer_id: { type: string }
+        created_at: { type: string, format: date-time }
+        error: { type: string }
+
+    AuditEvent:
+      type: object
+      required: [id, key_prefix, route, method, status, body_size, duration_ms, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        key_prefix:
+          type: string
+          description: First 8 characters of the API key used (never the full token).
+        route:
+          type: string
+          description: Templated route, e.g. `/v1/jobs/:id/upload`.
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE]
+        status:
+          type: integer
+          description: HTTP status returned to the caller.
+        body_size:
+          type: integer
+          description: Response body size in bytes; 0 for streamed responses.
+        duration_ms:
+          type: integer
+          description: Wall-clock handler duration.
+        error:
+          type: string
+          description: Short operator-facing reason (e.g. `rate-limited`).
+        created_at:
+          type: string
+          format: date-time
+
+security:
+  - bearerAuth: []
