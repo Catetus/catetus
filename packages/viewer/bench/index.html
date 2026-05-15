@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SplatForge compute-decode bench</title>
+<style>html,body{margin:0;background:#000;color:#cfc;font:12px/1.4 ui-monospace,Menlo,monospace}#log{padding:8px;white-space:pre-wrap}</style>
+</head>
+<body>
+<div id="log">bench: booting…</div>
+<script type="module">
+  import { main } from '/dist-bench/compute-decode.bench.js';
+  const log = document.getElementById('log');
+  window.addEventListener('error', (e) => {
+    log.textContent += `\nerror: ${e.message}`;
+  });
+  (async () => {
+    try {
+      await main();
+      log.textContent += `\nbench: done`;
+    } catch (err) {
+      log.textContent += `\nfatal: ${err && err.message || err}`;
+      window.__bench = { error: 'fatal', message: String(err) };
+    }
+  })();
+</script>
+</body>
+</html>

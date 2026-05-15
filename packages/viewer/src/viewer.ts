@@ -55,12 +55,13 @@ export type ViewerEventName = keyof EmitterMap;
 export class SplatForgeViewer {
   private readonly emitter = new Emitter<EmitterMap>();
   private readonly opts: Required<
-    Omit<ViewerOptions, 'cameraPath' | 'budget' | 'renderer' | 'cameraBbox'>
+    Omit<ViewerOptions, 'cameraPath' | 'budget' | 'renderer' | 'cameraBbox' | 'useComputeDecode'>
   > & {
     cameraPath: NonNullable<ViewerOptions['cameraPath']>;
     budget: NonNullable<ViewerOptions['budget']>;
     renderer: RendererKind;
     cameraBbox?: ViewerOptions['cameraBbox'];
+    useComputeDecode: boolean;
   };
   private renderer?: Renderer;
   private stats?: StatsOverlay;
@@ -85,6 +86,7 @@ export class SplatForgeViewer {
       autoRotateSpeed: options.autoRotateSpeed ?? 10,
       autoRotateFraming: options.autoRotateFraming ?? 1.0,
       cameraBbox: options.cameraBbox,
+      useComputeDecode: options.useComputeDecode ?? false,
     };
   }
 
@@ -243,13 +245,15 @@ export class SplatForgeViewer {
       if (!(await isWebGPUAvailable())) {
         throw new Error('renderer_unavailable: WebGPU requested but missing');
       }
-      return new WebGPURenderer();
+      return new WebGPURenderer({ useComputeDecode: this.opts.useComputeDecode });
     }
     if (kind === 'webgl2') {
       return new WebGL2Renderer();
     }
     // auto
-    if (await isWebGPUAvailable()) return new WebGPURenderer();
+    if (await isWebGPUAvailable()) {
+      return new WebGPURenderer({ useComputeDecode: this.opts.useComputeDecode });
+    }
     return new WebGL2Renderer();
   }
 

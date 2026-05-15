@@ -19,9 +19,11 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
-    "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "build": "node scripts/embed-wgsl.mjs && tsc",
+    "lint": "node scripts/embed-wgsl.mjs && tsc --noEmit",
+    "test": "node scripts/embed-wgsl.mjs && vitest run",
+    "bench": "node scripts/embed-wgsl.mjs && node --experimental-vm-modules bench/run-bench.mjs",
+    "embed-wgsl": "node scripts/embed-wgsl.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
