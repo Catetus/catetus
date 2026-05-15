@@ -60,13 +60,22 @@ enum Command {
         /// Emit chunked glTF.
         #[arg(long)]
         chunked: bool,
-        /// After the regular write, also emit zstd-compressed `.bin.zst`
-        /// versions of each buffer file. Halves the on-disk size of
-        /// quantized presets at zero quality cost. Served via HTTP with
-        /// `Content-Encoding: zstd` modern browsers decode transparently.
-        #[arg(long)]
-        compress: bool,
-        /// Output path; defaults to "<input>.optimized.gltf".
+        /// Compression mode for the output buffers.
+        ///   `zstd` — also emit zstd-compressed `.bin.zst` sidecars (legacy
+        ///   behavior of the bare `--compress` flag; halves the on-disk size
+        ///   of quantized presets at zero quality cost, served via HTTP with
+        ///   `Content-Encoding: zstd`).
+        ///   `spz`  — pack the scene as a single SPZ blob inside the GLB
+        ///   under the `KHR_gaussian_splatting_compression_spz` extension.
+        ///   Requires `--target glb`.
+        #[arg(long, value_name = "MODE", num_args = 0..=1, default_missing_value = "zstd")]
+        compress: Option<String>,
+        /// Output container: `gltf` (default) or `glb`. `glb` produces a
+        /// self-contained binary glTF; required for `--compress spz`.
+        #[arg(long, value_name = "FORMAT")]
+        target: Option<String>,
+        /// Output path; defaults to "<input>.optimized.gltf" (or `.glb` when
+        /// `--target glb` is set).
         #[arg(long, short = 'o')]
         out: Option<PathBuf>,
         /// Output DIRECTORY for multi-tile presets (`geospatial`). The
@@ -205,6 +214,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             preset,
             chunked,
             compress,
+            target,
             out,
             output_dir,
             progress,
@@ -212,7 +222,8 @@ fn dispatch(cli: Cli) -> Result<()> {
             &input,
             &preset,
             chunked,
-            compress,
+            compress.as_deref(),
+            target.as_deref(),
             out.as_deref(),
             output_dir.as_deref(),
             progress,
@@ -364,13 +375,31 @@ fn cmd_optimize(
     input: &Path,
     preset_name: &str,
     chunked: bool,
-    compress: bool,
+    compress: Option<&str>,
+    target: Option<&str>,
     out: Option<&Path>,
     output_dir: Option<&Path>,
     progress: bool,
 ) -> Result<()> {
     if out.is_some() && output_dir.is_some() {
         return Err(anyhow!("--out and --output-dir are mutually exclusive"));
+    }
+    let target_glb = match target {
+        None | Some("gltf") => false,
+        Some("glb") => true,
+        Some(other) => return Err(anyhow!("unknown --target {other:?} (want gltf or glb)")),
+    };
+    let compress_mode: Option<&str> = match compress {
+        None => None,
+        Some("zstd") => Some("zstd"),
+        Some("spz") => Some("spz"),
+        Some("none") => None,
+        Some(other) => return Err(anyhow!("unknown --compress {other:?} (want zstd or spz)")),
+    };
+    if compress_mode == Some("spz") && !target_glb {
+        return Err(anyhow!(
+            "--compress spz requires --target glb (the extension is glb-embedded)"
+        ));
     }
     if preset_name == "geospatial" && output_dir.is_none() {
         return Err(anyhow!(
@@ -441,32 +470,45 @@ fn cmd_optimize(
         }
         return Ok(());
     }
+    let default_ext = if target_glb { "optimized.glb" } else { "optimized.gltf" };
     let out = out
         .map(PathBuf::from)
-        .unwrap_or_else(|| input.with_extension("optimized.gltf"));
+        .unwrap_or_else(|| input.with_extension(default_ext));
     // Per SPEC-0013, the web-targeted presets opt in to `KHR_mesh_quantization`
     // integer accessors so the glTF wire size lands close to the SPZ payload.
     // `lossless-repack` and `quality-max` keep f32 accessors so byte-identical
-    // round-trips remain possible.
-    let quantize = matches!(
-        preset_name,
-        "web-mobile"
-            | "web-desktop"
-            | "quest-browser"
-            | "visionos-preview"
-            | "thumbnail-preview"
-            | "size-min"
-    );
+    // round-trips remain possible. SPZ already compresses; we keep quantize=false
+    // on the SPZ path so the empty placeholder accessors stay FLOAT.
+    let quantize = compress_mode != Some("spz")
+        && matches!(
+            preset_name,
+            "web-mobile"
+                | "web-desktop"
+                | "quest-browser"
+                | "visionos-preview"
+                | "thumbnail-preview"
+                | "size-min"
+        );
+    let compress_variant = if compress_mode == Some("spz") {
+        Some(splatforge_gltf::SpzVariant::V2)
+    } else {
+        None
+    };
     let opts = WriteOpts {
         chunked,
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize,
+        compress: compress_variant,
     };
     if progress {
         emit_progress(0.92, "encoding-gltf");
     }
-    write_gltf(&scene, &out, &opts)?;
+    if target_glb {
+        write_glb(&scene, &out, &opts)?;
+    } else {
+        write_gltf(&scene, &out, &opts)?;
+    }
     if progress {
         emit_progress(0.98, "writing-report");
     }
@@ -482,7 +524,7 @@ fn cmd_optimize(
     if progress {
         emit_progress(1.00, "done");
     }
-    if compress {
+    if compress_mode == Some("zstd") {
         let (orig, comp) = compress_buffer_files(&out)?;
         let ratio = if comp > 0 {
             orig as f64 / comp as f64

@@ -9,6 +9,7 @@ description = "glTF 2.0 + KHR_gaussian_splatting writer/reader for SplatForge."
 
 [dependencies]
 splatforge-core = { workspace = true }
+splatforge-spz  = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 blake3 = { workspace = true }

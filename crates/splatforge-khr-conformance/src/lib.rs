@@ -49,6 +49,11 @@ pub enum Clause {
     SpzExtensionDeclared,
     SpzExtensionConsistent,
     NoUnknownAttributes,
+    SpzExtPresent,
+    SpzVersion,
+    SpzBufferView,
+    SpzBlobMagic,
+    SpzDecodedCount,
 }
 
 impl Clause {
@@ -78,6 +83,11 @@ impl Clause {
             Clause::SpzExtensionDeclared,
             Clause::SpzExtensionConsistent,
             Clause::NoUnknownAttributes,
+            Clause::SpzExtPresent,
+            Clause::SpzVersion,
+            Clause::SpzBufferView,
+            Clause::SpzBlobMagic,
+            Clause::SpzDecodedCount,
         ]
     }
 
@@ -107,6 +117,11 @@ impl Clause {
             Clause::SpzExtensionDeclared => "SPZ_DECLARED",
             Clause::SpzExtensionConsistent => "SPZ_CONSISTENT",
             Clause::NoUnknownAttributes => "ATTRS_KNOWN_ONLY",
+            Clause::SpzExtPresent => "SPZ_EXT_PRESENT",
+            Clause::SpzVersion => "SPZ_VERSION",
+            Clause::SpzBufferView => "SPZ_BUFFERVIEW",
+            Clause::SpzBlobMagic => "SPZ_BLOB_MAGIC",
+            Clause::SpzDecodedCount => "SPZ_DECODED_COUNT",
         }
     }
 
@@ -177,6 +192,26 @@ impl Clause {
                 "The KHR_gaussian_splatting attributes object MUST NOT contain unknown \
                  attribute keys (only POSITION, _ROTATION, _SCALE, _OPACITY, _COLOR_DC, \
                  _COLOR_SH are reserved)."
+            }
+            Clause::SpzExtPresent => {
+                "When KHR_gaussian_splatting_compression_spz is in extensionsUsed, at \
+                 least one primitive MUST declare it under its own extensions object."
+            }
+            Clause::SpzVersion => {
+                "KHR_gaussian_splatting_compression_spz.version MUST be 2 (the SPZ wire \
+                 format version)."
+            }
+            Clause::SpzBufferView => {
+                "KHR_gaussian_splatting_compression_spz.bufferView MUST be an integer in \
+                 range of bufferViews[] and the view MUST fit within its buffer."
+            }
+            Clause::SpzBlobMagic => {
+                "The bytes referenced by the SPZ bufferView MUST start with the SPZ magic \
+                 (0x5053_4e47)."
+            }
+            Clause::SpzDecodedCount => {
+                "The splat_count decoded from the SPZ header MUST equal the primitive's \
+                 declared splatCount (extension or _OPACITY accessor count)."
             }
         }
     }
@@ -262,13 +297,16 @@ pub fn validate_path(path: &Path) -> Result<Report, ValidateError> {
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
     let bytes = fs::read(path)?;
-    let (json_str, container) = match ext.as_str() {
-        "gltf" => (String::from_utf8_lossy(&bytes).to_string(), "gltf"),
-        "glb" => (extract_glb_json(&bytes)?, "glb"),
+    let (json_str, container, bin): (String, &str, Option<Vec<u8>>) = match ext.as_str() {
+        "gltf" => (String::from_utf8_lossy(&bytes).to_string(), "gltf", None),
+        "glb" => {
+            let (j, b) = extract_glb_parts(&bytes)?;
+            (j, "glb", b)
+        }
         other => return Err(ValidateError::UnsupportedExt(other.to_string())),
     };
     let value: serde_json::Value = serde_json::from_str(&json_str)?;
-    let clauses = run_clauses(&value);
+    let clauses = run_clauses(&value, bin.as_deref());
     let mut pass = 0;
     let mut fail = 0;
     let mut skip = 0;
@@ -292,7 +330,7 @@ pub fn validate_path(path: &Path) -> Result<Report, ValidateError> {
 /// Validate a glTF JSON document already in memory. Useful for tests and for
 /// callers who have already extracted the JSON chunk from a GLB.
 pub fn validate_json(json: &serde_json::Value, source: &str) -> Report {
-    let clauses = run_clauses(json);
+    let clauses = run_clauses(json, None);
     let mut pass = 0;
     let mut fail = 0;
     let mut skip = 0;
@@ -313,7 +351,10 @@ pub fn validate_json(json: &serde_json::Value, source: &str) -> Report {
     }
 }
 
-fn extract_glb_json(bytes: &[u8]) -> Result<String, ValidateError> {
+/// Extract both the JSON chunk (as a UTF-8 string) and the BIN chunk (raw
+/// bytes) from a GLB container. The BIN chunk is needed for the SPZ
+/// blob-magic and decoded-count clauses.
+fn extract_glb_parts(bytes: &[u8]) -> Result<(String, Option<Vec<u8>>), ValidateError> {
     if bytes.len() < 12 || bytes[..4] != GLB_MAGIC {
         return Err(ValidateError::Glb("bad magic".to_string()));
     }
@@ -322,6 +363,8 @@ fn extract_glb_json(bytes: &[u8]) -> Result<String, ValidateError> {
         return Err(ValidateError::Glb("truncated".to_string()));
     }
     let mut offset = 12usize;
+    let mut json: Option<String> = None;
+    let mut bin: Option<Vec<u8>> = None;
     while offset + 8 <= total {
         let chunk_len = u32::from_le_bytes([
             bytes[offset],
@@ -340,19 +383,28 @@ fn extract_glb_json(bytes: &[u8]) -> Result<String, ValidateError> {
         if data_end > total {
             return Err(ValidateError::Glb("chunk exceeds total".to_string()));
         }
-        if chunk_ty == 0x4E4F_534A {
-            // "JSON"
-            let mut end = data_end;
-            while end > data_start && (bytes[end - 1] == b' ' || bytes[end - 1] == 0) {
-                end -= 1;
+        match chunk_ty {
+            0x4E4F_534A => {
+                let mut end = data_end;
+                while end > data_start && (bytes[end - 1] == b' ' || bytes[end - 1] == 0) {
+                    end -= 1;
+                }
+                json = Some(
+                    std::str::from_utf8(&bytes[data_start..end])
+                        .map_err(|_| ValidateError::Glb("JSON chunk not UTF-8".to_string()))?
+                        .to_string(),
+                );
             }
-            return std::str::from_utf8(&bytes[data_start..end])
-                .map(str::to_string)
-                .map_err(|_| ValidateError::Glb("JSON chunk not UTF-8".to_string()));
+            0x004E_4942 => {
+                // "BIN\0"
+                bin = Some(bytes[data_start..data_end].to_vec());
+            }
+            _ => {}
         }
         offset = data_end;
     }
-    Err(ValidateError::Glb("missing JSON chunk".to_string()))
+    let j = json.ok_or_else(|| ValidateError::Glb("missing JSON chunk".to_string()))?;
+    Ok((j, bin))
 }
 
 // ---------- clause evaluation ----------
@@ -381,7 +433,7 @@ fn skip(id: Clause, detail: impl Into<String>) -> ClauseResult {
     }
 }
 
-fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
+fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult> {
     let mut out = Vec::with_capacity(Clause::all().len());
 
     // ----- root-level extension declaration -----
@@ -792,6 +844,198 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
                     format!("unknown attributes: {unknown:?}"),
                 )
             }
+        }
+    });
+
+    // ----- KHR_gaussian_splatting_compression_spz clauses (5) -----
+    //
+    // These supplement SPZ_DECLARED / SPZ_CONSISTENT above and target the
+    // body of the SPZ extension itself: version field, bufferView reference,
+    // SPZ-blob magic, and decoded-count agreement.
+    let spz_ext_blob = root
+        .get("meshes")
+        .and_then(|m| m.as_array())
+        .and_then(|m| m.first())
+        .and_then(|m| m.get("primitives"))
+        .and_then(|p| p.as_array())
+        .and_then(|p| p.first())
+        .and_then(|p| p.get("extensions"))
+        .and_then(|e| e.get(SPZ));
+    let spz_in_use = has_spz_used || spz_ext_blob.is_some();
+
+    out.push(if !spz_in_use {
+        skip(Clause::SpzExtPresent, "SPZ extension not declared")
+    } else if spz_ext_blob.is_none() {
+        fail(
+            Clause::SpzExtPresent,
+            "extensionsUsed contains SPZ but no primitive declares it",
+        )
+    } else {
+        pass(Clause::SpzExtPresent)
+    });
+
+    out.push(if !spz_in_use {
+        skip(Clause::SpzVersion, "SPZ extension not declared")
+    } else {
+        match spz_ext_blob.and_then(|e| e.get("version")).and_then(|v| v.as_u64()) {
+            None => fail(Clause::SpzVersion, "SPZ extension missing version field"),
+            Some(2) => pass(Clause::SpzVersion),
+            Some(other) => fail(
+                Clause::SpzVersion,
+                format!("SPZ version={other}, want 2 (current SPZ wire format)"),
+            ),
+        }
+    });
+
+    // Compute the SPZ bufferView byte range up front; reused by magic + count clauses.
+    let bv_resolved: Option<(usize, usize, usize)> = spz_ext_blob
+        .and_then(|e| e.get("bufferView"))
+        .and_then(|v| v.as_u64())
+        .map(|idx| idx as usize)
+        .and_then(|idx| {
+            buffer_views.get(idx).map(|bv| {
+                let off = bv.get("byteOffset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let len = bv.get("byteLength").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let buf = bv.get("buffer").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                (buf, off, len)
+            })
+        });
+
+    out.push(if !spz_in_use {
+        skip(Clause::SpzBufferView, "SPZ extension not declared")
+    } else {
+        match spz_ext_blob.and_then(|e| e.get("bufferView")).and_then(|v| v.as_u64()) {
+            None => fail(Clause::SpzBufferView, "SPZ extension missing bufferView"),
+            Some(idx) => {
+                let idx = idx as usize;
+                match buffer_views.get(idx) {
+                    None => fail(
+                        Clause::SpzBufferView,
+                        format!("SPZ bufferView {idx} out of range"),
+                    ),
+                    Some(bv) => {
+                        let off = bv.get("byteOffset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let len = bv.get("byteLength").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let buf_idx =
+                            bv.get("buffer").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let buf_len = buffers
+                            .get(buf_idx)
+                            .and_then(|b| b.get("byteLength"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as usize;
+                        if off + len > buf_len {
+                            fail(
+                                Clause::SpzBufferView,
+                                format!(
+                                    "SPZ bufferView (off={off}, len={len}) overflows buffer {buf_idx} (len={buf_len})"
+                                ),
+                            )
+                        } else if len < 16 {
+                            fail(
+                                Clause::SpzBufferView,
+                                format!("SPZ bufferView byteLength={len} < 16 (SPZ header size)"),
+                            )
+                        } else {
+                            pass(Clause::SpzBufferView)
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    out.push(if !spz_in_use {
+        skip(Clause::SpzBlobMagic, "SPZ extension not declared")
+    } else {
+        match (bv_resolved, bin) {
+            (Some((0, off, len)), Some(bin_bytes)) => {
+                if off + len > bin_bytes.len() || len < 4 {
+                    fail(
+                        Clause::SpzBlobMagic,
+                        format!("SPZ bufferView (off={off}, len={len}) does not fit in BIN chunk"),
+                    )
+                } else {
+                    let m = &bin_bytes[off..off + 4];
+                    // SPZ_MAGIC = 0x5053_4e47 little-endian => bytes [0x47, 0x4e, 0x53, 0x50] = "GNSP".
+                    let want = [0x47u8, 0x4e, 0x53, 0x50];
+                    if m == want {
+                        pass(Clause::SpzBlobMagic)
+                    } else {
+                        fail(
+                            Clause::SpzBlobMagic,
+                            format!(
+                                "SPZ blob magic={:02x?}, want {:02x?} (0x5053_4e47 LE)",
+                                m, want
+                            ),
+                        )
+                    }
+                }
+            }
+            (Some(_), None) => skip(
+                Clause::SpzBlobMagic,
+                "SPZ blob magic not checkable on .gltf (no BIN chunk)",
+            ),
+            (Some((buf, _, _)), Some(_)) => skip(
+                Clause::SpzBlobMagic,
+                format!("SPZ bufferView refers to buffer {buf}, not the GLB BIN buffer"),
+            ),
+            (None, _) => skip(
+                Clause::SpzBlobMagic,
+                "SPZ bufferView did not resolve to a buffer range",
+            ),
+        }
+    });
+
+    out.push(if !spz_in_use {
+        skip(Clause::SpzDecodedCount, "SPZ extension not declared")
+    } else {
+        // The extension's declared splat count. Fall back to the _OPACITY
+        // accessor count when the extension omits the field (allowed but
+        // discouraged per the spec).
+        let declared = spz_ext_blob
+            .and_then(|e| e.get("splatCount"))
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .or_else(|| {
+                attr_idx("_OPACITY")
+                    .and_then(|i| accessors.get(i))
+                    .and_then(|a| a.get("count"))
+                    .and_then(|c| c.as_u64())
+                    .map(|n| n as usize)
+                    .filter(|n| *n > 0)
+            });
+        match (bv_resolved, bin, declared) {
+            (Some((0, off, len)), Some(bin_bytes), Some(want))
+                if off + 12 <= bin_bytes.len() && len >= 12 =>
+            {
+                // SPZ header: u32 magic, u32 version, u32 splat_count (LE).
+                let header = &bin_bytes[off..off + 12];
+                let count = u32::from_le_bytes([header[8], header[9], header[10], header[11]])
+                    as usize;
+                if count == want {
+                    pass(Clause::SpzDecodedCount)
+                } else {
+                    fail(
+                        Clause::SpzDecodedCount,
+                        format!(
+                            "SPZ header splat_count={count} but primitive declares {want}"
+                        ),
+                    )
+                }
+            }
+            (_, _, None) => skip(
+                Clause::SpzDecodedCount,
+                "no primitive splatCount available to compare against",
+            ),
+            (Some(_), None, _) => skip(
+                Clause::SpzDecodedCount,
+                "SPZ blob splat_count not checkable on .gltf (no BIN chunk)",
+            ),
+            (None, _, _) => skip(
+                Clause::SpzDecodedCount,
+                "SPZ bufferView did not resolve",
+            ),
+            _ => skip(Clause::SpzDecodedCount, "SPZ blob too small for header"),
         }
     });
 
