@@ -27,6 +27,8 @@ const cull = readFileSync(join(wgpu, 'cs_cull.wgsl'), 'utf8');
 const wsrClear = readFileSync(join(wgpu, 'cs_wsr_clear.wgsl'), 'utf8');
 const wsrAccum = readFileSync(join(wgpu, 'cs_wsr_accumulate.wgsl'), 'utf8');
 const wsrResolve = readFileSync(join(wgpu, 'cs_wsr_resolve.wgsl'), 'utf8');
+const tileBin = readFileSync(join(wgpu, 'cs_tile_bin.wgsl'), 'utf8');
+const wsrTileAccum = readFileSync(join(wgpu, 'cs_wsr_tile_accumulate.wgsl'), 'utf8');
 
 const escape = (s) => '`' + s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${') + '`';
 
@@ -50,6 +52,10 @@ export const WSR_CLEAR_WGSL: string = ${escape(wsrClear)};
 export const WSR_ACCUMULATE_WGSL: string = ${escape(wsrAccum)};
 
 export const WSR_RESOLVE_WGSL: string = ${escape(wsrResolve)};
+
+export const TILE_BIN_WGSL: string = ${escape(tileBin)};
+
+export const WSR_TILE_ACCUMULATE_WGSL: string = ${escape(wsrTileAccum)};
 `;
 
 writeFileSync(join(wgpu, 'shaders.generated.ts'), out);

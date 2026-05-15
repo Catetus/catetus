@@ -43,6 +43,7 @@ import { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL } from './shaders.gen
 import { createRadixSortPipelines, RadixSort, type RadixSortPipelines } from './radix_sort.js';
 import { createCullPipelines, CullPipeline } from './cull.js';
 import { WSRPipeline, WSR_DEFAULT_BG_WEIGHT } from './wsr.js';
+import { WSRTilePipeline } from './wsr_tile.js';
 import type { ChunkDescriptor, SoaAttributeLayout } from '../manifest.js';
 
 /** Floats per per-instance render record. Mirrors `FLOATS_PER_INSTANCE` in webgpu.ts. */
@@ -317,6 +318,29 @@ export interface ComputeDecodePipelineInit {
   wsrMaxWidth?: number;
   /** Max viewport height for the WSR accumulator. Defaults to 1080. */
   wsrMaxHeight?: number;
+  /**
+   * Enable the tile-prefix-sum WSR scatter path (B8 PR2 KILL recovery).
+   *
+   * When `true`, `encode()` dispatches `WSRTilePipeline.encode` (tile-clear
+   * → tile-bin → per-tile accumulate → resolve) instead of the sorted
+   * alpha-blend path or the PR1/PR2 atomic-add scatter (`useWSR`). Per-tile
+   * splat lists are accumulated in workgroup-shared memory, eliminating
+   * the per-pixel atomic contention that killed PR2 at 0.29 fps / 17 dB on
+   * bonsai (CAS-loop saturation).
+   *
+   * Mutually exclusive with `useWSR` — if both are set, `useWSRTile` wins
+   * (the tile-prefix-sum path supersedes the atomic-scatter path).
+   *
+   * Reuses `wsrMaxWidth` / `wsrMaxHeight` for accumulator sizing.
+   */
+  useWSRTile?: boolean;
+  /**
+   * Per-tile splat-list capacity for the tile-prefix-sum path. Splats that
+   * overflow a tile's list are silently dropped (rare on real scenes).
+   * Default: 16384. Raising this trades GPU memory for headroom on
+   * pathologically dense tiles.
+   */
+  wsrTileMaxPerTile?: number;
 }
 
 /**
@@ -364,6 +388,10 @@ export class ComputeDecodePipeline {
   readonly wsr: WSRPipeline | null;
   /** True when useWSR was requested at construction. */
   readonly useWSR: boolean;
+  /** Optional tile-prefix-sum WSR pipeline. Allocated when useWSRTile=true. */
+  readonly wsrTile: WSRTilePipeline | null;
+  /** True when useWSRTile was requested at construction. */
+  readonly useWSRTile: boolean;
   /**
    * Scene-wide WSR depth-weight scale. Initialised host-side from the scene
    * bounding box (`2 × mean_scene_depth`); the renderer or the unit test
@@ -523,6 +551,26 @@ export class ComputeDecodePipeline {
     } else {
       this.wsr = null;
     }
+
+    // -----------------------------------------------------------------
+    // Optional tile-prefix-sum WSR (B8 PR2 KILL recovery). Tile binning +
+    // workgroup-shared accumulation eliminates per-pixel atomic
+    // contention. Coexists with `useWSR` (the atomic-scatter path) on
+    // the same ComputeDecodePipeline; `encode()` prefers the tile path
+    // when both are set.
+    // -----------------------------------------------------------------
+    this.useWSRTile = init.useWSRTile ?? false;
+    if (this.useWSRTile) {
+      this.wsrTile = new WSRTilePipeline({
+        device: this.device,
+        maxWidth: init.wsrMaxWidth ?? 1920,
+        maxHeight: init.wsrMaxHeight ?? 1080,
+        splatsBuffer: this.splatsBuffer,
+        maxPerTile: init.wsrTileMaxPerTile,
+      });
+    } else {
+      this.wsrTile = null;
+    }
   }
 
   /**
@@ -621,6 +669,15 @@ export class ComputeDecodePipeline {
   ): void {
     const count = this.decodedSplats;
     if (count === 0) return;
+
+    // WSR-Tile path (B8 PR2 KILL recovery). Tile-prefix-sum scatter; one
+    // workgroup per tile, accumulators in workgroup-private registers.
+    // Mutually preferred over the legacy useWSR atomic-scatter when both
+    // flags are set — the tile path is the production-viable WSR.
+    if (this.useWSRTile && this.wsrTile) {
+      this.encodeWSRTile(encoder, view, viewProj, focal, viewport);
+      return;
+    }
 
     // WSR path (PR1 feature flag). Skips keygen/radix/gather entirely and
     // produces the final rgba8unorm-packed frame in `wsr.outputBuffer`. The
@@ -728,6 +785,38 @@ export class ComputeDecodePipeline {
     const count = this.decodedSplats;
     if (count === 0) return;
     this.wsr.encode(
+      encoder,
+      view,
+      viewProj,
+      focal,
+      viewport,
+      count,
+      this.wsrSigma,
+      this.wsrBgColor,
+    );
+  }
+
+  /**
+   * Tile-prefix-sum WSR encode path (B8 PR2 KILL recovery).
+   *
+   * Records `tile-clear → tile-bin → per-tile accumulate → resolve` into
+   * the caller's encoder. The per-pixel accumulators are written from
+   * workgroup-private registers — NO per-pixel atomics, no CAS-loop, no
+   * float32-blendable dependency.
+   *
+   * Final rgba8unorm-packed frame lands in `this.wsrTile.outputBuffer`.
+   */
+  encodeWSRTile(
+    encoder: GPUCommandEncoder,
+    view: Float32Array,
+    viewProj: Float32Array,
+    focal: [number, number],
+    viewport: [number, number],
+  ): void {
+    if (!this.wsrTile) throw new Error('encodeWSRTile requires useWSRTile=true');
+    const count = this.decodedSplats;
+    if (count === 0) return;
+    this.wsrTile.encode(
       encoder,
       view,
       viewProj,
@@ -1154,6 +1243,7 @@ export class ComputeDecodePipeline {
     this.sorter.destroy();
     this.cull?.destroy();
     this.wsr?.destroy();
+    this.wsrTile?.destroy();
   }
 }
 
@@ -1166,6 +1256,8 @@ export {
   WSR_CLEAR_WGSL,
   WSR_ACCUMULATE_WGSL,
   WSR_RESOLVE_WGSL,
+  TILE_BIN_WGSL,
+  WSR_TILE_ACCUMULATE_WGSL,
 } from './shaders.generated.js';
 export { CullPipeline, createCullPipelines } from './cull.js';
 export {
@@ -1175,3 +1267,12 @@ export {
   WSR_TILE,
   WSR_WG,
 } from './wsr.js';
+export {
+  WSRTilePipeline,
+  createWSRTilePipelines,
+  WSR_TILE_SIZE,
+  WSR_TILE_BIN_WG,
+  WSR_TILE_CLEAR_WG,
+  WSR_TILE_DEFAULT_MAX_PER_TILE,
+  WSR_TILE_DEFAULT_BG_WEIGHT,
+} from './wsr_tile.js';
