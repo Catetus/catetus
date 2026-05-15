@@ -85,3 +85,5 @@ packages/viewer/dist-bench/
 
 # Per-task todo dumps from agents — not durable docs.
 tasks/todo.md
+/benches/scenes/bonsai_mipnerf360_iter7k.ply
+/benches/scenes/real/
