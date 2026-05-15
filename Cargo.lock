@@ -2924,13 +2924,14 @@ dependencies = [
 
 [[package]]
 name = "splatforge-gltf"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "byteorder",
  "serde",
  "serde_json",
  "splatforge-core",
+ "splatforge-khr-conformance",
  "splatforge-spz",
  "tempfile",
  "thiserror 1.0.69",
@@ -2938,13 +2939,13 @@ dependencies = [
 
 [[package]]
 name = "splatforge-khr-conformance"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "serde",
  "serde_json",
  "splatforge-core",
- "splatforge-gltf",
+ "splatforge-spz",
  "tempfile",
  "thiserror 1.0.69",
 ]

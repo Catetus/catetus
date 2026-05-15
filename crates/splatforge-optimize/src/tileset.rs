@@ -261,6 +261,8 @@ pub fn write_tileset(
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize: opts.quantize_glb,
+        quantize_rotation: false,
+        spec_version: Default::default(),
         compress: None,
     };
 
