@@ -21,6 +21,7 @@ pub mod billing;
 pub mod checkout;
 pub mod license;
 pub mod modal_client;
+pub mod pricing;
 pub mod ratelimit;
 pub mod ratings;
 pub mod routes;

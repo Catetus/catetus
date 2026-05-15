@@ -1,0 +1,528 @@
+---
+// /pricing — Team-tier subscription + per-job calculator.
+//
+// Two surfaces on one page so the buyer doesn't have to context-switch:
+//
+//   1. Team Seat — $99/mo, flat. Self-serve Stripe Checkout via
+//      POST /v1/checkout/create-session. Same surface PR #1 landed.
+//
+//   2. Per-job API pricing — pay-as-you-go on top of the seat. The
+//      calculator POSTs `{ size_bytes, preset }` to /v1/pricing/preview
+//      and renders the response. The same endpoint is what the meter
+//      bills against (modulo per-second rounding), so the displayed
+//      cents match the eventual invoice to the cent.
+//
+// The page is deliberately static-rendered with a small <script> island
+// for the calculator — keeps Astro happy without pulling in a framework.
+import Base from "../layouts/Base.astro";
+
+const title = "SplatForge Pricing — Team Seat + per-job API";
+const description =
+  "Flat $99/mo Team Seat for the hosted SplatForge optimize API. Per-job pricing: $0.01 flat + $0.001/compute-second. First 5 jobs/month free on any paid key.";
+
+// Default API base; the calculator script overrides this from
+// localStorage so a contributor running a local API can point at it.
+const apiBase = "https://api.splatforge.dev";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/pricing" aria-current="page">Pricing</a>
+      <a href="/sdk">SDK</a>
+      <a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="hero hero-pricing">
+    <h1>Honest, per-job pricing.</h1>
+    <p>
+      A flat <span class="tabular">$99/mo</span> Team Seat plus pay-as-you-go
+      compute. No "request a quote" maze. The same calculator the meter
+      uses is below — paste a file size, get a cents-accurate quote.
+    </p>
+  </header>
+
+  <section class="tier-grid">
+    <article class="tier tier-free">
+      <h2>Free</h2>
+      <p class="tier-price">$0<span class="cycle"> / month</span></p>
+      <ul>
+        <li>CLI + viewer SDK, MIT-licensed</li>
+        <li>5 hosted optimize jobs / month</li>
+        <li>Bonsai-scale scenes (≤300 MB)</li>
+        <li>Community Discord support</li>
+      </ul>
+      <a class="btn-secondary" href="/#install">Install the CLI</a>
+    </article>
+
+    <article class="tier tier-team" data-recommended>
+      <span class="ribbon">Most popular</span>
+      <h2>Team Seat</h2>
+      <p class="tier-price">$99<span class="cycle"> / seat / month</span></p>
+      <ul>
+        <li>Hosted optimize API with metered per-job billing</li>
+        <li>$0.01 flat + $0.001/compute-second after free tier</li>
+        <li>Up to 3 GB inputs (bicycle, Sweet Corals tiles)</li>
+        <li>Determinism guarantees + fidelity QA reports</li>
+        <li>Email support, &lt; 1 business day</li>
+      </ul>
+      <form id="team-checkout" class="signup-form">
+        <label for="email">Work email</label>
+        <input id="email" name="email" type="email" required placeholder="you@company.com" />
+        <button class="btn-primary" type="submit">Continue to checkout →</button>
+        <p class="form-note" data-state="idle">Card details collected by Stripe. Cancel anytime.</p>
+      </form>
+    </article>
+
+    <article class="tier tier-enterprise">
+      <h2>Enterprise</h2>
+      <p class="tier-price">Custom</p>
+      <ul>
+        <li>Private optimize cluster (Modal / self-hosted GPU)</li>
+        <li>SOC 2 + DPA + custom data-retention windows</li>
+        <li>Custom presets + on-call optimizer engineer</li>
+        <li>Volume meter rebates above 10k jobs/mo</li>
+      </ul>
+      <a class="btn-secondary" href="mailto:enterprise@splatforge.dev">Talk to sales</a>
+    </article>
+  </section>
+
+  <section class="calculator">
+    <header>
+      <h2>Per-job calculator</h2>
+      <p>
+        Drag the size, pick a preset. The number you see is the same
+        number the meter charges — quote and invoice agree to the cent.
+      </p>
+    </header>
+
+    <form id="calc-form" class="calc-grid" aria-label="Per-job pricing calculator">
+      <label class="calc-field">
+        <span>Input size</span>
+        <span class="calc-slider-row">
+          <input
+            type="range"
+            id="calc-size-mb"
+            min="1"
+            max="2048"
+            step="1"
+            value="274"
+            aria-describedby="calc-size-readout"
+          />
+          <span id="calc-size-readout" class="tabular">274 MB</span>
+        </span>
+      </label>
+
+      <label class="calc-field">
+        <span>Preset</span>
+        <select id="calc-preset">
+          <option value="lossless-repack">lossless-repack — bit-exact PLY round-trip</option>
+          <option value="web-mobile" selected>web-mobile — default web preset</option>
+          <option value="size-min">size-min — aggressive compression</option>
+        </select>
+      </label>
+    </form>
+
+    <div class="calc-results" aria-live="polite">
+      <div class="calc-result-row">
+        <span class="calc-label">Estimated compute</span>
+        <span id="calc-seconds" class="calc-value tabular">—</span>
+      </div>
+      <div class="calc-result-row">
+        <span class="calc-label">Per-job flat fee</span>
+        <span id="calc-flat" class="calc-value tabular">—</span>
+      </div>
+      <div class="calc-result-row">
+        <span class="calc-label">Compute fee</span>
+        <span id="calc-compute" class="calc-value tabular">—</span>
+      </div>
+      <div class="calc-result-row calc-total">
+        <span class="calc-label">Total quote</span>
+        <span id="calc-total" class="calc-value tabular">—</span>
+      </div>
+      <p class="calc-meta tabular" id="calc-meta">pricing version —</p>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <span>SplatForge pricing v0.1 — operator-tunable in apps/api/src/pricing.rs</span>
+    <span><a href="/">← back to home</a></span>
+  </footer>
+</Base>
+
+<script is:inline define:vars={{ apiBase }}>
+  const formatCents = (cents) => {
+    if (cents === 0) return "free";
+    if (cents < 100) return `${cents}¢`;
+    return `$${(cents / 100).toFixed(2)}`;
+  };
+
+  const sizeInput = document.getElementById("calc-size-mb");
+  const sizeReadout = document.getElementById("calc-size-readout");
+  const preset = document.getElementById("calc-preset");
+  const elSeconds = document.getElementById("calc-seconds");
+  const elFlat = document.getElementById("calc-flat");
+  const elCompute = document.getElementById("calc-compute");
+  const elTotal = document.getElementById("calc-total");
+  const elMeta = document.getElementById("calc-meta");
+
+  // Pure-JS fallback math — same constants as apps/api/src/pricing.rs.
+  // Keeps the calculator usable when the API is unreachable (offline,
+  // local dev, or before DNS propagation). The live response from
+  // /v1/pricing/preview replaces these numbers when the request succeeds.
+  const PRICING_VERSION_FALLBACK = "v0.1";
+  const FLAT_CENTS = 1.0;
+  const PER_SECOND_CENTS = 0.1;
+  function presetCurve(p) {
+    if (p === "lossless-repack") return [2.0, 0.02];
+    if (p === "size-min") return [6.0, 0.16];
+    return [4.0, 0.13];
+  }
+  function localQuote(mb, p) {
+    const [base, perMb] = presetCurve(p);
+    const computeSeconds = Math.ceil(base + perMb * mb);
+    const computeCents = computeSeconds * PER_SECOND_CENTS;
+    const total = FLAT_CENTS + computeCents;
+    return {
+      pricing_version: PRICING_VERSION_FALLBACK,
+      estimated_compute_seconds: computeSeconds,
+      breakdown: { flat_cents: FLAT_CENTS, compute_cents: computeCents },
+      estimated_cost_usd_cents: Math.ceil(total),
+    };
+  }
+
+  function render(q) {
+    elSeconds.textContent = `${q.estimated_compute_seconds}s`;
+    elFlat.textContent = formatCents(Math.round(q.breakdown.flat_cents));
+    elCompute.textContent = formatCents(Math.round(q.breakdown.compute_cents));
+    elTotal.textContent = formatCents(q.estimated_cost_usd_cents);
+    elMeta.textContent = `pricing version ${q.pricing_version}`;
+  }
+
+  async function quote() {
+    const mb = parseInt(sizeInput.value, 10);
+    sizeReadout.textContent = `${mb.toLocaleString()} MB`;
+    // Optimistic local render so the slider feels instant.
+    render(localQuote(mb, preset.value));
+    // Then try the live API for the source-of-truth number.
+    try {
+      const r = await fetch(`${apiBase}/v1/pricing/preview`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          size_bytes: mb * 1024 * 1024,
+          preset: preset.value,
+        }),
+      });
+      if (r.ok) {
+        const live = await r.json();
+        render(live);
+      }
+    } catch (e) {
+      // API unreachable — local render stays.
+    }
+  }
+
+  sizeInput.addEventListener("input", quote);
+  preset.addEventListener("change", quote);
+  quote();
+
+  // --- Team checkout form ---
+  const checkoutForm = document.getElementById("team-checkout");
+  const note = checkoutForm.querySelector(".form-note");
+  checkoutForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    note.dataset.state = "loading";
+    note.textContent = "Redirecting to Stripe…";
+    const email = checkoutForm.elements.email.value.trim();
+    try {
+      const r = await fetch(`${apiBase}/v1/checkout/create-session`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (r.ok) {
+        const { url } = await r.json();
+        window.location.href = url;
+        return;
+      }
+      // 503 = self-serve disabled on this deployment — fall back to email.
+      const body = await r.text();
+      note.dataset.state = "error";
+      note.innerHTML = `Self-serve checkout is currently unavailable. Email <a href="mailto:sales@splatforge.dev">sales@splatforge.dev</a> and we'll set you up directly. (${r.status})`;
+    } catch (e) {
+      note.dataset.state = "error";
+      note.innerHTML = `Couldn't reach the checkout API. Email <a href="mailto:sales@splatforge.dev">sales@splatforge.dev</a> and we'll set you up directly.`;
+    }
+  });
+</script>
+
+<style>
+  .hero-pricing {
+    padding: clamp(48px, 8vw, 96px) clamp(20px, 6vw, 64px) clamp(24px, 4vw, 48px);
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  .hero-pricing h1 {
+    font-size: clamp(36px, 5vw, 56px);
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+  .hero-pricing p {
+    color: var(--fg-muted);
+    font-size: 18px;
+    max-width: 64ch;
+  }
+  .tier-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    padding: 0 clamp(20px, 6vw, 64px) 64px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .tier {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+  }
+  .tier[data-recommended] {
+    border-color: var(--accent-warm);
+    box-shadow: 0 0 0 1px var(--accent-warm) inset;
+  }
+  .tier h2 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .tier-price {
+    margin: 0;
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .tier-price .cycle {
+    font-size: 14px;
+    color: var(--fg-dim);
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+  .tier ul {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--fg-muted);
+    font-size: 14.5px;
+  }
+  .tier ul li {
+    position: relative;
+    padding-left: 18px;
+  }
+  .tier ul li::before {
+    content: "→";
+    color: var(--accent);
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+  .ribbon {
+    position: absolute;
+    top: -10px;
+    right: 16px;
+    background: var(--accent-warm-strong);
+    color: #1c0a00;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .btn-primary,
+  .btn-secondary {
+    display: inline-block;
+    padding: 11px 18px;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    border: 0;
+    font-family: inherit;
+    font-size: 14.5px;
+  }
+  .btn-primary {
+    background: var(--accent-warm-strong);
+    color: #1c0a00;
+  }
+  .btn-primary:hover {
+    background: var(--accent-warm);
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--accent-strong);
+    border: 1px solid var(--line-strong);
+    text-decoration: none;
+  }
+  .btn-secondary:hover {
+    border-color: var(--accent);
+  }
+  .signup-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: auto;
+  }
+  .signup-form label {
+    font-size: 13px;
+    color: var(--fg-dim);
+  }
+  .signup-form input {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+  }
+  .form-note {
+    font-size: 12.5px;
+    color: var(--fg-dim);
+    margin: 0;
+  }
+  .form-note[data-state="error"] {
+    color: var(--warn);
+  }
+
+  /* Calculator */
+  .calculator {
+    max-width: 920px;
+    margin: 0 auto 80px;
+    padding: 32px clamp(20px, 6vw, 64px);
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .calculator header {
+    margin-bottom: 24px;
+  }
+  .calculator h2 {
+    margin: 0 0 6px;
+    font-size: 24px;
+    letter-spacing: -0.01em;
+  }
+  .calculator header p {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 14.5px;
+    max-width: 60ch;
+  }
+  .calc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 640px) {
+    .calc-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .calc-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .calc-field > span:first-child {
+    font-size: 13px;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .calc-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .calc-slider-row input[type="range"] {
+    flex: 1;
+  }
+  .calc-slider-row .tabular {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent);
+    min-width: 80px;
+    text-align: right;
+  }
+  #calc-preset {
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+  }
+  .calc-results {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .calc-result-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14.5px;
+    color: var(--fg-muted);
+  }
+  .calc-result-row.calc-total {
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+    margin-top: 6px;
+    font-size: 17px;
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .calc-value {
+    font-family: var(--mono);
+    color: var(--accent);
+  }
+  .calc-total .calc-value {
+    color: var(--accent-warm-strong);
+    font-size: 22px;
+  }
+  .calc-meta {
+    font-size: 11.5px;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 6px 0 0;
+  }
+
+  .site-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px clamp(20px, 6vw, 64px);
+    border-top: 1px solid var(--line);
+    color: var(--fg-dim);
+    font-size: 13px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
