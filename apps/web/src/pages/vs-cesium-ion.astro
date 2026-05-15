@@ -1,0 +1,457 @@
+---
+// /vs-cesium-ion — geospatial-pipeline landing page.
+//
+// Cesium ion is the dominant 3D Tiles hosting platform. The point of this
+// page is to show evaluators that SplatForge emits Cesium-3D-Tiles-1.1
+// tilesets with KHR_gaussian_splatting that drop directly into ion, with
+// no manual GLB stitching, no re-projection step, and a fidelity report
+// alongside the upload.
+//
+// Live embed strategy: when apps/web/scripts/upload-cesium-ion.mjs has
+// successfully uploaded the bonsai_real tileset to ion, it writes
+// apps/web/src/data/cesium-ion-asset.json with the asset id. We then
+// embed Cesium's Sandcastle iframe pointing at that asset. If the file
+// is missing (e.g. CESIUM_ION_TOKEN wasn't set at build time), we fall
+// back to a placeholder card so the page still ships.
+import Base from "../layouts/Base.astro";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const title = "SplatForge vs Cesium ion — geospatial 3D Gaussian Splats";
+const description =
+  "SplatForge emits Cesium 3D Tiles 1.1 tilesets with KHR_gaussian_splatting that upload to Cesium ion in one step. Live embedded ion viewer running the bonsai_real demo.";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+
+// Best-effort load of the asset id written by upload-cesium-ion.mjs. Astro
+// runs the frontmatter at build time, so a missing/empty file just falls
+// through to the placeholder branch — the page never breaks the build.
+type IonAsset = {
+  assetId: number | string;
+  name?: string;
+  description?: string;
+  position?: { lon: number; lat: number; height?: number };
+  uploadedAt?: string;
+};
+let ionAsset: IonAsset | null = null;
+try {
+  // Plain fs read so the build doesn't fail when the file is absent.
+  // Vite's import-resolver would otherwise error out before the catch fires.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const assetJsonPath = path.resolve(here, "..", "data", "cesium-ion-asset.json");
+  const raw = readFileSync(assetJsonPath, "utf8");
+  ionAsset = JSON.parse(raw) as IonAsset;
+} catch {
+  ionAsset = null;
+}
+
+// Cesium ion's standalone embed surface accepts `?asset=<id>&access_token=<viewer-token>`.
+// The public viewer token is resolved from PUBLIC_CESIUM_ION_VIEWER_TOKEN
+// (set in Vercel). It is scoped to assets:read only and safe to expose.
+const viewerToken =
+  (import.meta.env.PUBLIC_CESIUM_ION_VIEWER_TOKEN as string | undefined) ?? "";
+
+const ionEmbedSrc = ionAsset
+  ? `https://ion.cesium.com/standalone/embed?asset=${encodeURIComponent(
+      String(ionAsset.assetId),
+    )}${viewerToken ? `&access_token=${encodeURIComponent(viewerToken)}` : ""}`
+  : null;
+
+const capabilities: Array<{ label: string; ours: string; theirs: string; note?: string }> = [
+  {
+    label: "Tileset format emitted",
+    ours: "3D Tiles 1.1 + KHR_gaussian_splatting",
+    theirs: "Hosts 3D Tiles + photogrammetry; not a splat encoder",
+  },
+  {
+    label: "LOD generation",
+    ours: "Built-in (4 levels by default, replace-refine, geometric-error halving)",
+    theirs: "Up to the uploader — ion accepts whatever LOD chain you bring",
+  },
+  {
+    label: "Per-tile compression",
+    ours: "KHR_mesh_quantization on every LOD; SPZ-class payload size",
+    theirs: "n/a — re-encodes some formats, but not splats",
+  },
+  {
+    label: "Geolocation",
+    ours: "Local frame; lon/lat/height supplied at ion upload time",
+    theirs: "Native ECEF transform pipeline once uploaded",
+    note: "Complementary, not competing.",
+  },
+  {
+    label: "Fidelity report",
+    ours: "JSON ΔE94 / SSIM / ML-Score alongside the tileset",
+    theirs: "No conversion-quality metrics surfaced",
+  },
+  {
+    label: "Determinism",
+    ours: "BLAKE3-deterministic per (input, version) — same tileset bytes on re-run",
+    theirs: "Server-side asset id is stable; tile bytes depend on uploader",
+  },
+];
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/vs-splat-transform">vs splat-transform</a>
+      <a href="/vs-cesium-ion" aria-current="page">vs Cesium ion</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="vs-hero">
+    <p class="vs-eyebrow">Geospatial pipeline</p>
+    <h1>SplatForge + Cesium ion: 3D Gaussian Splats, geolocated</h1>
+    <p class="vs-subtitle">
+      SplatForge's <code>--preset geospatial</code> emits a Cesium 3D Tiles 1.1 tileset whose
+      tiles use <code>KHR_gaussian_splatting</code>. The output drops directly into
+      <a href="https://cesium.com/learn/ion/rest-api/" target="_blank" rel="noreferrer noopener"
+        >Cesium ion</a
+      >
+      via the asset-creation REST flow. This page runs the bonsai_real demo through that pipeline,
+      end to end.
+    </p>
+    <p class="vs-subtitle">
+      ion isn't a competitor — it's the destination. The differentiator is that SplatForge does the
+      splat-specific encoding (LOD chain, per-tile quantization, KHR extension wiring, fidelity
+      report) so the operator just pushes the resulting directory.
+    </p>
+    <div class="vs-cta-row">
+      <a class="btn primary" href="/#try">Try the optimizer</a>
+      <a
+        class="btn"
+        href={`${githubUrl}/blob/main/apps/web/scripts/upload-cesium-ion.mjs`}
+        target="_blank"
+        rel="noreferrer noopener"
+      >Upload script ↗</a>
+      <a class="btn" href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </header>
+
+  <section class="vs-section" aria-labelledby="viewer-title">
+    <h2 id="viewer-title" class="section-title">Live ion viewer — bonsai_real</h2>
+    {ionEmbedSrc ? (
+      <div class="ion-viewer-wrap">
+        <iframe
+          class="ion-viewer"
+          src={ionEmbedSrc}
+          title="Cesium ion viewer — SplatForge bonsai_real tileset"
+          loading="lazy"
+          allow="fullscreen; xr-spatial-tracking"
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+        <p class="ion-meta">
+          Cesium ion asset <code>{String(ionAsset!.assetId)}</code>
+          {ionAsset!.uploadedAt && (
+            <>
+              {" "}· uploaded <span class="tabular">{ionAsset!.uploadedAt}</span>
+            </>
+          )}
+          {ionAsset!.position && (
+            <>
+              {" "}· {ionAsset!.position.lon.toFixed(4)}, {ionAsset!.position.lat.toFixed(4)}
+            </>
+          )}
+        </p>
+      </div>
+    ) : (
+      <div class="ion-viewer-placeholder" role="img" aria-label="Cesium ion viewer placeholder">
+        <div class="ion-placeholder-inner">
+          <p class="ion-placeholder-title">Live ion viewer pending upload</p>
+          <p class="ion-placeholder-body">
+            This embed will go live once an operator runs
+            <code>node apps/web/scripts/upload-cesium-ion.mjs</code> with a
+            <code>CESIUM_ION_TOKEN</code> set. The script writes the resulting asset id to
+            <code>apps/web/src/data/cesium-ion-asset.json</code>; the page automatically picks it
+            up on the next build.
+          </p>
+          <p class="ion-placeholder-body">
+            In the meantime, the tileset is reproducible locally with
+            <code>splatforge optimize --preset geospatial</code>.
+          </p>
+        </div>
+      </div>
+    )}
+  </section>
+
+  <section class="vs-section" aria-labelledby="pipeline-title">
+    <h2 id="pipeline-title" class="section-title">End-to-end: PLY → ion in two commands</h2>
+    <div class="vs-grid">
+      <div class="vs-block">
+        <h3>1. Generate the tileset</h3>
+        <pre><code>{`splatforge optimize \\
+  --preset geospatial \\
+  --output-dir ./bonsai-tileset \\
+  bonsai_iter7000.ply
+
+# bonsai-tileset/
+# ├── tileset.json     (3D Tiles 1.1)
+# ├── lod0.glb         (1.06M splats)
+# ├── lod1.glb         (530k)
+# ├── lod2.glb         (265k)
+# └── lod3.glb         (133k)`}</code></pre>
+        <ul class="vs-block-notes">
+          <li>Replace-refine LOD chain, root error auto-derived from bbox</li>
+          <li>Each tile carries <code>KHR_gaussian_splatting</code> + <code>KHR_mesh_quantization</code></li>
+          <li>BLAKE3-deterministic output</li>
+        </ul>
+      </div>
+      <div class="vs-block">
+        <h3>2. Push to Cesium ion</h3>
+        <pre><code>{`CESIUM_ION_TOKEN=... \\
+  node apps/web/scripts/upload-cesium-ion.mjs \\
+    --tileset ./bonsai-tileset \\
+    --name "bonsai_real demo" \\
+    --lon -122.4194 --lat 37.7749`}</code></pre>
+        <ul class="vs-block-notes">
+          <li>POST <code>/v1/assets</code> with <code>sourceType=3D_TILES</code></li>
+          <li>S3 upload + <code>uploadComplete</code> trigger ion processing</li>
+          <li>Poll until <code>status=COMPLETE</code>, write <code>cesium-ion-asset.json</code></li>
+          <li>Idempotent — re-runs are no-ops unless <code>--force</code></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="vs-section" aria-labelledby="capabilities-title">
+    <h2 id="capabilities-title" class="section-title">Where SplatForge fits in the geospatial stack</h2>
+    <p class="vs-prose">
+      Cesium ion is the hosting/streaming layer. SplatForge sits one step earlier — at the
+      "I have a 1M-splat PLY, give me a deployable tileset" boundary.
+    </p>
+    <table class="vs-table">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>SplatForge</th>
+          <th>Cesium ion</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {capabilities.map((c) => (
+          <tr>
+            <td><strong>{c.label}</strong></td>
+            <td class="vs-cell-us">{c.ours}</td>
+            <td class="vs-cell-other">{c.theirs}</td>
+            <td class="vs-cell-note">{c.note ?? ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="vs-section vs-cta">
+    <h2 class="section-title">Try it on your own scene</h2>
+    <p class="vs-prose">
+      Bring any PLY or SPZ, run <code>splatforge optimize --preset geospatial</code>, and the
+      output drops into ion without further re-encoding. The five-minute quickstart at
+      <a href="/#docs">splatforge.dev/#docs</a> covers the full flow.
+    </p>
+  </section>
+
+  <footer class="site-footer">
+    <span>SplatForge — geospatial preset</span>
+    <span>
+      <a href={`${githubUrl}/blob/main/crates/splatforge-optimize/src/tileset.rs`}>tileset.rs</a> ·
+      <a href={`${githubUrl}/blob/main/apps/web/scripts/upload-cesium-ion.mjs`}>upload-cesium-ion.mjs</a> ·
+      Apache-2.0
+    </span>
+  </footer>
+</Base>
+
+<style>
+  .vs-hero {
+    padding: 4rem 2rem 2rem;
+    max-width: 1024px;
+    margin: 0 auto;
+  }
+  .vs-eyebrow {
+    color: var(--muted, #9aa2ad);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 0.78rem;
+    margin: 0 0 0.5rem;
+  }
+  .vs-hero h1 {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 1rem;
+  }
+  .vs-subtitle {
+    font-size: 1.075rem;
+    line-height: 1.6;
+    color: var(--muted, #9aa2ad);
+    max-width: 70ch;
+    margin: 0 0 1rem;
+  }
+  .vs-subtitle code,
+  .vs-prose code,
+  .vs-table code,
+  .ion-placeholder-body code,
+  .ion-meta code {
+    background: var(--surface, #15181d);
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.3rem;
+    font-size: 0.9em;
+  }
+  .vs-subtitle a {
+    color: inherit;
+    text-decoration: underline;
+  }
+  .vs-cta-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.6rem 1.1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border, #2a2f37);
+    color: var(--text, #e7eaef);
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: background-color 120ms, border-color 120ms;
+  }
+  .btn:hover {
+    border-color: var(--accent, #6ea0ff);
+  }
+  .btn.primary {
+    background: var(--accent, #6ea0ff);
+    color: #0b0d10;
+    border-color: var(--accent, #6ea0ff);
+    font-weight: 600;
+  }
+  .vs-section {
+    max-width: 1024px;
+    margin: 4rem auto 0;
+    padding: 0 2rem;
+  }
+  .vs-prose {
+    color: var(--muted, #9aa2ad);
+    line-height: 1.6;
+    max-width: 70ch;
+    margin: 0 0 1.5rem;
+  }
+  .vs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+  }
+  .vs-block {
+    border: 1px solid var(--border, #2a2f37);
+    border-radius: 0.6rem;
+    padding: 1rem;
+    background: var(--surface, #15181d);
+  }
+  .vs-block h3 {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+  }
+  .vs-block pre {
+    background: #0b0d10;
+    border: 1px solid var(--border, #2a2f37);
+    border-radius: 0.4rem;
+    padding: 0.75rem;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    margin: 0 0 0.75rem;
+  }
+  .vs-block-notes {
+    color: var(--muted, #9aa2ad);
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+  .vs-block-notes li { margin: 0.2rem 0; }
+  .vs-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.93rem;
+  }
+  .vs-table thead {
+    text-align: left;
+    color: var(--muted, #9aa2ad);
+    font-weight: 500;
+  }
+  .vs-table th,
+  .vs-table td {
+    padding: 0.65rem 0.9rem;
+    border-bottom: 1px solid var(--border, #2a2f37);
+    vertical-align: top;
+  }
+  .vs-cell-other { color: var(--muted, #9aa2ad); }
+  .vs-cell-us { color: var(--text, #e7eaef); }
+  .vs-cell-note { color: var(--muted, #9aa2ad); font-size: 0.88rem; }
+  .vs-cta { padding-bottom: 4rem; }
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  .ion-viewer-wrap {
+    margin-top: 1.25rem;
+    border: 1px solid var(--border, #2a2f37);
+    border-radius: 0.6rem;
+    overflow: hidden;
+    background: #0b0d10;
+  }
+  .ion-viewer {
+    display: block;
+    width: 100%;
+    height: clamp(420px, 60vh, 640px);
+    border: 0;
+  }
+  .ion-meta {
+    margin: 0;
+    padding: 0.65rem 1rem;
+    font-size: 0.85rem;
+    color: var(--muted, #9aa2ad);
+    border-top: 1px solid var(--border, #2a2f37);
+    background: var(--surface, #15181d);
+  }
+  .ion-viewer-placeholder {
+    margin-top: 1.25rem;
+    border: 1px dashed var(--border, #2a2f37);
+    border-radius: 0.6rem;
+    background:
+      radial-gradient(120% 80% at 30% 20%, rgba(110, 160, 255, 0.10), transparent 60%),
+      radial-gradient(120% 80% at 70% 80%, rgba(110, 255, 200, 0.06), transparent 60%),
+      #0b0d10;
+    min-height: clamp(360px, 50vh, 520px);
+    display: grid;
+    place-items: center;
+    padding: 2rem;
+  }
+  .ion-placeholder-inner {
+    max-width: 56ch;
+    text-align: left;
+  }
+  .ion-placeholder-title {
+    margin: 0 0 0.75rem;
+    font-size: 1.1rem;
+    color: var(--text, #e7eaef);
+  }
+  .ion-placeholder-body {
+    margin: 0 0 0.65rem;
+    color: var(--muted, #9aa2ad);
+    line-height: 1.55;
+    font-size: 0.95rem;
+  }
+</style>
+</Base>
