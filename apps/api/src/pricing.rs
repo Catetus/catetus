@@ -87,6 +87,21 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         "web-mobile" => (4.0, 0.13),
         // Aggressive size minimization — most CPU per byte.
         "size-min" => (6.0, 0.16),
+        // Hosted neural codec — v0.1 hash-grid hyperprior + 8-bit quant
+        // + RD loss, 1000 iters on Modal A100. Validated on bicycle_real
+        // 2026-05-15: 7.54× compression / +8.39 dB ΔPSNR. The +ΔPSNR is
+        // real (the optimizer kills low-importance Gaussians and the
+        // surviving ones get tuned). Per-MB cost is higher than
+        // `size-min` because of the GPU training pass, but absolute is
+        // bounded by the 1000-iter cap.
+        // Anchor: bicycle 855 MB → ~75 s at 1000 iters on A100.
+        "hosted-neural-outdoor" => (12.0, 0.090),
+        // MesonGS++ post-training codec — CPU-only, no GPU needed.
+        // Validated 2026-05-15 (A2 spike): 18-19× compression on bonsai
+        // and bicycle, 2-9 s CPU encode/decode. Render-ΔPSNR pending
+        // (A2.1 deferred). Per-MB cost is tiny because no GPU.
+        "mgs-balanced" => (1.0, 0.012),
+        "mgs-aggressive" => (1.5, 0.018),
         // Unknown / future preset: assume web-mobile shape so the
         // preview doesn't 400 on a new preset before the operator
         // tunes a curve for it.

@@ -590,6 +590,15 @@ fn cmd_optimize(
                 | "visionos-preview"
                 | "thumbnail-preview"
                 | "size-min"
+                // Hosted neural codec — quantized output; the neural pass
+                // itself happens upstream (Modal A100 trainer in
+                // splatforge-private/apps/diff-repack), this just encodes
+                // the quantized splats into glTF.
+                | "hosted-neural-outdoor"
+                // MesonGS++ post-training codec presets — quantized
+                // by the codec itself, glTF emission stays in int range.
+                | "mgs-balanced"
+                | "mgs-aggressive"
         );
     let compress_variant = if compress_mode == Some("spz") {
         Some(splatforge_gltf::SpzVariant::V2)
