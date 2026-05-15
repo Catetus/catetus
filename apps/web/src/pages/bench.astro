@@ -1,0 +1,297 @@
+---
+// /bench — public SplatBench leaderboard.
+//
+// Per the v2 plan (Q1 distribution deliverable): "Public SplatBench
+// leaderboard live at splatforge.com/bench" with a `submit your encoder`
+// form and comparison columns reserved for splat-transform / SOG / SOGS /
+// CodecGS-Lite.
+//
+// Today the comparison columns are placeholders (`Pending`) because we
+// haven't run the third-party encoders against our corpus yet — the page
+// honestly shows that and tells contributors how to send numbers.
+import Base from "../layouts/Base.astro";
+import Leaderboard from "../components/Leaderboard.astro";
+import { splatbench } from "../lib/splatbench";
+
+const title = "SplatBench — public Gaussian-Splat encoder leaderboard";
+const description =
+  "Reproducible Gaussian-Splat compression + fidelity benchmark. Submit your encoder for a comparison column.";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+
+// Comparison-column candidates that competitors / community can fill in.
+// We commit ourselves to running each whenever the encoder is install-able
+// and produces a glTF/SPZ/PLY-style artifact we can score against.
+const otherEncoders = [
+  {
+    name: "splat-transform",
+    org: "PlayCanvas / Snap",
+    license: "MIT",
+    status: "pending",
+    note: "Will be measured against the same corpus once we wire the npm CLI into the bench harness.",
+    url: "https://github.com/playcanvas/splat-transform",
+  },
+  {
+    name: "SOG",
+    org: "PlayCanvas",
+    license: "MIT",
+    status: "pending",
+    note: "Self-Organizing Gaussians (20× compression claim). We will reproduce on bonsai + bicycle.",
+    url: "https://blog.playcanvas.com/playcanvas-open-sources-sog-format-for-gaussian-splatting/",
+  },
+  {
+    name: "SOGS",
+    org: "Morgenstern et al.",
+    license: "research",
+    status: "pending",
+    note: "2D grid + image-codec spatial reorder. Reference impl is Python; we will benchmark via Docker.",
+    url: "https://arxiv.org/abs/2403.18791",
+  },
+  {
+    name: "CodecGS-Lite",
+    org: "research",
+    license: "research",
+    status: "pending",
+    note: "PLAS-sort + AV1/HEVC parameter texture. 146× headline on bicycle in the paper; reproduction in progress.",
+    url: "https://arxiv.org/abs/2409.13862",
+  },
+];
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench" aria-current="page">SplatBench</a>
+      <a href="/vs-splat-transform">vs splat-transform</a>
+      <a href="/compare">Compare</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="bench-hero">
+    <h1>SplatBench</h1>
+    <p class="bench-subtitle">
+      Public Gaussian-Splat encoder leaderboard. {splatbench.aggregates.scenesTotal} scenes
+      — {splatbench.aggregates.scenesReal} real (Mip-NeRF 360) and
+      {splatbench.aggregates.scenesSynthetic} deterministic synthetic probes for the failure
+      modes that matter (texture, transparency, motion, depth, banding, foliage, specular,
+      lowlight, portrait).
+    </p>
+    <p class="bench-subtitle">
+      Every result is reproducible from the published corpus IDs. BLAKE3 hashes are part of
+      the scene record. Fidelity is mean CIE ΔE94 + ML-Score over 8 deterministic orbit
+      frames rendered through
+      <a href={`${githubUrl}/tree/main/packages/viewer`}>@splatforge/viewer</a>.
+    </p>
+    <div class="bench-cta-row">
+      <a class="btn primary" href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.json`}>
+        splatbench-v0.json
+      </a>
+      <a class="btn" href="#submit">
+        Submit your encoder
+      </a>
+      <a class="btn" href={`${githubUrl}/tree/main/benches`}>
+        Run it yourself
+      </a>
+    </div>
+  </header>
+
+  <Leaderboard />
+
+  <section id="competitors" aria-labelledby="competitors-title" class="bench-section">
+    <h2 id="competitors-title" class="section-title">Comparison columns (in progress)</h2>
+    <p class="methodology">
+      We are running competing encoders against the same SplatBench corpus and will publish
+      per-scene compression × fidelity numbers for each. Nothing is excluded from the table —
+      losses are reported in the same place as wins. If you maintain an encoder and want a
+      column, send a PR or open an issue with reproduction instructions.
+    </p>
+    <table class="bench-table">
+      <thead>
+        <tr>
+          <th>Encoder</th>
+          <th>Maintainer</th>
+          <th>License</th>
+          <th>Status</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {otherEncoders.map((e) => (
+          <tr>
+            <td>
+              <a href={e.url} target="_blank" rel="noreferrer noopener">{e.name}</a>
+            </td>
+            <td>{e.org}</td>
+            <td>{e.license}</td>
+            <td><span class={`status-chip status-${e.status}`}>{e.status}</span></td>
+            <td>{e.note}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </section>
+
+  <section id="submit" aria-labelledby="submit-title" class="bench-section">
+    <h2 id="submit-title" class="section-title">Submit your encoder</h2>
+    <p class="methodology">
+      We want SplatBench to be the canonical reference. If you ship a Gaussian-Splat encoder,
+      get on the table. There are three ways to submit:
+    </p>
+    <ol class="submit-list">
+      <li>
+        <strong>PR a runner.</strong> Open a PR against
+        <a href={`${githubUrl}/tree/main/benches/encoders`}>benches/encoders/</a> with a shell
+        script that takes <code>input.ply</code> and outputs
+        <code>output.{`{spz,glb,custom}`}</code>. Our harness handles the rest (decode,
+        render, score).
+      </li>
+      <li>
+        <strong>Send raw numbers.</strong> Email
+        <a href="mailto:bench@splatforge.dev">bench@splatforge.dev</a> with per-scene
+        compression + fidelity numbers and we'll add a footnote-cited column while we work on
+        first-class reproduction.
+      </li>
+      <li>
+        <strong>Use the API.</strong> The
+        <a href="https://splatforge-api.fly.dev/healthz">SplatForge Cloud API</a> exposes the
+        same pipeline. Free-tier API keys for benchmark runs are available on request.
+      </li>
+    </ol>
+    <p class="methodology">
+      Submission rules:
+    </p>
+    <ul class="submit-list">
+      <li>Encoder must be reproducible from a committed scripted run (no hand-tuning per scene).</li>
+      <li>Output must be loadable by at least one publicly-shippable viewer for fidelity scoring.</li>
+      <li>We do not exclude lossy or training-time approaches — but they must be labeled and the loss must show in the fidelity column.</li>
+      <li>Numbers are versioned: a re-submission against a newer SplatBench rev gets a new column, not a silent overwrite.</li>
+    </ul>
+  </section>
+
+  <footer class="site-footer">
+    <span>
+      SplatBench {splatbench.name.replace(/^SplatBench\s*/, "")} ·
+      splatforge <span class="tabular">v{splatbench.splatforgeVersion}</span> ·
+      <span class="tabular">{splatbench.platform}</span> ·
+      <span class="tabular">{splatbench.runDate}</span>
+    </span>
+    <span>
+      <a href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.json`}>splatbench-v0.json</a> ·
+      <a href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.html`}>standalone HTML</a> ·
+      Apache-2.0
+    </span>
+  </footer>
+</Base>
+
+<style>
+  .bench-hero {
+    padding: 4rem 2rem 2rem;
+    max-width: 1024px;
+    margin: 0 auto;
+  }
+  .bench-hero h1 {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 1rem;
+  }
+  .bench-subtitle {
+    font-size: 1.075rem;
+    line-height: 1.6;
+    color: var(--muted, #9aa2ad);
+    max-width: 64ch;
+    margin: 0 0 1rem;
+  }
+  .bench-subtitle a {
+    color: inherit;
+    text-decoration: underline;
+  }
+  .bench-cta-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.6rem 1.1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border, #2a2f37);
+    color: var(--text, #e7eaef);
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: background-color 120ms, border-color 120ms;
+  }
+  .btn:hover {
+    border-color: var(--accent, #6ea0ff);
+  }
+  .btn.primary {
+    background: var(--accent, #6ea0ff);
+    color: #0b0d10;
+    border-color: var(--accent, #6ea0ff);
+    font-weight: 600;
+  }
+  .bench-section {
+    max-width: 1024px;
+    margin: 4rem auto 0;
+    padding: 0 2rem;
+  }
+  .bench-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.95rem;
+  }
+  .bench-table thead {
+    text-align: left;
+    color: var(--muted, #9aa2ad);
+    font-weight: 500;
+  }
+  .bench-table th,
+  .bench-table td {
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border, #2a2f37);
+    vertical-align: top;
+  }
+  .bench-table a {
+    color: var(--accent, #6ea0ff);
+    text-decoration: none;
+  }
+  .bench-table a:hover { text-decoration: underline; }
+  .status-chip {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 1rem;
+    font-size: 0.82rem;
+    font-variant: tabular-nums;
+    background: var(--surface, #15181d);
+    border: 1px solid var(--border, #2a2f37);
+  }
+  .status-pending { color: #c9a55a; }
+  .status-shipped { color: #4ec27e; }
+  .submit-list {
+    color: var(--text, #e7eaef);
+    line-height: 1.6;
+    margin: 0.75rem 0;
+    padding-left: 1.3rem;
+  }
+  .submit-list li { margin: 0.45rem 0; }
+  .submit-list a {
+    color: var(--accent, #6ea0ff);
+    text-decoration: none;
+  }
+  .submit-list a:hover { text-decoration: underline; }
+  .submit-list code {
+    background: var(--surface, #15181d);
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.3rem;
+    font-size: 0.88rem;
+  }
+</style>
