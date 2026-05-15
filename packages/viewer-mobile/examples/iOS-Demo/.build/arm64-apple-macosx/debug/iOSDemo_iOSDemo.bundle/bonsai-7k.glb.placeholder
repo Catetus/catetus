@@ -1,6 +1,0 @@
-This file is a placeholder so SwiftPM has something to copy as a resource.
-Drop a real `bonsai-7k.glb` next to this file and rename it
-`bonsai-7k.glb` to enable on-device rendering.
-
-The asset is too large to vendor into git. Download from:
-  https://splatforge.dev/fixtures/bonsai-7k.glb   # public, MIT-licensed

@@ -64,12 +64,29 @@ struct SplatforgeMetalView: PlatformMetalContainer {
 
 #if canImport(UIKit)
     func makeUIView(context: Context) -> MTKView {
-        buildMTKView(coordinator: context.coordinator)
+        let v = buildMTKView(coordinator: context.coordinator)
+        // Touch-driven orbit + pinch zoom. Multiple recognizers can drive the
+        // same coordinator; the renderer accumulates azimuth / elevation /
+        // distance state.
+        let pan = UIPanGestureRecognizer(target: context.coordinator,
+                                         action: #selector(SplatforgeRenderer.handlePan(_:)))
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator,
+                                             action: #selector(SplatforgeRenderer.handlePinch(_:)))
+        v.addGestureRecognizer(pan)
+        v.addGestureRecognizer(pinch)
+        return v
     }
     func updateUIView(_ uiView: MTKView, context: Context) {}
 #elseif canImport(AppKit)
     func makeNSView(context: Context) -> MTKView {
-        buildMTKView(coordinator: context.coordinator)
+        let v = buildMTKView(coordinator: context.coordinator)
+        let pan = NSPanGestureRecognizer(target: context.coordinator,
+                                         action: #selector(SplatforgeRenderer.handleMacPan(_:)))
+        let mag = NSMagnificationGestureRecognizer(target: context.coordinator,
+                                                   action: #selector(SplatforgeRenderer.handleMacMagnify(_:)))
+        v.addGestureRecognizer(pan)
+        v.addGestureRecognizer(mag)
+        return v
     }
     func updateNSView(_ nsView: MTKView, context: Context) {}
 #endif

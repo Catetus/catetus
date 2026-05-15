@@ -30,9 +30,15 @@ constant float2 kQuad[4] = {
 vertex VOut splat_point_vertex(uint vid [[vertex_id]],
                                uint iid [[instance_id]],
                                const device SplatVertex *splats [[buffer(0)]],
-                               constant float4x4 &viewProj [[buffer(1)]])
+                               constant float4x4 &viewProj [[buffer(1)]],
+                               const device uint *sortIndices [[buffer(2)]])
 {
-    SplatVertex s = splats[iid];
+    // `sortIndices` is the back-to-front order produced by `sfmv_sort_by_depth`
+    // (or the GPU radix-sort kernel, when wired in). We index the splat buffer
+    // through it so the rasterizer sees splats in the correct alpha-compositing
+    // order. Buffer is guaranteed to be at least `instanceCount` u32s.
+    uint splatIdx = sortIndices[iid];
+    SplatVertex s = splats[splatIdx];
     float4 clip = viewProj * float4(s.position, 1.0);
     float pxRadius = clamp(s.scale.x * 200.0 / max(clip.w, 0.001), 1.0, 64.0);
     float2 ndcOffset = kQuad[vid] * pxRadius / 800.0; // 800 ≈ half screen, refined later

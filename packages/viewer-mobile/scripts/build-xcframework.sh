@@ -1,34 +1,46 @@
 #!/usr/bin/env bash
-# Build the iOS XCFramework that ships the Rust staticlib + C header.
+# Build the XCFramework that ships the Rust staticlib + C header.
 #
-# Required toolchains (NOT available on the SplatForge CI host — this is a
-# local / future-Buildkite step):
+# Required toolchains:
 #   - Xcode 15+
-#   - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+#   - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios \
+#                       aarch64-apple-darwin x86_64-apple-darwin
 #
 # Output: packages/viewer-mobile/ios/SplatforgeViewerCore.xcframework
 #
-# Status: PENDING — wire-up depends on macOS+Xcode in CI.
+# Slices included:
+#   - ios-arm64                       (iPhone / iPad device)
+#   - ios-arm64_x86_64-simulator      (iOS Simulator, Apple Silicon + Intel host)
+#   - macos-arm64_x86_64              (host macOS for `swift build` + `swift test`)
 set -euo pipefail
 
 CORE="$(cd "$(dirname "$0")/../core" && pwd)"
 OUT="$(cd "$(dirname "$0")/.." && pwd)/ios/SplatforgeViewerCore.xcframework"
+HEADERS="$(dirname "$0")/../ios/Sources/SplatforgeViewerC/include"
 
-for TARGET in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
+for TARGET in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin; do
   (cd "$CORE" && cargo build --release --target "$TARGET")
 done
 
-DEVICE="$CORE/../../../target/aarch64-apple-ios/release/libsplatforge_viewer_mobile.a"
-SIM_ARM="$CORE/../../../target/aarch64-apple-ios-sim/release/libsplatforge_viewer_mobile.a"
-SIM_X86="$CORE/../../../target/x86_64-apple-ios/release/libsplatforge_viewer_mobile.a"
+TARGET_DIR="$CORE/../../../target"
+DEVICE="$TARGET_DIR/aarch64-apple-ios/release/libsplatforge_viewer_mobile.a"
+SIM_ARM="$TARGET_DIR/aarch64-apple-ios-sim/release/libsplatforge_viewer_mobile.a"
+SIM_X86="$TARGET_DIR/x86_64-apple-ios/release/libsplatforge_viewer_mobile.a"
+MAC_ARM="$TARGET_DIR/aarch64-apple-darwin/release/libsplatforge_viewer_mobile.a"
+MAC_X86="$TARGET_DIR/x86_64-apple-darwin/release/libsplatforge_viewer_mobile.a"
 
 mkdir -p "$(dirname "$SIM_ARM")"
 SIM_FAT="$(dirname "$SIM_ARM")/libsplatforge_viewer_mobile_simfat.a"
 lipo -create "$SIM_ARM" "$SIM_X86" -output "$SIM_FAT"
 
+mkdir -p "$(dirname "$MAC_ARM")"
+MAC_FAT="$(dirname "$MAC_ARM")/libsplatforge_viewer_mobile_macfat.a"
+lipo -create "$MAC_ARM" "$MAC_X86" -output "$MAC_FAT"
+
 rm -rf "$OUT"
 xcodebuild -create-xcframework \
-  -library "$DEVICE"  -headers "$(dirname "$0")/../ios/Sources/SplatforgeViewerC/include" \
-  -library "$SIM_FAT" -headers "$(dirname "$0")/../ios/Sources/SplatforgeViewerC/include" \
+  -library "$DEVICE"  -headers "$HEADERS" \
+  -library "$SIM_FAT" -headers "$HEADERS" \
+  -library "$MAC_FAT" -headers "$HEADERS" \
   -output "$OUT"
 echo "XCFramework: $OUT"

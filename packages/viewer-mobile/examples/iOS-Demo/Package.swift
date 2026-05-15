@@ -30,7 +30,8 @@ let package = Package(
             ],
             path: "Sources/iOSDemo",
             resources: [
-                .copy("Assets/bonsai-7k.glb.placeholder")
+                .copy("Assets/bonsai-7k.glb.placeholder"),
+                .copy("Assets/synth.glb")
             ]
         )
     ]
