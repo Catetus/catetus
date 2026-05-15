@@ -1340,9 +1340,10 @@ mod tests {
         assert_eq!(contents.len(), 1);
         assert_eq!(contents[0]["mimeType"], "application/json");
         let text = contents[0]["text"].as_str().unwrap();
-        // Sanity: this should at least parse and contain 16 scenes.
+        // Sanity: this should at least parse and contain a non-trivial corpus.
+        // The exact count grows as new real-photo scenes land; assert a floor.
         let parsed: Value = serde_json::from_str(text).unwrap();
-        assert_eq!(parsed["scenes"].as_array().unwrap().len(), 16);
+        assert!(parsed["scenes"].as_array().unwrap().len() >= 16);
     }
 
     #[test]
