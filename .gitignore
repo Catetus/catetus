@@ -75,3 +75,7 @@ apps/web/src/data/
 __pycache__/
 *.pyc
 .vercel
+
+# Local progress + ad-hoc screenshots from autonomous runs.
+tasks/screenshots/
+.tmp/
