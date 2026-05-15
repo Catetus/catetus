@@ -19,6 +19,11 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = resolve(__dirname, '..');                            // tests/visual
 const VIEWER_DIST = resolve(ROOT, '../../packages/viewer/dist');  // built viewer
 const FIXTURES = resolve(ROOT, 'fixtures');
+// Streaming-tile fixture (committed in the optimize crate, used by the
+// streaming-tileset visual regression). We mount it transparently under
+// /fixtures/geospatial-sample/* so test code stays consistent with the
+// other fixture URLs.
+const OPT_FIXTURES = resolve(ROOT, '../../crates/splatforge-optimize/tests/fixtures');
 const PAGE_HTML = resolve(ROOT, 'harness/page.html');
 
 const portArgIdx = process.argv.indexOf('--port');
@@ -82,7 +87,17 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.startsWith('/fixtures/')) {
-    const p = safeJoin(FIXTURES, url.slice('/fixtures/'.length));
+    const rel = url.slice('/fixtures/'.length);
+    // Streaming-tile fixture is committed in crates/splatforge-optimize.
+    // Try that location first, then fall back to the local tests/visual/fixtures.
+    const optPath = safeJoin(OPT_FIXTURES, rel);
+    if (optPath) {
+      try {
+        const s = await stat(optPath);
+        if (s.isFile()) return serveFile(res, optPath);
+      } catch { /* fall through */ }
+    }
+    const p = safeJoin(FIXTURES, rel);
     if (!p) return notFound(res);
     return serveFile(res, p);
   }

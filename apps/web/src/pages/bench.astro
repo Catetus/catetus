@@ -11,13 +11,28 @@
 // honestly shows that and tells contributors how to send numbers.
 import Base from "../layouts/Base.astro";
 import Leaderboard from "../components/Leaderboard.astro";
-import { splatbench } from "../lib/splatbench";
+import {
+  splatbench,
+  encoders,
+  encoderRunFor,
+  encoderMedianRatio,
+} from "../lib/splatbench";
 
 const title = "SplatBench — public Gaussian-Splat encoder leaderboard";
 const description =
   "Reproducible Gaussian-Splat compression + fidelity benchmark. Submit your encoder for a comparison column.";
 
 const githubUrl = "https://github.com/montabano1/SplatForge";
+
+// Aggregate stats for the third-party encoders we've already wired in.
+const splatTransformMedian = encoderMedianRatio("splat-transform");
+const splatTransformVersion = encoders.scenes
+  .map((s) => s.runs["splat-transform"])
+  .find((r) => r && r.ok && "version" in r)
+  ?.version ?? "unknown";
+const splatTransformSceneCount = encoders.scenes.filter(
+  (s) => s.runs["splat-transform"]?.ok,
+).length;
 
 // Comparison-column candidates that competitors / community can fill in.
 // We commit ourselves to running each whenever the encoder is install-able
@@ -27,8 +42,8 @@ const otherEncoders = [
     name: "splat-transform",
     org: "PlayCanvas / Snap",
     license: "MIT",
-    status: "pending",
-    note: "Will be measured against the same corpus once we wire the npm CLI into the bench harness.",
+    status: "shipped",
+    note: `v${splatTransformVersion} median ${splatTransformMedian.toFixed(2)}× across ${splatTransformSceneCount} synthetic scenes (SplatForge web-mobile median: ${splatbench.aggregates.webMobileRatioMedian.toFixed(2)}×).`,
     url: "https://github.com/playcanvas/splat-transform",
   },
   {

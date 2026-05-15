@@ -224,9 +224,19 @@ export async function main(): Promise<void> {
   });
   const adapterInfo = (adapter as unknown as { info?: { vendor?: string; architecture?: string; device?: string } }).info ?? {};
   const out: BenchResult[] = [];
+  const reportProgress = (msg: string): void => {
+    const el = document.getElementById('log');
+    if (el) el.textContent += `\n${msg}`;
+    // eslint-disable-next-line no-console
+    console.log(msg);
+  };
   for (const n of [1_000_000, 10_000_000]) {
     try {
-      const r = await runBench(device, n, 30);
+      // Fewer iterations for the 10M case so headless runs stay <2 min.
+      const iters = n >= 5_000_000 ? 10 : 30;
+      reportProgress(`bench: starting n=${n} iters=${iters}`);
+      const r = await runBench(device, n, iters);
+      reportProgress(`bench: n=${n} decodeMs=${r.decodeMs.toFixed(1)} perFrameMs=${r.perFrameMs.toFixed(2)}`);
       out.push(r);
     } catch (err) {
       (window as unknown as { __bench: unknown }).__bench = {
