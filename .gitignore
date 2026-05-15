@@ -91,3 +91,6 @@ tasks/todo.md
 # splatforge-api default local sqlite path — runtime-created.
 /data/
 apps/api/data/
+
+# Blender add-on build artifacts — CI rebuilds these on every push.
+integrations/blender/dist/*.zip
