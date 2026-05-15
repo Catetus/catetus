@@ -322,7 +322,7 @@ fn emit_quantized_accessors(
             root,
             buffer_idx,
             &mut offset,
-            n,
+            n * 45,
             n * 45 * 4,
             "SCALAR",
         ))
@@ -425,7 +425,7 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
                     &mut root,
                     buffer_idx,
                     &mut offset,
-                    n,
+                    n * 45,
                     n * 45 * 4,
                     "SCALAR",
                 ))
@@ -930,8 +930,9 @@ fn read_gltf_str(raw: &str, base_dir: &Path) -> Result<SplatScene, GltfError> {
     let opacities = read_attr(op_acc, 1)?;
     let dc = read_attr(dc_acc, 3)?;
     let n = opacities.len();
+    // _COLOR_SH is SCALAR FLOAT with accessor.count = n*45 (per the KHR spec).
     let sh = if let Some(idx) = sh_acc {
-        Some(read_attr(idx, 45)?)
+        Some(read_attr(idx, 1)?)
     } else {
         None
     };
@@ -1170,7 +1171,7 @@ fn build_single_buffer_gltf(
                 &mut root,
                 0,
                 &mut offset,
-                n,
+                n * 45,
                 n * 45 * 4,
                 "SCALAR",
             ))
@@ -1579,8 +1580,9 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
     let opacities = read_attr(op_acc, 1)?;
     let dc = read_attr(dc_acc, 3)?;
     let n = opacities.len();
+    // _COLOR_SH is SCALAR FLOAT with accessor.count = n*45 (per the KHR spec).
     let sh = if let Some(idx) = sh_acc {
-        Some(read_attr(idx, 45)?)
+        Some(read_attr(idx, 1)?)
     } else {
         None
     };
