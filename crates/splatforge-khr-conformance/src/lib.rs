@@ -3,10 +3,11 @@
 //! extension.
 //!
 //! Each public [`Clause`] corresponds to one normative requirement in the
-//! KHR_gaussian_splatting RC text (and its optional sub-extension
-//! `KHR_gaussian_splatting_compression_spz`).  The validator loads a glTF
-//! 2.0 JSON document — either as an external `.gltf` or extracted from the
-//! JSON chunk of a `.glb` container — and returns a [`Report`] that says
+//! KHR_gaussian_splatting Release Candidate text (SHA
+//! `63770cc70a3709cf101a42cece0bdf602b37e2e7`, dated 2026-04-15 — the
+//! "Editorial review" RC merge). The validator loads a glTF 2.0 JSON
+//! document — either as an external `.gltf` or extracted from the JSON
+//! chunk of a `.glb` container — and returns a [`Report`] that says
 //! whether every clause passed, failed, or was skipped (not applicable).
 //!
 //! The report is JSON-serialisable so the same code can drive both Rust
@@ -27,28 +28,28 @@ use thiserror::Error;
 #[allow(missing_docs)]
 pub enum Clause {
     ExtUsed,
-    ExtRequired,
     AssetVersion,
     PrimitiveExtensionPresent,
-    AttributesObjectPresent,
+    PrimitiveModePoints,
+    ExtKernelRequired,
+    ExtColorSpaceRequired,
+    ExtProjectionValid,
+    ExtSortingValid,
     PositionPresent,
     RotationPresent,
     ScalePresent,
     OpacityPresent,
-    ColorDcPresent,
+    ShDcPresent,
     PositionAccessor,
     RotationAccessor,
     ScaleAccessor,
     OpacityAccessor,
-    ColorDcAccessor,
-    ColorShAccessor,
+    ShCoefAccessor,
     PositionMinMax,
-    ShDegreeRange,
+    ShDegreesFullyDefined,
     AccessorCountsAgree,
     BufferViewBounds,
-    SpzExtensionDeclared,
-    SpzExtensionConsistent,
-    NoUnknownAttributes,
+    NoUnknownNamespacedAttributes,
 }
 
 impl Clause {
@@ -56,28 +57,28 @@ impl Clause {
     pub fn all() -> &'static [Clause] {
         &[
             Clause::ExtUsed,
-            Clause::ExtRequired,
             Clause::AssetVersion,
             Clause::PrimitiveExtensionPresent,
-            Clause::AttributesObjectPresent,
+            Clause::PrimitiveModePoints,
+            Clause::ExtKernelRequired,
+            Clause::ExtColorSpaceRequired,
+            Clause::ExtProjectionValid,
+            Clause::ExtSortingValid,
             Clause::PositionPresent,
             Clause::RotationPresent,
             Clause::ScalePresent,
             Clause::OpacityPresent,
-            Clause::ColorDcPresent,
+            Clause::ShDcPresent,
             Clause::PositionAccessor,
             Clause::RotationAccessor,
             Clause::ScaleAccessor,
             Clause::OpacityAccessor,
-            Clause::ColorDcAccessor,
-            Clause::ColorShAccessor,
+            Clause::ShCoefAccessor,
             Clause::PositionMinMax,
-            Clause::ShDegreeRange,
+            Clause::ShDegreesFullyDefined,
             Clause::AccessorCountsAgree,
             Clause::BufferViewBounds,
-            Clause::SpzExtensionDeclared,
-            Clause::SpzExtensionConsistent,
-            Clause::NoUnknownAttributes,
+            Clause::NoUnknownNamespacedAttributes,
         ]
     }
 
@@ -85,105 +86,107 @@ impl Clause {
     pub fn id(self) -> &'static str {
         match self {
             Clause::ExtUsed => "EXT_USED",
-            Clause::ExtRequired => "EXT_REQUIRED",
             Clause::AssetVersion => "ASSET_VERSION",
             Clause::PrimitiveExtensionPresent => "PRIM_EXT",
-            Clause::AttributesObjectPresent => "ATTRS_OBJECT",
+            Clause::PrimitiveModePoints => "PRIM_MODE_POINTS",
+            Clause::ExtKernelRequired => "EXT_KERNEL",
+            Clause::ExtColorSpaceRequired => "EXT_COLOR_SPACE",
+            Clause::ExtProjectionValid => "EXT_PROJECTION",
+            Clause::ExtSortingValid => "EXT_SORTING",
             Clause::PositionPresent => "ATTR_POSITION",
             Clause::RotationPresent => "ATTR_ROTATION",
             Clause::ScalePresent => "ATTR_SCALE",
             Clause::OpacityPresent => "ATTR_OPACITY",
-            Clause::ColorDcPresent => "ATTR_COLOR_DC",
+            Clause::ShDcPresent => "ATTR_SH_DC",
             Clause::PositionAccessor => "ACC_POSITION",
             Clause::RotationAccessor => "ACC_ROTATION",
             Clause::ScaleAccessor => "ACC_SCALE",
             Clause::OpacityAccessor => "ACC_OPACITY",
-            Clause::ColorDcAccessor => "ACC_COLOR_DC",
-            Clause::ColorShAccessor => "ACC_COLOR_SH",
+            Clause::ShCoefAccessor => "ACC_SH_COEF",
             Clause::PositionMinMax => "ACC_POSITION_MINMAX",
-            Clause::ShDegreeRange => "SH_DEGREE_RANGE",
+            Clause::ShDegreesFullyDefined => "SH_DEGREES_FULL",
             Clause::AccessorCountsAgree => "ACC_COUNTS_AGREE",
             Clause::BufferViewBounds => "BUFFERVIEW_BOUNDS",
-            Clause::SpzExtensionDeclared => "SPZ_DECLARED",
-            Clause::SpzExtensionConsistent => "SPZ_CONSISTENT",
-            Clause::NoUnknownAttributes => "ATTRS_KNOWN_ONLY",
+            Clause::NoUnknownNamespacedAttributes => "ATTRS_KNOWN_ONLY",
         }
     }
 
     /// Human-readable description, suitable for the conformance.md table.
     pub fn description(self) -> &'static str {
         match self {
-            Clause::ExtUsed => "Root extensionsUsed array MUST list \"KHR_gaussian_splatting\".",
-            Clause::ExtRequired => {
-                "extensionsRequired SHOULD list \"KHR_gaussian_splatting\" \
-                 when the asset cannot render without it."
+            Clause::ExtUsed => {
+                "Root extensionsUsed array MUST list \"KHR_gaussian_splatting\"."
             }
             Clause::AssetVersion => "asset.version MUST be \"2.0\" per glTF 2.0.",
             Clause::PrimitiveExtensionPresent => {
-                "At least one mesh.primitives[i].extensions[\"KHR_gaussian_splatting\"] \
-                 block MUST be present."
+                "At least one mesh.primitives[i].extensions[\"KHR_gaussian_splatting\"] block MUST be present."
             }
-            Clause::AttributesObjectPresent => {
-                "The KHR_gaussian_splatting block on a primitive MUST contain an \
-                 \"attributes\" object."
+            Clause::PrimitiveModePoints => {
+                "A primitive carrying KHR_gaussian_splatting MUST set mode to POINTS (0)."
             }
-            Clause::PositionPresent => "The attributes object MUST declare a POSITION accessor.",
-            Clause::RotationPresent => "The attributes object MUST declare a _ROTATION accessor.",
-            Clause::ScalePresent => "The attributes object MUST declare a _SCALE accessor.",
-            Clause::OpacityPresent => "The attributes object MUST declare a _OPACITY accessor.",
-            Clause::ColorDcPresent => "The attributes object MUST declare a _COLOR_DC accessor.",
+            Clause::ExtKernelRequired => {
+                "The KHR_gaussian_splatting extension object MUST declare a string `kernel`."
+            }
+            Clause::ExtColorSpaceRequired => {
+                "The KHR_gaussian_splatting extension object MUST declare a string `colorSpace`."
+            }
+            Clause::ExtProjectionValid => {
+                "If `projection` is present it MUST be a string (default \"perspective\")."
+            }
+            Clause::ExtSortingValid => {
+                "If `sortingMethod` is present it MUST be a string (default \"cameraDistance\")."
+            }
+            Clause::PositionPresent => {
+                "The primitive's attributes object MUST declare a POSITION accessor."
+            }
+            Clause::RotationPresent => {
+                "The attributes object MUST declare KHR_gaussian_splatting:ROTATION."
+            }
+            Clause::ScalePresent => {
+                "The attributes object MUST declare KHR_gaussian_splatting:SCALE."
+            }
+            Clause::OpacityPresent => {
+                "The attributes object MUST declare KHR_gaussian_splatting:OPACITY."
+            }
+            Clause::ShDcPresent => {
+                "The attributes object MUST declare KHR_gaussian_splatting:SH_DEGREE_0_COEF_0."
+            }
             Clause::PositionAccessor => {
-                "POSITION accessor MUST be VEC3 (componentType FLOAT, or normalized \
-                 UNSIGNED_SHORT/UNSIGNED_BYTE under KHR_mesh_quantization)."
+                "POSITION accessor MUST be VEC3 (componentType FLOAT, or normalized UNSIGNED_SHORT/UNSIGNED_BYTE under KHR_mesh_quantization)."
             }
             Clause::RotationAccessor => {
-                "_ROTATION accessor MUST be VEC4 FLOAT (unit quaternion xyzw)."
+                "KHR_gaussian_splatting:ROTATION accessor MUST be VEC4 FLOAT, or normalized BYTE / SHORT (unit quaternion xyzw)."
             }
-            Clause::ScaleAccessor => "_SCALE accessor MUST be VEC3 (FLOAT or normalized integer).",
+            Clause::ScaleAccessor => {
+                "KHR_gaussian_splatting:SCALE accessor MUST be VEC3 (FLOAT or unsigned-integer, with normalized variants allowed)."
+            }
             Clause::OpacityAccessor => {
-                "_OPACITY accessor MUST be SCALAR (FLOAT or normalized integer in [0,1])."
+                "KHR_gaussian_splatting:OPACITY accessor MUST be SCALAR (FLOAT or normalized UNSIGNED_BYTE / UNSIGNED_SHORT)."
             }
-            Clause::ColorDcAccessor => {
-                "_COLOR_DC accessor MUST be VEC3 (FLOAT or normalized integer in [0,1])."
-            }
-            Clause::ColorShAccessor => {
-                "When present, _COLOR_SH accessor MUST be SCALAR FLOAT with 45 \
-                 elements per splat (count = splat_count * 45)."
+            Clause::ShCoefAccessor => {
+                "Every KHR_gaussian_splatting:SH_DEGREE_l_COEF_n accessor MUST be VEC3 FLOAT."
             }
             Clause::PositionMinMax => {
                 "POSITION accessor MUST provide both min and max arrays (glTF 2.0 §3.6.2.4)."
             }
-            Clause::ShDegreeRange => {
-                "shDegree MUST be an integer in [0, 3]; when _COLOR_SH is absent \
-                 it MUST be 0."
+            Clause::ShDegreesFullyDefined => {
+                "SH degrees MUST be fully defined — each degree l requires its full (2l+1) coefficient set, and using degree l requires degrees 0..l-1."
             }
             Clause::AccessorCountsAgree => {
-                "All per-splat accessors (POSITION, _ROTATION, _SCALE, _OPACITY, \
-                 _COLOR_DC) MUST share the same count."
+                "All per-splat accessors (POSITION, ROTATION, SCALE, OPACITY, and every SH coefficient accessor) MUST share the same count."
             }
             Clause::BufferViewBounds => {
-                "Every referenced accessor's bufferView MUST be in range and its byte \
-                 footprint MUST fit inside the parent buffer."
+                "Every referenced accessor's bufferView MUST be in range and its byte footprint MUST fit inside the parent buffer."
             }
-            Clause::SpzExtensionDeclared => {
-                "If KHR_gaussian_splatting_compression_spz appears anywhere in the \
-                 asset it MUST be listed in extensionsUsed."
-            }
-            Clause::SpzExtensionConsistent => {
-                "If a primitive declares KHR_gaussian_splatting_compression_spz it \
-                 MUST also declare KHR_gaussian_splatting on the same primitive."
-            }
-            Clause::NoUnknownAttributes => {
-                "The KHR_gaussian_splatting attributes object MUST NOT contain unknown \
-                 attribute keys (only POSITION, _ROTATION, _SCALE, _OPACITY, _COLOR_DC, \
-                 _COLOR_SH are reserved)."
+            Clause::NoUnknownNamespacedAttributes => {
+                "Any `KHR_gaussian_splatting:*` attribute key MUST match one of the names defined by the spec (ROTATION, SCALE, OPACITY, SH_DEGREE_{0..3}_COEF_{0..6})."
             }
         }
     }
 
     /// Whether this clause is a MUST (true) or SHOULD/optional (false).
     pub fn is_mandatory(self) -> bool {
-        !matches!(self, Clause::ExtRequired)
+        true
     }
 }
 
@@ -195,7 +198,7 @@ pub enum Status {
     Pass,
     /// Clause checked and violated.
     Fail,
-    /// Clause did not apply to this asset (e.g. SPZ checks on a non-SPZ file).
+    /// Clause did not apply to this asset.
     Skip,
 }
 
@@ -228,8 +231,7 @@ pub struct Report {
 }
 
 impl Report {
-    /// True when no clause failed (skips are tolerated — SPZ checks are
-    /// expected to skip on non-SPZ fixtures, for example).
+    /// True when no clause failed (skips are tolerated).
     pub fn is_pass(&self) -> bool {
         self.fail == 0
     }
@@ -252,7 +254,7 @@ pub enum ValidateError {
 
 const GLB_MAGIC: [u8; 4] = *b"glTF";
 const KHR: &str = "KHR_gaussian_splatting";
-const SPZ: &str = "KHR_gaussian_splatting_compression_spz";
+const NS: &str = "KHR_gaussian_splatting:";
 
 /// Validate a `.gltf` or `.glb` file and return the conformance report.
 pub fn validate_path(path: &Path) -> Result<Report, ValidateError> {
@@ -269,30 +271,20 @@ pub fn validate_path(path: &Path) -> Result<Report, ValidateError> {
     };
     let value: serde_json::Value = serde_json::from_str(&json_str)?;
     let clauses = run_clauses(&value);
-    let mut pass = 0;
-    let mut fail = 0;
-    let mut skip = 0;
-    for c in &clauses {
-        match c.status {
-            Status::Pass => pass += 1,
-            Status::Fail => fail += 1,
-            Status::Skip => skip += 1,
-        }
-    }
-    Ok(Report {
-        source: path.display().to_string(),
-        container: container.to_string(),
-        pass,
-        fail,
-        skip,
+    Ok(summarize(
+        path.display().to_string(),
+        container.to_string(),
         clauses,
-    })
+    ))
 }
 
-/// Validate a glTF JSON document already in memory. Useful for tests and for
-/// callers who have already extracted the JSON chunk from a GLB.
+/// Validate a glTF JSON document already in memory.
 pub fn validate_json(json: &serde_json::Value, source: &str) -> Report {
     let clauses = run_clauses(json);
+    summarize(source.to_string(), "gltf".to_string(), clauses)
+}
+
+fn summarize(source: String, container: String, clauses: Vec<ClauseResult>) -> Report {
     let mut pass = 0;
     let mut fail = 0;
     let mut skip = 0;
@@ -304,8 +296,8 @@ pub fn validate_json(json: &serde_json::Value, source: &str) -> Report {
         }
     }
     Report {
-        source: source.to_string(),
-        container: "gltf".to_string(),
+        source,
+        container,
         pass,
         fail,
         skip,
@@ -381,6 +373,32 @@ fn skip(id: Clause, detail: impl Into<String>) -> ClauseResult {
     }
 }
 
+/// Names of valid `KHR_gaussian_splatting:*` namespaced attributes
+/// per the RC text.
+fn known_namespaced_attrs() -> Vec<String> {
+    let mut v = vec![
+        "ROTATION".to_string(),
+        "SCALE".to_string(),
+        "OPACITY".to_string(),
+    ];
+    // SH degree 0: 1 coef; 1: 3; 2: 5; 3: 7.
+    let coefs_per_degree = [1usize, 3, 5, 7];
+    for (l, n) in coefs_per_degree.iter().enumerate() {
+        for i in 0..*n {
+            v.push(format!("SH_DEGREE_{l}_COEF_{i}"));
+        }
+    }
+    v
+}
+
+fn sh_attr_name(l: usize, n: usize) -> String {
+    format!("{NS}SH_DEGREE_{l}_COEF_{n}")
+}
+
+fn sh_coef_count(l: usize) -> usize {
+    2 * l + 1
+}
+
 fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
     let mut out = Vec::with_capacity(Clause::all().len());
 
@@ -390,13 +408,7 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
         .and_then(|v| v.as_array())
         .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
         .unwrap_or_default();
-    let required: Vec<&str> = root
-        .get("extensionsRequired")
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
-        .unwrap_or_default();
     let has_khr_used = used.contains(&KHR);
-    let has_spz_used = used.contains(&SPZ);
 
     out.push(if has_khr_used {
         pass(Clause::ExtUsed)
@@ -404,14 +416,6 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
         fail(
             Clause::ExtUsed,
             "KHR_gaussian_splatting not in extensionsUsed",
-        )
-    });
-    out.push(if required.contains(&KHR) {
-        pass(Clause::ExtRequired)
-    } else {
-        fail(
-            Clause::ExtRequired,
-            "KHR_gaussian_splatting not in extensionsRequired",
         )
     });
     out.push(
@@ -429,19 +433,21 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
         },
     );
 
-    // ----- find the KHR-bearing primitive -----
-    let prim_ext_blob = root
+    // ----- locate the first KHR-bearing primitive -----
+    let primitive = root
         .get("meshes")
         .and_then(|m| m.as_array())
         .and_then(|m| m.first())
         .and_then(|m| m.get("primitives"))
         .and_then(|p| p.as_array())
-        .and_then(|p| p.first())
+        .and_then(|p| p.first());
+
+    let prim_ext_blob = primitive
         .and_then(|p| p.get("extensions"))
         .and_then(|e| e.get(KHR));
 
-    let attrs_obj = prim_ext_blob
-        .and_then(|e| e.get("attributes"))
+    let attrs_obj = primitive
+        .and_then(|p| p.get("attributes"))
         .and_then(|a| a.as_object());
 
     out.push(match prim_ext_blob {
@@ -451,14 +457,78 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
             "no primitive declares KHR_gaussian_splatting",
         ),
     });
-    out.push(match attrs_obj {
-        Some(_) => pass(Clause::AttributesObjectPresent),
+
+    // PRIM_MODE_POINTS — primitive.mode must be 0 (POINTS).
+    out.push(match primitive {
+        None => fail(Clause::PrimitiveModePoints, "no primitive in mesh"),
+        Some(p) => match p.get("mode").and_then(|v| v.as_u64()) {
+            Some(0) => pass(Clause::PrimitiveModePoints),
+            Some(other) => fail(
+                Clause::PrimitiveModePoints,
+                format!("primitive.mode={other}, MUST be 0 (POINTS)"),
+            ),
+            None => fail(
+                Clause::PrimitiveModePoints,
+                "primitive.mode missing (glTF default is 4 / TRIANGLES; spec requires POINTS)",
+            ),
+        },
+    });
+
+    // EXT_KERNEL, EXT_COLOR_SPACE, EXT_PROJECTION, EXT_SORTING.
+    let kernel = prim_ext_blob.and_then(|e| e.get("kernel"));
+    out.push(match kernel.and_then(|v| v.as_str()) {
+        Some(_) => pass(Clause::ExtKernelRequired),
+        None if kernel.is_some() => fail(
+            Clause::ExtKernelRequired,
+            "kernel present but not a string",
+        ),
+        None => fail(Clause::ExtKernelRequired, "kernel property missing"),
+    });
+
+    let color_space = prim_ext_blob.and_then(|e| e.get("colorSpace"));
+    out.push(match color_space.and_then(|v| v.as_str()) {
+        Some(_) => pass(Clause::ExtColorSpaceRequired),
+        None if color_space.is_some() => fail(
+            Clause::ExtColorSpaceRequired,
+            "colorSpace present but not a string",
+        ),
         None => fail(
-            Clause::AttributesObjectPresent,
-            "no attributes object on KHR block",
+            Clause::ExtColorSpaceRequired,
+            "colorSpace property missing",
         ),
     });
 
+    let projection = prim_ext_blob.and_then(|e| e.get("projection"));
+    out.push(match projection {
+        None => skip(
+            Clause::ExtProjectionValid,
+            "projection not declared (defaults to perspective)",
+        ),
+        Some(v) => match v.as_str() {
+            Some(_) => pass(Clause::ExtProjectionValid),
+            None => fail(
+                Clause::ExtProjectionValid,
+                "projection present but not a string",
+            ),
+        },
+    });
+
+    let sorting = prim_ext_blob.and_then(|e| e.get("sortingMethod"));
+    out.push(match sorting {
+        None => skip(
+            Clause::ExtSortingValid,
+            "sortingMethod not declared (defaults to cameraDistance)",
+        ),
+        Some(v) => match v.as_str() {
+            Some(_) => pass(Clause::ExtSortingValid),
+            None => fail(
+                Clause::ExtSortingValid,
+                "sortingMethod present but not a string",
+            ),
+        },
+    });
+
+    // ----- attribute presence -----
     let attr_idx = |name: &str| -> Option<usize> {
         attrs_obj
             .and_then(|a| a.get(name))
@@ -466,18 +536,23 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
             .map(|n| n as usize)
     };
 
-    let names_required: &[(Clause, &str)] = &[
-        (Clause::PositionPresent, "POSITION"),
-        (Clause::RotationPresent, "_ROTATION"),
-        (Clause::ScalePresent, "_SCALE"),
-        (Clause::OpacityPresent, "_OPACITY"),
-        (Clause::ColorDcPresent, "_COLOR_DC"),
+    let names_required: &[(Clause, &str, bool)] = &[
+        (Clause::PositionPresent, "POSITION", false),
+        (Clause::RotationPresent, "ROTATION", true),
+        (Clause::ScalePresent, "SCALE", true),
+        (Clause::OpacityPresent, "OPACITY", true),
+        (Clause::ShDcPresent, "SH_DEGREE_0_COEF_0", true),
     ];
-    for (clause, name) in names_required {
-        out.push(if attr_idx(name).is_some() {
+    for (clause, name, namespaced) in names_required {
+        let key = if *namespaced {
+            format!("{NS}{name}")
+        } else {
+            (*name).to_string()
+        };
+        out.push(if attr_idx(&key).is_some() {
             pass(*clause)
         } else {
-            fail(*clause, format!("attribute {name} missing"))
+            fail(*clause, format!("attribute {key} missing"))
         });
     }
 
@@ -526,7 +601,9 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
             pass(clause)
         };
 
-    // FLOAT=5126, UBYTE=5121, USHORT=5123
+    // glTF componentType values:
+    // 5120 BYTE, 5121 UNSIGNED_BYTE, 5122 SHORT, 5123 UNSIGNED_SHORT,
+    // 5125 UNSIGNED_INT, 5126 FLOAT.
     out.push(check_acc(
         Clause::PositionAccessor,
         "POSITION",
@@ -535,72 +612,58 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
     ));
     out.push(check_acc(
         Clause::RotationAccessor,
-        "_ROTATION",
+        &format!("{NS}ROTATION"),
         &["VEC4"],
-        &[5126],
+        &[5126, 5120, 5122],
     ));
     out.push(check_acc(
         Clause::ScaleAccessor,
-        "_SCALE",
+        &format!("{NS}SCALE"),
         &["VEC3"],
         &[5126, 5121, 5123],
     ));
     out.push(check_acc(
         Clause::OpacityAccessor,
-        "_OPACITY",
+        &format!("{NS}OPACITY"),
         &["SCALAR"],
         &[5126, 5121, 5123],
     ));
-    out.push(check_acc(
-        Clause::ColorDcAccessor,
-        "_COLOR_DC",
-        &["VEC3"],
-        &[5126, 5121, 5123],
-    ));
 
-    // _COLOR_SH is optional, but if present must be SCALAR FLOAT with 45*N.
-    out.push(match attr_idx("_COLOR_SH") {
-        None => skip(Clause::ColorShAccessor, "_COLOR_SH not declared"),
-        Some(idx) => match accessors.get(idx) {
-            None => fail(
-                Clause::ColorShAccessor,
-                format!("accessor {idx} out of range"),
-            ),
-            Some(acc) => {
+    // SH coefficient accessors — every SH_DEGREE_l_COEF_n declared MUST be VEC3 FLOAT.
+    out.push({
+        let mut problems: Vec<String> = Vec::new();
+        let mut checked = 0usize;
+        for l in 0..=3 {
+            for n in 0..sh_coef_count(l) {
+                let key = sh_attr_name(l, n);
+                let Some(idx) = attr_idx(&key) else {
+                    continue;
+                };
+                checked += 1;
+                let Some(acc) = accessors.get(idx) else {
+                    problems.push(format!("{key}: accessor {idx} out of range"));
+                    continue;
+                };
                 let ty = acc.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 let ct = acc
                     .get("componentType")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u32;
-                let count = acc.get("count").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                let pos_count = attr_idx("POSITION")
-                    .and_then(|i| accessors.get(i))
-                    .and_then(|a| a.get("count"))
-                    .and_then(|c| c.as_u64())
-                    .unwrap_or(0) as usize;
-                if ty != "SCALAR" {
-                    fail(
-                        Clause::ColorShAccessor,
-                        format!("_COLOR_SH.type={ty:?}, want SCALAR"),
-                    )
-                } else if ct != 5126 {
-                    fail(
-                        Clause::ColorShAccessor,
-                        format!("_COLOR_SH.componentType={ct}, want 5126 (FLOAT)"),
-                    )
-                } else if pos_count > 0 && count != pos_count * 45 {
-                    fail(
-                        Clause::ColorShAccessor,
-                        format!(
-                            "_COLOR_SH.count={count}, want {} (45 * splat_count)",
-                            pos_count * 45
-                        ),
-                    )
-                } else {
-                    pass(Clause::ColorShAccessor)
+                if ty != "VEC3" {
+                    problems.push(format!("{key}.type={ty:?}, want VEC3"));
+                }
+                if ct != 5126 {
+                    problems.push(format!("{key}.componentType={ct}, want 5126 (FLOAT)"));
                 }
             }
-        },
+        }
+        if checked == 0 {
+            skip(Clause::ShCoefAccessor, "no SH coefficient accessors declared")
+        } else if problems.is_empty() {
+            pass(Clause::ShCoefAccessor)
+        } else {
+            fail(Clause::ShCoefAccessor, problems.join("; "))
+        }
     });
 
     // POSITION min/max.
@@ -628,38 +691,65 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
         None => skip(Clause::PositionMinMax, "POSITION accessor absent"),
     });
 
-    // shDegree range, both at primitive level and (if present) scene level.
+    // SH degrees fully defined.
     out.push({
-        let prim_sh = prim_ext_blob
-            .and_then(|e| e.get("shDegree"))
-            .and_then(|v| v.as_u64());
-        let has_sh = attr_idx("_COLOR_SH").is_some();
-        match prim_sh {
-            None => fail(
-                Clause::ShDegreeRange,
-                "shDegree missing on primitive KHR block",
-            ),
-            Some(d) if d > 3 => fail(
-                Clause::ShDegreeRange,
-                format!("shDegree={d}, must be 0..=3"),
-            ),
-            Some(d) if !has_sh && d != 0 => fail(
-                Clause::ShDegreeRange,
-                format!("shDegree={d} but _COLOR_SH is absent (must be 0)"),
-            ),
-            Some(_) => pass(Clause::ShDegreeRange),
+        let mut highest_used: Option<usize> = None;
+        let mut partial_problems: Vec<String> = Vec::new();
+        for l in 0..=3 {
+            let n_required = sh_coef_count(l);
+            let n_present = (0..n_required)
+                .filter(|n| attr_idx(&sh_attr_name(l, *n)).is_some())
+                .count();
+            if n_present == 0 {
+                continue;
+            }
+            if n_present != n_required {
+                partial_problems.push(format!(
+                    "SH degree {l} partial: {n_present}/{n_required} coefficients present"
+                ));
+            } else {
+                highest_used = Some(l);
+            }
+        }
+        if let Some(top) = highest_used {
+            for l in 0..top {
+                let n_required = sh_coef_count(l);
+                let missing: Vec<usize> = (0..n_required)
+                    .filter(|n| attr_idx(&sh_attr_name(l, *n)).is_none())
+                    .collect();
+                if !missing.is_empty() {
+                    partial_problems.push(format!(
+                        "SH degree {l} missing coefs {missing:?} but degree {top} is in use"
+                    ));
+                }
+            }
+        }
+        if partial_problems.is_empty() {
+            pass(Clause::ShDegreesFullyDefined)
+        } else {
+            fail(Clause::ShDegreesFullyDefined, partial_problems.join("; "))
         }
     });
 
     // All per-splat accessors share count.
     out.push({
-        let names = ["POSITION", "_ROTATION", "_SCALE", "_OPACITY", "_COLOR_DC"];
+        let mut names: Vec<String> = vec![
+            "POSITION".to_string(),
+            format!("{NS}ROTATION"),
+            format!("{NS}SCALE"),
+            format!("{NS}OPACITY"),
+        ];
+        for l in 0..=3 {
+            for n in 0..sh_coef_count(l) {
+                names.push(sh_attr_name(l, n));
+            }
+        }
         let mut counts: Vec<(String, usize)> = Vec::new();
-        for n in names {
+        for n in &names {
             if let Some(i) = attr_idx(n) {
                 if let Some(acc) = accessors.get(i) {
                     let c = acc.get("count").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                    counts.push((n.to_string(), c));
+                    counts.push((n.clone(), c));
                 }
             }
         }
@@ -734,62 +824,25 @@ fn run_clauses(root: &serde_json::Value) -> Vec<ClauseResult> {
         }
     });
 
-    // SPZ checks.
-    let primitive_declares_spz = root
-        .get("meshes")
-        .and_then(|m| m.as_array())
-        .and_then(|m| m.first())
-        .and_then(|m| m.get("primitives"))
-        .and_then(|p| p.as_array())
-        .and_then(|p| p.first())
-        .and_then(|p| p.get("extensions"))
-        .and_then(|e| e.get(SPZ))
-        .is_some();
-
-    out.push(if !has_spz_used && !primitive_declares_spz {
-        skip(Clause::SpzExtensionDeclared, "SPZ not present in asset")
-    } else if primitive_declares_spz && !has_spz_used {
-        fail(
-            Clause::SpzExtensionDeclared,
-            "primitive declares SPZ but extensionsUsed omits it",
-        )
-    } else {
-        pass(Clause::SpzExtensionDeclared)
-    });
-
-    out.push(if !has_spz_used && !primitive_declares_spz {
-        skip(Clause::SpzExtensionConsistent, "SPZ not present in asset")
-    } else if primitive_declares_spz && prim_ext_blob.is_none() {
-        fail(
-            Clause::SpzExtensionConsistent,
-            "primitive declares SPZ but not KHR_gaussian_splatting",
-        )
-    } else {
-        pass(Clause::SpzExtensionConsistent)
-    });
-
-    // Unknown attribute keys.
+    // Unknown KHR-namespaced attribute keys (the spec reserves the namespace).
     out.push(match attrs_obj {
-        None => skip(Clause::NoUnknownAttributes, "no attributes object"),
+        None => skip(Clause::NoUnknownNamespacedAttributes, "no attributes object"),
         Some(map) => {
-            let known: &[&str] = &[
-                "POSITION",
-                "_ROTATION",
-                "_SCALE",
-                "_OPACITY",
-                "_COLOR_DC",
-                "_COLOR_SH",
-            ];
+            let known = known_namespaced_attrs();
             let unknown: Vec<&String> = map
                 .keys()
-                .filter(|k| !known.iter().any(|kk| kk == &k.as_str()))
+                .filter(|k| k.starts_with(NS))
+                .filter(|k| {
+                    let suffix = &k[NS.len()..];
+                    !known.iter().any(|kk| kk == suffix)
+                })
                 .collect();
             if unknown.is_empty() {
-                pass(Clause::NoUnknownAttributes)
+                pass(Clause::NoUnknownNamespacedAttributes)
             } else {
                 fail(
-                    Clause::NoUnknownAttributes,
-                    format!("unknown attributes: {unknown:?}"),
+                    Clause::NoUnknownNamespacedAttributes,
+                    format!("unknown namespaced attributes: {unknown:?}"),
                 )
             }
         }
@@ -803,35 +856,46 @@ mod tests {
     use super::*;
 
     fn valid_json() -> serde_json::Value {
+        // 4 splats, FLOAT accessors only.
+        //   POSITION    VEC3 FLOAT 4*12 = 48
+        //   ROTATION    VEC4 FLOAT 4*16 = 64
+        //   SCALE       VEC3 FLOAT 4*12 = 48
+        //   OPACITY     SCAL FLOAT 4*4  = 16
+        //   SH_DC       VEC3 FLOAT 4*12 = 48
+        // Total: 224.
         serde_json::json!({
             "asset": { "version": "2.0" },
             "extensionsUsed": ["KHR_gaussian_splatting"],
-            "extensionsRequired": ["KHR_gaussian_splatting"],
-            "buffers": [{ "byteLength": 188 }],
+            "buffers": [{ "byteLength": 224 }],
             "bufferViews": [
-                { "buffer": 0, "byteOffset": 0,  "byteLength": 24 },
-                { "buffer": 0, "byteOffset": 24, "byteLength": 32 },
-                { "buffer": 0, "byteOffset": 56, "byteLength": 24 },
-                { "buffer": 0, "byteOffset": 80, "byteLength": 8  },
-                { "buffer": 0, "byteOffset": 88, "byteLength": 24 }
+                { "buffer": 0, "byteOffset": 0,   "byteLength": 48 },
+                { "buffer": 0, "byteOffset": 48,  "byteLength": 64 },
+                { "buffer": 0, "byteOffset": 112, "byteLength": 48 },
+                { "buffer": 0, "byteOffset": 160, "byteLength": 16 },
+                { "buffer": 0, "byteOffset": 176, "byteLength": 48 }
             ],
             "accessors": [
-                { "bufferView": 0, "componentType": 5126, "count": 2, "type": "VEC3",
-                  "min": [0.0,0.0,0.0], "max": [1.0,1.0,1.0] },
-                { "bufferView": 1, "componentType": 5126, "count": 2, "type": "VEC4" },
-                { "bufferView": 2, "componentType": 5126, "count": 2, "type": "VEC3" },
-                { "bufferView": 3, "componentType": 5126, "count": 2, "type": "SCALAR" },
-                { "bufferView": 4, "componentType": 5126, "count": 2, "type": "VEC3" }
+                { "bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3",
+                  "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0] },
+                { "bufferView": 1, "componentType": 5126, "count": 4, "type": "VEC4" },
+                { "bufferView": 2, "componentType": 5126, "count": 4, "type": "VEC3" },
+                { "bufferView": 3, "componentType": 5126, "count": 4, "type": "SCALAR" },
+                { "bufferView": 4, "componentType": 5126, "count": 4, "type": "VEC3" }
             ],
             "meshes": [{
                 "primitives": [{
+                    "mode": 0,
+                    "attributes": {
+                        "POSITION": 0,
+                        "KHR_gaussian_splatting:ROTATION": 1,
+                        "KHR_gaussian_splatting:SCALE": 2,
+                        "KHR_gaussian_splatting:OPACITY": 3,
+                        "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0": 4
+                    },
                     "extensions": {
                         "KHR_gaussian_splatting": {
-                            "attributes": {
-                                "POSITION": 0, "_ROTATION": 1, "_SCALE": 2,
-                                "_OPACITY": 3, "_COLOR_DC": 4
-                            },
-                            "shDegree": 0
+                            "kernel": "ellipse",
+                            "colorSpace": "srgb_rec709_display"
                         }
                     }
                 }]
@@ -842,7 +906,12 @@ mod tests {
     #[test]
     fn baseline_passes() {
         let r = validate_json(&valid_json(), "test");
-        assert!(r.is_pass(), "expected pass, got {:?}", r.clauses);
+        let fails: Vec<_> = r
+            .clauses
+            .iter()
+            .filter(|c| c.status == Status::Fail)
+            .collect();
+        assert!(r.is_pass(), "expected pass, got fails: {fails:?}");
     }
 
     #[test]
@@ -858,13 +927,27 @@ mod tests {
     }
 
     #[test]
-    fn wrong_rotation_type_fails() {
+    fn wrong_mode_fails() {
         let mut j = valid_json();
-        j["accessors"][1]["type"] = serde_json::json!("VEC3");
+        j["meshes"][0]["primitives"][0]["mode"] = serde_json::json!(4);
         let r = validate_json(&j, "test");
         assert!(r
             .clauses
             .iter()
-            .any(|c| c.id == "ACC_ROTATION" && c.status == Status::Fail));
+            .any(|c| c.id == "PRIM_MODE_POINTS" && c.status == Status::Fail));
+    }
+
+    #[test]
+    fn missing_kernel_fails() {
+        let mut j = valid_json();
+        let ext = j["meshes"][0]["primitives"][0]["extensions"]["KHR_gaussian_splatting"]
+            .as_object_mut()
+            .unwrap();
+        ext.remove("kernel");
+        let r = validate_json(&j, "test");
+        assert!(r
+            .clauses
+            .iter()
+            .any(|c| c.id == "EXT_KERNEL" && c.status == Status::Fail));
     }
 }

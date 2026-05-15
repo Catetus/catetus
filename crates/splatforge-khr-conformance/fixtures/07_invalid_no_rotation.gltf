@@ -7,7 +7,7 @@
       "max": [
         3.0,
         1.5,
-        -0.0
+        0.0
       ],
       "min": [
         0.0,
@@ -42,7 +42,7 @@
     }
   ],
   "asset": {
-    "generator": "splatforge-gltf",
+    "generator": "splatforge-khr-fixtures",
     "version": "2.0"
   },
   "bufferViews": [
@@ -78,27 +78,6 @@
       "uri": "buffers/chunk_0000.bin"
     }
   ],
-  "extensions": {
-    "KHR_gaussian_splatting": {
-      "bbox": {
-        "max": [
-          3.0,
-          1.5,
-          -0.0
-        ],
-        "min": [
-          0.0,
-          0.0,
-          -3.0
-        ]
-      },
-      "shDegree": 0,
-      "splatCount": 4
-    }
-  },
-  "extensionsRequired": [
-    "KHR_gaussian_splatting"
-  ],
   "extensionsUsed": [
     "KHR_gaussian_splatting"
   ],
@@ -106,18 +85,35 @@
     {
       "primitives": [
         {
+          "attributes": {
+            "KHR_gaussian_splatting:OPACITY": 3,
+            "KHR_gaussian_splatting:SCALE": 2,
+            "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0": 4,
+            "POSITION": 0
+          },
           "extensions": {
             "KHR_gaussian_splatting": {
-              "attributes": {
-                "POSITION": 0,
-                "_COLOR_DC": 4,
-                "_OPACITY": 3,
-                "_SCALE": 2
-              },
-              "shDegree": 0
+              "colorSpace": "srgb_rec709_display",
+              "kernel": "ellipse",
+              "projection": "perspective",
+              "sortingMethod": "cameraDistance"
             }
-          }
+          },
+          "mode": 0
         }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
       ]
     }
   ]

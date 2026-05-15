@@ -2106,13 +2106,11 @@ dependencies = [
 
 [[package]]
 name = "splatforge-khr-conformance"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "serde",
  "serde_json",
- "splatforge-core",
- "splatforge-gltf",
  "tempfile",
  "thiserror 1.0.69",
 ]
