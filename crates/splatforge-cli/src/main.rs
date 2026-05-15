@@ -159,6 +159,20 @@ enum Command {
         #[arg(long, default_value_t = 0.03_f32)]
         threshold: f32,
     },
+    /// Score a single PLY with the v0.4 fidelity MLP. Predict-only —
+    /// the baseline PLY is optional (when omitted, the candidate is
+    /// compared against the canonical lossless-repack identity profile
+    /// baked into `splatforge-fidelity`). Emits a JSON `ScoreReport`.
+    FidelityScore {
+        /// Candidate PLY.
+        candidate: std::path::PathBuf,
+        /// Optional baseline PLY.
+        #[arg(long, short = 'b')]
+        baseline: Option<std::path::PathBuf>,
+        /// Pretty-print the JSON output.
+        #[arg(long)]
+        pretty: bool,
+    },
     /// Validate an asset against a SplatForge-supported standard
     /// (KHR_gaussian_splatting today; OpenUSD when the USDC reader path
     /// is wired). Wraps `splatforge-khr-validate` for the glTF case.
@@ -254,6 +268,9 @@ fn dispatch(cli: Cli) -> Result<()> {
             out,
             threshold,
         } => cmd_fidelity(&candidate, &baseline, out.as_deref(), threshold),
+        Command::FidelityScore { candidate, baseline, pretty } => {
+            cmd_fidelity_score(&candidate, baseline.as_deref(), pretty)
+        }
         Command::SpecCheck { input, spec, json } => {
             cmd_spec_check(&input, spec.as_deref(), json)
         }
@@ -953,4 +970,17 @@ mod diff_tests {
         std::env::remove_var("SPLATFORGE_DIFF_HELPER");
         let _ = std::fs::remove_file(&dir);
     }
+}
+
+
+fn cmd_fidelity_score(candidate: &Path, baseline: Option<&Path>, pretty: bool) -> Result<()> {
+    let report = splatforge_fidelity::score_ply(candidate, baseline)
+        .with_context(|| "splatforge-fidelity v0.4")?;
+    let json = if pretty {
+        serde_json::to_string_pretty(&report)?
+    } else {
+        serde_json::to_string(&report)?
+    };
+    println!("{json}");
+    Ok(())
 }
