@@ -1,0 +1,453 @@
+---
+// /sdk — Embedded SDK licensing pricing + MAU calculator.
+//
+// Companion to /pricing. Where /pricing prices the hosted optimize
+// API (compute), /sdk prices the four embedded plugins (Three.js,
+// Babylon.js, model-viewer, Cesium ion) that ship with SplatForge
+// and load .splatforge.json assets in third-party apps.
+//
+// Royalty model is unit-economically simple:
+//   * 10k MAU free per app per month
+//   * $0.001 per MAU above (= $1 per 10k MAU)
+//
+// Below-free apps pay nothing and never see a license-key flow. Above
+// the free tier, the app issues an HMAC-signed JWT bound to its
+// `Origin` domain via POST /v1/sdk/license; the SDK plugin sends a
+// daily MAU telemetry beacon to /v1/sdk/beacon which the operator
+// rolls up into the monthly invoice.
+import Base from "../layouts/Base.astro";
+
+const title = "SplatForge SDK — Embedded license pricing";
+const description =
+  "Three.js, Babylon.js, model-viewer, and Cesium ion plugins for SplatForge assets. Free under 10k MAU per app; $0.001/MAU above. Per-domain HMAC-signed license keys, telemetry beacon.";
+
+const apiBase = "https://api.splatforge.dev";
+
+// Display rows for the plugin table.
+const plugins = [
+  {
+    id: "threejs",
+    name: "Three.js plugin",
+    pkg: "@splatforge/three",
+    blurb:
+      "Drop-in loader + GLB-aware renderer for r150+ Three.js apps. Hooks into the standard three.js GLTFLoader.",
+  },
+  {
+    id: "babylonjs",
+    name: "Babylon.js plugin",
+    pkg: "@splatforge/babylon",
+    blurb:
+      "Babylon.js v7 loader for SplatForge-optimized .glb assets, plus a SceneLoader hook that auto-detects splat payloads.",
+  },
+  {
+    id: "model-viewer",
+    name: "<model-viewer>",
+    pkg: "@splatforge/model-viewer",
+    blurb:
+      "Custom-element shim that teaches Google's <model-viewer> to render Gaussian-Splat .glb payloads alongside its existing glTF support.",
+  },
+  {
+    id: "cesium-ion",
+    name: "Cesium ion tile fetcher",
+    pkg: "@splatforge/cesium-ion",
+    blurb:
+      "Cesium ion tile fetcher that streams SplatForge-optimized tile sets into a CesiumJS or ion viewer.",
+  },
+];
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/sdk" aria-current="page">SDK</a>
+      <a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="hero hero-sdk">
+    <h1>Embed splats in your engine.</h1>
+    <p>
+      Four plugins, one royalty: free below
+      <span class="tabular">10k MAU</span> per app, then
+      <span class="tabular">$0.001/MAU</span>. License keys are HMAC-SHA256
+      JWTs bound to your origin domain — no phone-home, no per-asset
+      lookup, no surprise bill.
+    </p>
+  </header>
+
+  <section class="plugin-grid">
+    {plugins.map((p) => (
+      <article class="plugin">
+        <header>
+          <h2>{p.name}</h2>
+          <code>{p.pkg}</code>
+        </header>
+        <p>{p.blurb}</p>
+        <a class="btn-link" href={`/sdk/${p.id}/quickstart`}>
+          Quickstart →
+        </a>
+      </article>
+    ))}
+  </section>
+
+  <section class="calculator">
+    <header>
+      <h2>MAU calculator</h2>
+      <p>
+        Same math the beacon rolls up into your invoice. The first 10,000
+        monthly active users on each app are always free.
+      </p>
+    </header>
+
+    <form id="sdk-form" class="calc-grid" aria-label="SDK MAU pricing calculator">
+      <label class="calc-field">
+        <span>Plugin</span>
+        <select id="sdk-plugin">
+          <option value="threejs">Three.js</option>
+          <option value="babylonjs">Babylon.js</option>
+          <option value="model-viewer">model-viewer</option>
+          <option value="cesium-ion">Cesium ion</option>
+        </select>
+      </label>
+
+      <label class="calc-field">
+        <span>Monthly active users</span>
+        <span class="calc-slider-row">
+          <input
+            id="sdk-mau"
+            type="range"
+            min="0"
+            max="2000000"
+            step="1000"
+            value="50000"
+          />
+          <span id="sdk-mau-readout" class="tabular">50,000</span>
+        </span>
+      </label>
+    </form>
+
+    <div class="calc-results" aria-live="polite">
+      <div class="calc-result-row">
+        <span class="calc-label">Free tier</span>
+        <span id="sdk-free" class="calc-value tabular">10,000 MAU</span>
+      </div>
+      <div class="calc-result-row">
+        <span class="calc-label">Paid MAU</span>
+        <span id="sdk-paid" class="calc-value tabular">—</span>
+      </div>
+      <div class="calc-result-row">
+        <span class="calc-label">Per-MAU rate</span>
+        <span id="sdk-rate" class="calc-value tabular">$0.001</span>
+      </div>
+      <div class="calc-result-row calc-total">
+        <span class="calc-label">Monthly royalty</span>
+        <span id="sdk-total" class="calc-value tabular">—</span>
+      </div>
+      <p class="calc-meta tabular" id="sdk-meta">sdk pricing version —</p>
+    </div>
+  </section>
+
+  <section class="license-flow">
+    <h2>How licensing works</h2>
+    <ol>
+      <li>
+        Hit <code>POST /v1/sdk/license</code> with
+        <code>{`{ plugin, domain }`}</code> and your operator-issued bearer.
+        You get back an HMAC-SHA256 JWT bound to that exact domain.
+      </li>
+      <li>
+        Ship the token with your build. The SDK plugin verifies it on
+        first render (signature + <code>Origin</code> match + expiry).
+      </li>
+      <li>
+        Once a day the plugin POSTs a MAU snapshot to
+        <code>/v1/sdk/beacon</code>. Snapshot rolls up into your monthly
+        invoice; no per-asset lookup, no telemetry beyond the count.
+      </li>
+      <li>
+        Below 10k MAU? Skip every step. The free tier doesn't require a
+        license at all — open the headers, skip the bearer.
+      </li>
+    </ol>
+  </section>
+
+  <footer class="site-footer">
+    <span>SDK pricing v0.1 — tunable in apps/api/src/pricing.rs</span>
+    <span><a href="/pricing">→ optimize API pricing</a></span>
+  </footer>
+</Base>
+
+<script is:inline define:vars={{ apiBase }}>
+  const formatUsd = (cents) => {
+    if (cents === 0) return "free";
+    if (cents < 100) return `${cents}¢`;
+    return `$${(cents / 100).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  const plugin = document.getElementById("sdk-plugin");
+  const mau = document.getElementById("sdk-mau");
+  const mauReadout = document.getElementById("sdk-mau-readout");
+  const elPaid = document.getElementById("sdk-paid");
+  const elTotal = document.getElementById("sdk-total");
+  const elMeta = document.getElementById("sdk-meta");
+
+  const SDK_FREE = 10000;
+  const SDK_PER_MAU_CENTS = 0.1;
+
+  function localQuote(mauValue) {
+    const paid = Math.max(0, mauValue - SDK_FREE);
+    const cents = Math.ceil(paid * SDK_PER_MAU_CENTS);
+    return {
+      sdk_pricing_version: "v0.1",
+      paid_mau: paid,
+      estimated_cost_usd_cents: cents,
+    };
+  }
+
+  function render(q, mauValue) {
+    elPaid.textContent = `${q.paid_mau.toLocaleString()} MAU`;
+    elTotal.textContent = formatUsd(q.estimated_cost_usd_cents);
+    elMeta.textContent = `sdk pricing version ${q.sdk_pricing_version}`;
+    mauReadout.textContent = mauValue.toLocaleString();
+  }
+
+  async function quote() {
+    const mauValue = parseInt(mau.value, 10);
+    render(localQuote(mauValue), mauValue);
+    try {
+      const r = await fetch(`${apiBase}/v1/sdk/pricing/preview`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plugin: plugin.value, mau: mauValue }),
+      });
+      if (r.ok) {
+        const live = await r.json();
+        render(live, mauValue);
+      }
+    } catch (e) {
+      // API unreachable; local result stays.
+    }
+  }
+  mau.addEventListener("input", quote);
+  plugin.addEventListener("change", quote);
+  quote();
+</script>
+
+<style>
+  .hero-sdk {
+    padding: clamp(48px, 8vw, 96px) clamp(20px, 6vw, 64px) clamp(24px, 4vw, 48px);
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  .hero-sdk h1 {
+    font-size: clamp(36px, 5vw, 56px);
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+  .hero-sdk p {
+    color: var(--fg-muted);
+    font-size: 18px;
+    max-width: 64ch;
+  }
+
+  .plugin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 0 clamp(20px, 6vw, 64px) 48px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .plugin {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 22px 22px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .plugin header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .plugin h2 {
+    margin: 0;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+  .plugin code {
+    font-size: 12.5px;
+    color: var(--accent);
+    font-family: var(--mono);
+  }
+  .plugin p {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .btn-link {
+    margin-top: auto;
+    color: var(--accent-warm-strong);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+
+  .calculator {
+    max-width: 920px;
+    margin: 0 auto 64px;
+    padding: 32px clamp(20px, 6vw, 64px);
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .calculator header {
+    margin-bottom: 24px;
+  }
+  .calculator h2 {
+    margin: 0 0 6px;
+    font-size: 24px;
+    letter-spacing: -0.01em;
+  }
+  .calculator header p {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 14.5px;
+    max-width: 60ch;
+  }
+  .calc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 640px) {
+    .calc-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .calc-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .calc-field > span:first-child {
+    font-size: 13px;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .calc-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .calc-slider-row input[type="range"] {
+    flex: 1;
+  }
+  .calc-slider-row .tabular {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent);
+    min-width: 100px;
+    text-align: right;
+  }
+  #sdk-plugin {
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+  }
+  .calc-results {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .calc-result-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14.5px;
+    color: var(--fg-muted);
+  }
+  .calc-result-row.calc-total {
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+    margin-top: 6px;
+    font-size: 17px;
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .calc-value {
+    font-family: var(--mono);
+    color: var(--accent);
+  }
+  .calc-total .calc-value {
+    color: var(--accent-warm-strong);
+    font-size: 22px;
+  }
+  .calc-meta {
+    font-size: 11.5px;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 6px 0 0;
+  }
+
+  .license-flow {
+    max-width: 920px;
+    margin: 0 auto 80px;
+    padding: 0 clamp(20px, 6vw, 64px);
+  }
+  .license-flow h2 {
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+  }
+  .license-flow ol {
+    color: var(--fg-muted);
+    padding-left: 22px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .license-flow code {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  .site-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px clamp(20px, 6vw, 64px);
+    border-top: 1px solid var(--line);
+    color: var(--fg-dim);
+    font-size: 13px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>

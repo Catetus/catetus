@@ -422,7 +422,40 @@ async fn main() -> anyhow::Result<()> {
             "/v1/license/heartbeat",
             post(splatforge_api::license::heartbeat_route),
         )
+        // Per-job pricing preview — pure-compute quote, no auth, no DB.
+        // The customer-facing `/pricing` calculator on the marketing
+        // site posts here so the displayed cents match the meter-emitted
+        // cents to the cent.
+        .route(
+            "/v1/pricing/preview",
+            post(splatforge_api::routes::pricing::preview),
+        )
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
+
+    // Self-serve SDK licensing surface. State is the operator-gated
+    // signing material from env — entirely disjoint from the main
+    // AppState so a future rev that moves SDK licensing into its own
+    // service can lift this Router out cleanly.
+    let sdk_state = splatforge_api::routes::sdk_license::SdkLicenseState::from_env();
+    let sdk = Router::new()
+        .route(
+            "/v1/sdk/license",
+            post(splatforge_api::routes::sdk_license::issue_license),
+        )
+        .route(
+            "/v1/sdk/license/verify",
+            post(splatforge_api::routes::sdk_license::verify_license_route),
+        )
+        .route(
+            "/v1/sdk/beacon",
+            post(splatforge_api::routes::sdk_license::beacon),
+        )
+        .route(
+            "/v1/sdk/pricing/preview",
+            post(splatforge_api::routes::sdk_license::sdk_preview),
+        )
+        .layer(RequestBodyLimitLayer::new(64 * 1024))
+        .with_state(sdk_state);
 
     let paid_layer = middleware::from_fn_with_state(state.clone(), require_paid_api_key);
 
@@ -476,7 +509,11 @@ async fn main() -> anyhow::Result<()> {
         .merge(admin)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state)
+        // SDK router merges last because it carries its own state
+        // (signing secret + operator key) and must not be re-stated by
+        // `.with_state(state)` above.
+        .merge(sdk);
 
     let listener = tokio::net::TcpListener::bind(&bind)
         .await
