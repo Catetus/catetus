@@ -67,6 +67,18 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     <div class="region region-result">
       <canvas data-result-canvas class="result-canvas"></canvas>
       <div class="result-meta" data-result-meta>auto-rotating preview</div>
+      <div class="result-stats" data-result-stats hidden>
+        <span class="result-stat">
+          <span class="result-stat-label">Input</span>
+          <span class="result-stat-value" data-result-input>—</span>
+        </span>
+        <span class="result-stat-arrow" aria-hidden="true">→</span>
+        <span class="result-stat">
+          <span class="result-stat-label">Optimized</span>
+          <span class="result-stat-value" data-result-output>—</span>
+        </span>
+        <span class="result-stat-ratio" data-result-ratio></span>
+      </div>
       <div class="result-actions">
         <a class="btn btn-primary" data-result-download download>
           <span aria-hidden="true">⬇</span>&nbsp;Download .glb
@@ -183,6 +195,40 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     opacity: 0.55;
     text-align: center;
   }
+  .result-stats {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+    padding: 0.65rem 0.9rem;
+    border-radius: 0.6rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .result-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .result-stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.55;
+  }
+  .result-stat-value {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.95rem;
+    color: var(--fg);
+  }
+  .result-stat-arrow { opacity: 0.4; font-size: 1.1rem; }
+  .result-stat-ratio {
+    margin-left: 0.4rem;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+    font-weight: 600;
+    font-size: 0.85rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
   .result-actions {
     display: flex;
     flex-wrap: wrap;
@@ -225,6 +271,10 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     const resetBtn = document.querySelector("[data-result-reset]");
     const errorBody = document.querySelector("[data-error-body]");
     const errorRetry = document.querySelector("[data-error-retry]");
+    const resultStats = document.querySelector("[data-result-stats]");
+    const resultInput = document.querySelector("[data-result-input]");
+    const resultOutput = document.querySelector("[data-result-output]");
+    const resultRatio = document.querySelector("[data-result-ratio]");
     if (!(zone instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
 
     let viewerHandle = null;
@@ -240,6 +290,9 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       if (typeof percent === "number") {
         progressBar.style.width = Math.max(0, Math.min(100, percent)).toFixed(1) + "%";
       } else {
+        // Indeterminate: clear any sticky inline width from the previous
+        // determinate phase, otherwise the CSS class-level width never wins.
+        progressBar.style.width = "";
         progressTrack.classList.add("indeterminate");
       }
     }
@@ -343,14 +396,55 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       return await r.json();
     }
 
+    async function fetchOutputBytes(url) {
+      try {
+        const r = await fetch(url, { method: "HEAD" });
+        const len = r.headers.get("content-length");
+        return len ? Number(len) : null;
+      } catch (_) { return null; }
+    }
+    function renderStats(inputBytes, outputBytes) {
+      if (!(resultStats instanceof HTMLElement)) return;
+      if (!inputBytes || !outputBytes) {
+        resultStats.hidden = true;
+        return;
+      }
+      if (resultInput) resultInput.textContent = formatBytes(inputBytes);
+      if (resultOutput) resultOutput.textContent = formatBytes(outputBytes);
+      if (resultRatio) {
+        const ratio = inputBytes / outputBytes;
+        const savedPct = (1 - outputBytes / inputBytes) * 100;
+        if (ratio >= 1.05) {
+          resultRatio.textContent = ratio.toFixed(2) + "× smaller · −" + savedPct.toFixed(0) + "%";
+          resultRatio.style.background = "rgba(16, 185, 129, 0.12)";
+          resultRatio.style.color = "#34d399";
+        } else if (ratio >= 0.95) {
+          resultRatio.textContent = "~same size";
+          resultRatio.style.background = "rgba(255, 255, 255, 0.06)";
+          resultRatio.style.color = "#cbd5e1";
+        } else {
+          resultRatio.textContent = (1/ratio).toFixed(2) + "× larger";
+          resultRatio.style.background = "rgba(244, 63, 94, 0.12)";
+          resultRatio.style.color = "#fb7185";
+        }
+      }
+      resultStats.hidden = false;
+    }
+
     async function showResult(job) {
       // Wire the download button to the .glb (single-file portable artifact).
       if (downloadLink instanceof HTMLAnchorElement && job.output_url) {
         downloadLink.href = job.output_url;
-        const stem = (job.filename || "optimized").replace(/\.[^.]*$/, "");
+        const stem = (job._inputName || job.filename || "optimized").replace(/\.[^.]*$/, "");
         downloadLink.setAttribute("download", stem + ".glb");
       }
       setState("done");
+      // Kick off the HEAD request for the output size in parallel with viewer load.
+      if (job.output_url) {
+        fetchOutputBytes(job.output_url).then(function (out) {
+          renderStats(job._inputBytes, out);
+        });
+      }
       if (!(resultCanvas instanceof HTMLCanvasElement)) return;
 
       // Size the canvas backing store to its rendered CSS size.
@@ -417,10 +511,25 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       let pitch = (20 * Math.PI) / 180;
       let distMult = 2.5;
 
+      // Wrap pitch to [-π, π] for math. The actual `pitch` accumulator is
+      // unbounded — letting the user spin the model continuously without
+      // hitting a wall. When the wrapped pitch puts the camera "behind"
+      // the model (|wrapped| > π/2), flip the up vector so the renderer's
+      // cross product doesn't degenerate and the view stays upright in the
+      // viewer's frame of reference rather than going black at the pole.
       function rerender() {
+        const TAU = Math.PI * 2;
+        let p = pitch % TAU;
+        if (p > Math.PI) p -= TAU;
+        if (p < -Math.PI) p += TAU;
+        // Beyond ±π/2 we're upside down relative to world-up; flip our up
+        // vector so the renderer interprets "up" as still pointing away
+        // from the floor of the scene, which avoids the [0,0,0] cross at
+        // exact poles and gives smooth continuous orbiting.
+        const upY = Math.abs(p) > Math.PI / 2 ? -1 : 1;
         const r = radius * distMult;
-        const cy = Math.cos(pitch);
-        const sy = Math.sin(pitch);
+        const cy = Math.cos(p);
+        const sy = Math.sin(p);
         const aspect = resultCanvas.width / Math.max(resultCanvas.height, 1);
         const pose = {
           position: [
@@ -429,7 +538,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
             center[2] + r * cy * Math.cos(yaw),
           ],
           target: center,
-          up: [0, 1, 0],
+          up: [0, upY, 0],
           fovY: (60 * Math.PI) / 180,
           aspect: aspect,
           near: 0.01,
@@ -441,7 +550,6 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       let dragging = false;
       let lx = 0, ly = 0;
       const ORBIT_SCALE = 0.0065;  // radians per pixel
-      const PITCH_LIMIT = (85 * Math.PI) / 180;
       function pointerDown(e) {
         if (e.button !== undefined && e.button !== 0) return;
         // First user interaction: pause auto-rotate so drag takes over.
@@ -455,8 +563,11 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
         const ndx = e.clientX - lx;
         const ndy = e.clientY - ly;
         lx = e.clientX; ly = e.clientY;
+        // No clamping: yaw and pitch both unbounded. rerender() handles
+        // the wraparound math + up-vector flipping so the user can
+        // continuously rotate in any direction.
         yaw -= ndx * ORBIT_SCALE;
-        pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch + ndy * ORBIT_SCALE));
+        pitch += ndy * ORBIT_SCALE;
         rerender();
       }
       function pointerUp(e) {
@@ -495,14 +606,28 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       setState("error");
     }
 
+    const PHASE_COPY = {
+      fetching: "fetching source from storage",
+      optimizing: "optimizing splats",
+      packaging: "packaging output",
+    };
+    let processingStartedAt = 0;
     function renderProgress(job) {
       const s = job.status;
+      const phase = job.phase && PHASE_COPY[job.phase];
+      // Elapsed-time suffix, refreshed every poll. Better-than-nothing
+      // signal when the worker hasn't sent a phase update yet.
+      const elapsed = processingStartedAt
+        ? Math.max(0, Math.round((Date.now() - processingStartedAt) / 1000))
+        : 0;
+      const elapsedSuffix = elapsed > 0 ? "  ·  " + elapsed + "s elapsed" : "";
       if (s === "queued") {
-        setProgress("Processing", "queued for optimize", null);
+        setProgress("Processing", "waiting for a worker" + elapsedSuffix, null);
       } else if (s === "running") {
-        setProgress("Processing", "optimizing your scene…", null);
+        const sub = (phase || "optimizing your scene") + elapsedSuffix;
+        setProgress("Processing", sub, null);
       } else if (s === "awaiting-upload" || s === "uploading") {
-        setProgress("Processing", "preparing scene", null);
+        setProgress("Processing", "preparing scene" + elapsedSuffix, null);
       }
     }
 
@@ -560,9 +685,15 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
 
         setProgress("Processing", "starting optimize…", null);
         setState("processing");
+        processingStartedAt = Date.now();
         const job = await createJob(signed.sourceUrl);
         if (progressFilename) progressFilename.textContent = file.name;
         const finalJob = await waitFor(job.id);
+        // Carry the original input size into showResult so we can display
+        // before/after compression. The API job's size_bytes is 0 for
+        // source_url jobs (worker doesn't HEAD the source).
+        finalJob._inputBytes = file.size;
+        finalJob._inputName = file.name;
         await showResult(finalJob);
       } catch (err) {
         fail((err && err.message) ? err.message : String(err));

@@ -108,11 +108,14 @@ def run_optimize(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # 1. Download the source splat. Streaming so we don't blow memory on
-        # bicycle-sized scenes (~860 MB).
+        # Phase 1: download the source splat. Streaming so we don't blow memory
+        # on bicycle-sized scenes (~860 MB). Fire-and-forget progress POST so
+        # the API can surface step-level status during the long total job.
+        _post_phase(callback_url, "fetching")
         _download(blob_url, src_path)
 
-        # 2. Run splatforge optimize → gltf.
+        # Phase 2: run splatforge optimize → gltf.
+        _post_phase(callback_url, "optimizing")
         gltf_path = out_dir / "optimized.gltf"
         optimize_log = work / "optimize.log"
         rc = _run_cli(
@@ -134,13 +137,9 @@ def run_optimize(
             }
             return _callback(callback_url, payload)
 
-        # 3. Upload two artifacts:
-        #    - optimized.glb — self-contained binary glTF for the user to
-        #      download and load in any KHR_gaussian_splatting viewer.
-        #    - optimized.gltf — JSON manifest with absolute buffer URIs for
-        #      the splatforge web viewer, which lazy-streams chunks from URLs.
-        # The browser uses preview_url to render inline; the user downloads
-        # output_url to take it anywhere.
+        # Phase 3: package + upload. Pack the .glb (single-file portable) and
+        # upload the .gltf preview manifest with absolute buffer URLs.
+        _post_phase(callback_url, "packaging")
         try:
             glb_path = out_dir / "optimized.glb"
             _pack_glb(gltf_path, glb_path)
@@ -344,6 +343,27 @@ def _callback(callback_url: Optional[str], payload: dict) -> dict:
     except Exception as exc:  # noqa: BLE001
         payload = {**payload, "_callback_error": str(exc)}
     return payload
+
+
+def _post_phase(callback_url: Optional[str], phase: str) -> None:
+    """Fire-and-forget intermediate progress ping. Lets the API surface
+    `phase` to clients so users see "downloading", "optimizing",
+    "packaging" instead of a single opaque "running" state for the
+    full duration of the job. Failure here is non-fatal — the final
+    callback at the end of the job carries the authoritative status.
+    """
+    if not callback_url:
+        return
+    try:
+        import requests  # noqa: PLC0415
+
+        requests.post(
+            callback_url,
+            json={"status": "running", "phase": phase},
+            timeout=5,
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ------------------------------------------------------------- web endpoints

@@ -428,6 +428,7 @@ async fn build_job(
             upload_size_bytes: None,
             output_url: None,
             preview_url: None,
+            phase: None,
             webhook_url: req.webhook_url,
             batch_id,
             created_at,
@@ -462,6 +463,7 @@ async fn build_job(
             upload_size_bytes: None,
             output_url: None,
             preview_url: None,
+            phase: None,
             webhook_url: req.webhook_url,
             batch_id,
             created_at,
@@ -713,6 +715,10 @@ pub struct ResultPayload {
     pub output_url: Option<String>,
     #[serde(default)]
     pub preview_url: Option<String>,
+    /// Optional phase string ("fetching" | "optimizing" | "packaging") sent
+    /// during `status=running` so the UI can show what step is happening.
+    #[serde(default)]
+    pub phase: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
 }
@@ -749,6 +755,9 @@ async fn job_result(
         }
         "running" => {
             job.status = JobStatus::Running;
+            if let Some(phase) = body.phase {
+                job.phase = Some(phase);
+            }
         }
         other => {
             return Err(ApiError::BadRequest(format!("unknown status: {other}")));
