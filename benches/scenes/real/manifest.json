@@ -14,6 +14,76 @@
       "class": "outdoor-scene",
       "pulledBy": "benches/scenes/scripts/pull-sweet-corals.sh",
       "substitutionRationale": "Original target was the canonical 'Sweet Corals' outdoor-coral photogrammetry tile (sc-tile2 in private research, 2.8M splats, used in PostHAC + SwVQ + diff-repack validation). That asset lives on a private Blurry Drive with no public canonical URL — SplatBench is a public corpus and cannot depend on internal credentials. Mip-NeRF 360 garden/flowers were not available as Inria-PLY on the public HuggingFace mirror (only `.splat` files). Mip-NeRF 360 `stump` is the closest available real outdoor 3DGS scene with a public Inria-PLY mirror, complements `bicycle` (organic foliage + tree-stump texture vs bicycle-on-grass), and gives the leaderboard a second large real-outdoor anchor."
+    },
+    {
+      "id": "cluster_fly_s",
+      "filename": "cluster_fly_s.ply",
+      "splatCount": 25627,
+      "bytesIn": 6049505,
+      "shDegree": 3,
+      "hash": "blake3:32662dbed23030183db2dce9b853895bdd0bf5fff5031b449f09e05c7f6407b5",
+      "sourceUrl": "https://www.danybittel.ch/",
+      "license": "CC-BY-4.0",
+      "attribution": "Dany Bittel (https://www.danybittel.ch) — also https://x.com/DanyBittel",
+      "class": "indoor-close-up",
+      "captureProfile": "indoor-close-up",
+      "notes": "Cluster fly (Pollenia, Herbstfliege) captured indoors in southern Switzerland, Sept 2025. LOD-S (smallest tier in the 5-LOD ladder). First indoor close-up real-capture asset in SplatBench."
+    },
+    {
+      "id": "cluster_fly_m",
+      "filename": "cluster_fly_m.ply",
+      "splatCount": 145617,
+      "bytesIn": 34367146,
+      "shDegree": 3,
+      "hash": "blake3:6db2c62dd73552f72e18b230d918d57eff628614b9697935ae64835392c535bb",
+      "sourceUrl": "https://www.danybittel.ch/",
+      "license": "CC-BY-4.0",
+      "attribution": "Dany Bittel (https://www.danybittel.ch) — also https://x.com/DanyBittel",
+      "class": "indoor-close-up",
+      "captureProfile": "indoor-close-up",
+      "notes": "Cluster fly (Pollenia) LOD-M tier."
+    },
+    {
+      "id": "cluster_fly_l",
+      "filename": "cluster_fly_l.ply",
+      "splatCount": 301958,
+      "bytesIn": 71263622,
+      "shDegree": 3,
+      "hash": "blake3:30c97b5a2c15947b89a58b07ed876cf74da7c1846b5984bf695b3874296bd9e6",
+      "sourceUrl": "https://www.danybittel.ch/",
+      "license": "CC-BY-4.0",
+      "attribution": "Dany Bittel (https://www.danybittel.ch) — also https://x.com/DanyBittel",
+      "class": "indoor-close-up",
+      "captureProfile": "indoor-close-up",
+      "notes": "Cluster fly (Pollenia) LOD-L tier."
+    },
+    {
+      "id": "cluster_fly_xl",
+      "filename": "cluster_fly_xl.ply",
+      "splatCount": 624180,
+      "bytesIn": 147308014,
+      "shDegree": 3,
+      "hash": "blake3:fec53be4967854d57cede30e986ca7646ed748e2fffeff8252c0e4b805ee07a8",
+      "sourceUrl": "https://www.danybittel.ch/",
+      "license": "CC-BY-4.0",
+      "attribution": "Dany Bittel (https://www.danybittel.ch) — also https://x.com/DanyBittel",
+      "class": "indoor-close-up",
+      "captureProfile": "indoor-close-up",
+      "notes": "Cluster fly (Pollenia) LOD-XL tier."
+    },
+    {
+      "id": "cluster_fly_xxl",
+      "filename": "cluster_fly_xxl.ply",
+      "splatCount": 3506799,
+      "bytesIn": 827606099,
+      "shDegree": 3,
+      "hash": "blake3:c5b81afd176f4d94799ec2dc6feb44963949e1b23d2590bd8549fc52da301fee",
+      "sourceUrl": "https://www.danybittel.ch/",
+      "license": "CC-BY-4.0",
+      "attribution": "Dany Bittel (https://www.danybittel.ch) — also https://x.com/DanyBittel",
+      "class": "indoor-close-up",
+      "captureProfile": "indoor-close-up",
+      "notes": "Cluster fly (Pollenia) LOD-XXL tier (top of ladder, 3.5M splats, 828 MB source PLY)."
     }
   ]
 }

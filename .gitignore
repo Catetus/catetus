@@ -87,6 +87,14 @@ packages/viewer/dist-bench/
 tasks/todo.md
 /benches/scenes/bonsai_mipnerf360_iter7k.ply
 /benches/scenes/stump_mipnerf360_iter7k.ply
+# Cluster-fly LOD ladder staging symlinks (source PLYs already excluded by
+# the /benches/scenes/real/*.ply pattern below). Symlinks here for the bench
+# harness to discover the scenes alongside the existing proxies.
+/benches/scenes/cluster_fly_s.ply
+/benches/scenes/cluster_fly_m.ply
+/benches/scenes/cluster_fly_l.ply
+/benches/scenes/cluster_fly_xl.ply
+/benches/scenes/cluster_fly_xxl.ply
 # Real scene PLYs are large (hundreds of MB) and pulled on demand by
 # `benches/scenes/scripts/pull-*.sh`. Keep the directory tracked so the
 # manifest.json hash + URL convention is reproducible.
