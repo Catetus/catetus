@@ -15,6 +15,7 @@ members = [
     "crates/splatforge-fidelity",
     "crates/splatforge-usd",
     "crates/splatforge-license",
+    "crates/splatforge-lodge",
     "apps/api",
     "packages/viewer-mobile/core",
 ]
@@ -39,6 +40,7 @@ splatforge-bench     = { path = "crates/splatforge-bench" }
 splatforge-usd       = { path = "crates/splatforge-usd" }
 splatforge-fidelity  = { path = "crates/splatforge-fidelity" }
 splatforge-license   = { path = "crates/splatforge-license" }
+splatforge-lodge     = { path = "crates/splatforge-lodge" }
 
 # Shared dependencies
 serde       = { version = "1", features = ["derive"] }
