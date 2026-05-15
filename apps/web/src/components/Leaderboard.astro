@@ -11,6 +11,8 @@ import {
   hasAnyMlScore,
   hasAnyRepack,
   fidelityFor,
+  encoderRunFor,
+  encoders as encoderReport,
   type Preset,
   type SplatBenchScene,
 } from "../lib/splatbench";
@@ -24,26 +26,45 @@ const showFidelity = hasAnyFidelity(scenes);
 const showMlScore = hasAnyMlScore(scenes);
 const showRepack = hasAnyRepack(scenes);
 
+// Show the splat-transform comparison column only if at least one scene
+// has a successful run. Keeps the table clean during the early days when
+// only a handful of scenes have third-party numbers.
+const showSplatTransform = encoderReport.scenes.some(
+  (s) => s.runs["splat-transform"]?.ok,
+);
+
 // Serialize once for the client island so we don't pay a fetch.
-const clientData = scenes.map((s) => ({
-  id: s.id,
-  cls: s.class,
-  source: s.source,
-  splats: s.splatCount,
-  bytesIn: s.bytesIn,
-  analyzeMs: s.analyzeMs,
-  webMobile: {
-    spz: s.webMobileSpzBytes,
-    ratio: s.webMobileRatio,
-    fid: s.fidelity?.webMobile ?? null,
-  },
-  sizeMin: {
-    spz: s.sizeMinSpzBytes,
-    ratio: s.sizeMinRatio,
-    fid: s.fidelity?.sizeMin ?? null,
-  },
-  repack: s.repack ?? null,
-}));
+const clientData = scenes.map((s) => {
+  const st = encoderRunFor(s.id, "splat-transform");
+  return {
+    id: s.id,
+    cls: s.class,
+    source: s.source,
+    splats: s.splatCount,
+    bytesIn: s.bytesIn,
+    analyzeMs: s.analyzeMs,
+    webMobile: {
+      spz: s.webMobileSpzBytes,
+      ratio: s.webMobileRatio,
+      fid: s.fidelity?.webMobile ?? null,
+    },
+    sizeMin: {
+      spz: s.sizeMinSpzBytes,
+      ratio: s.sizeMinRatio,
+      fid: s.fidelity?.sizeMin ?? null,
+    },
+    repack: s.repack ?? null,
+    splatTransform:
+      st && st.ok
+        ? {
+            version: st.version,
+            ratio: st.ratio,
+            outputBytes: st.outputBytes,
+            wallSeconds: st.wallSeconds,
+          }
+        : null,
+  };
+});
 ---
 
 <section id="leaderboard" aria-labelledby="leaderboard-title">
@@ -154,6 +175,9 @@ const clientData = scenes.map((s) => ({
           <th>Input</th>
           <th>SPZ out</th>
           <th>Ratio</th>
+          {showSplatTransform && (
+            <th>splat-transform <span class="ml-tag external">vs</span></th>
+          )}
           <th>Fidelity (ΔE94)</th>
           {showMlScore && (
             <th>ML Score <span class="ml-tag">pro</span></th>
@@ -188,6 +212,24 @@ const clientData = scenes.map((s) => ({
                   <span class={`ratio ${rc}`}>{view.ratio.toFixed(2)}×</span>
                   <span class="bar"><span class="bar-fill" style={`width:${w}%`} /></span>
                 </td>
+                {showSplatTransform && (
+                  <td>
+                    {(() => {
+                      const r = encoderRunFor(s.id, "splat-transform");
+                      if (!r) return <span class="fidelity-pending">—</span>;
+                      if (!r.ok) return <span class="fidelity-pending" title={r.stderr ?? ""}>fail</span>;
+                      const advantage = view.ratio / r.ratio;
+                      return (
+                        <span class="vs-cell" title={`splat-transform v${r.version} · ${(r.outputBytes / 1024).toFixed(1)} KB · ${r.wallSeconds.toFixed(1)}s`}>
+                          <span class="vs-ratio">{r.ratio.toFixed(2)}×</span>
+                          <span class={advantage >= 1 ? "vs-advantage-win" : "vs-advantage-loss"}>
+                            {advantage >= 1 ? "+" : ""}{((advantage - 1) * 100).toFixed(0)}%
+                          </span>
+                        </span>
+                      );
+                    })()}
+                  </td>
+                )}
                 <td>
                   {(() => {
                     const fid = fidelityFor(s, defaultPreset);
@@ -231,7 +273,7 @@ const clientData = scenes.map((s) => ({
   </div>
 </section>
 
-<script is:inline define:vars={{ clientData, showMlScore, showRepack }}>
+<script is:inline define:vars={{ clientData, showMlScore, showRepack, showSplatTransform }}>
   // Tiny client island: preset toggle re-renders the table body in place.
   // No framework. Mirrors the renderer in benches/reports/splatbench-v0.html.
   (function () {
@@ -311,6 +353,27 @@ const clientData = scenes.map((s) => ({
           } else {
             fid = '<span class="fidelity-pending">pending</span>';
           }
+          let stCell = "";
+          if (showSplatTransform) {
+            if (r.splatTransform) {
+              const stRatio = r.splatTransform.ratio;
+              const advantage = v.ratio / stRatio;
+              const sign = advantage >= 1 ? "+" : "";
+              const advCls = advantage >= 1 ? "vs-advantage-win" : "vs-advantage-loss";
+              const title =
+                "splat-transform v" + r.splatTransform.version +
+                " · " + (r.splatTransform.outputBytes / 1024).toFixed(1) + " KB · " +
+                r.splatTransform.wallSeconds.toFixed(1) + "s";
+              stCell =
+                '<td><span class="vs-cell" title="' + escapeHtml(title) + '">' +
+                '<span class="vs-ratio">' + stRatio.toFixed(2) + '×</span>' +
+                '<span class="' + advCls + '">' + sign +
+                ((advantage - 1) * 100).toFixed(0) + '%</span>' +
+                '</span></td>';
+            } else {
+              stCell = '<td><span class="fidelity-pending">—</span></td>';
+            }
+          }
           let mlCell = "";
           if (showMlScore) {
             if (v.fid && typeof v.fid.mlScore === "number") {
@@ -349,6 +412,7 @@ const clientData = scenes.map((s) => ({
             "<td>" + fmtBytes(v.spz) + "</td>" +
             '<td><span class="ratio ' + rc + '">' + v.ratio.toFixed(2) + "×</span>" +
             '<span class="bar"><span class="bar-fill" style="width:' + w + '%"></span></span></td>' +
+            stCell +
             "<td>" + fid + "</td>" +
             mlCell +
             repackCell +
