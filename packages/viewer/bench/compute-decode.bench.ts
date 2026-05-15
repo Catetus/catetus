@@ -135,6 +135,25 @@ export interface BenchResult {
     totalGpuMs: number;
     path: 'fused' | 'legacy';
   };
+  /**
+   * Drill into the radix sort: per-sub-stage timing for pass-0 plus
+   * one-window-per-pass for passes 1-3. Adds ~0.4 ms of pass-boundary
+   * overhead per frame; only used in the dedicated drilled-bench loop, so
+   * `perStageMsTimestamp` above still reflects the production-shape encode.
+   */
+  perStageMsDrilled?: {
+    keygenOrProject: number;
+    pass0Histogram: number;
+    pass0ScanPerWg: number;
+    pass0ScanBlockSums: number;
+    pass0ScanAddBlockSums: number;
+    pass0Scatter: number;
+    pass1Full: number;
+    pass2Full: number;
+    pass3Full: number;
+    projectGatherOrGather: number;
+    totalDrilledMs: number;
+  };
 }
 
 /**
@@ -258,6 +277,60 @@ export async function runBench(device: GPUDevice, splatCount: number, iterations
     readBuf.destroy();
   }
 
+  // ----- Sub-stage drill: passes 0 broken down by kernel, passes 1-3
+  // bundled. Adds ~0.4 ms of pass-boundary overhead per frame so this is a
+  // separate loop from the shallow timestamp loop above.
+  let perStageMsDrilled: BenchResult['perStageMsDrilled'];
+  if (device.features.has('timestamp-query')) {
+    const tsIterations = 11;
+    const DRILL_TS_COUNT = 20;
+    const drillQuerySet = device.createQuerySet({ type: 'timestamp', count: DRILL_TS_COUNT });
+    const drillResolveBuf = device.createBuffer({
+      size: DRILL_TS_COUNT * 8,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+    });
+    const drillReadBuf = device.createBuffer({
+      size: DRILL_TS_COUNT * 8,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+
+    // Allocate sample arrays for each of the 10 stages.
+    const samples: number[][] = Array.from({ length: 10 }, () => []);
+    for (let i = 0; i < tsIterations; i++) {
+      const enc = device.createCommandEncoder();
+      pipeline.encodeTimedDrilled(enc, view, viewProj, focal, viewport, drillQuerySet, 0);
+      enc.resolveQuerySet(drillQuerySet, 0, DRILL_TS_COUNT, drillResolveBuf, 0);
+      enc.copyBufferToBuffer(drillResolveBuf, 0, drillReadBuf, 0, DRILL_TS_COUNT * 8);
+      device.queue.submit([enc.finish()]);
+      await drillReadBuf.mapAsync(GPUMapMode.READ);
+      const ts = new BigInt64Array(drillReadBuf.getMappedRange().slice(0));
+      drillReadBuf.unmap();
+      // 10 stages, each [2k, 2k+1].
+      for (let s = 0; s < 10; s++) {
+        const d = Number(ts[2 * s + 1] - ts[2 * s]) / 1e6;
+        samples[s]!.push(d);
+      }
+    }
+    const median = (xs: number[]) => xs.slice().sort((p, q) => p - q)[Math.floor(xs.length / 2)];
+    const med = samples.map(median);
+    perStageMsDrilled = {
+      keygenOrProject:       med[0]!,
+      pass0Histogram:        med[1]!,
+      pass0ScanPerWg:        med[2]!,
+      pass0ScanBlockSums:    med[3]!,
+      pass0ScanAddBlockSums: med[4]!,
+      pass0Scatter:          med[5]!,
+      pass1Full:             med[6]!,
+      pass2Full:             med[7]!,
+      pass3Full:             med[8]!,
+      projectGatherOrGather: med[9]!,
+      totalDrilledMs:        med.reduce((a, b) => a + b, 0),
+    };
+    drillQuerySet.destroy();
+    drillResolveBuf.destroy();
+    drillReadBuf.destroy();
+  }
+
   pipeline.destroy();
 
   return {
@@ -268,6 +341,7 @@ export async function runBench(device: GPUDevice, splatCount: number, iterations
     framesPerSecond: fps,
     iterations,
     perStageMsTimestamp,
+    perStageMsDrilled,
   };
 }
 

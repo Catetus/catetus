@@ -392,6 +392,136 @@ export class RadixSort {
     }
   }
 
+  /**
+   * Bench-only variant of `encode` that drills into per-sub-stage timing.
+   * Writes 10 timestamps:
+   *   [base+0..1)  pass0 histogram
+   *   [base+2..3)  pass0 scan_per_wg
+   *   [base+4..5)  pass0 scan_block_sums
+   *   [base+6..7)  pass0 scan_add_block_sums
+   *   [base+8..9)  pass0 scatter
+   * Plus 4 timestamps wrapping passes 1-3 as a bundle ([base+10..11),
+   * [base+12..13), [base+14..15)) so we know if pass-to-pass cost is
+   * symmetric. Total: 16 timestamps. Caller must provide a querySet of
+   * capacity at least baseIndex + 16.
+   *
+   * Each sub-stage gets its OWN beginComputePass() so we can use the basic
+   * `timestamp-query` feature (not `timestamp-query-inside-passes`).
+   * Pass-boundary cost is on the order of 50 µs each; we eat ~0.4 ms of
+   * extra overhead per frame in exchange for sub-µs sub-stage timing.
+   */
+  encodeTimedDrilled(
+    encoder: GPUCommandEncoder,
+    count: number,
+    querySet: GPUQuerySet,
+    baseIndex: number,
+  ): void {
+    if (count <= 1) return;
+    if (count > this.capacity) {
+      throw new Error(`RadixSort: count ${count} exceeds capacity ${this.capacity}`);
+    }
+    const numWgs = Math.ceil(count / WG_SIZE);
+    for (let pass = 0; pass < PASSES; pass++) {
+      const u = new Uint32Array(8);
+      u[0] = count;
+      u[1] = pass * BITS_PER_PASS;
+      u[2] = numWgs;
+      this.device.queue.writeBuffer(this.uniformBuffers[pass]!, 0, u.buffer);
+    }
+    let numScanWgs = 0;
+    if (this.useMultiBlockScan) {
+      const total = numWgs * RADIX;
+      numScanWgs = Math.max(Math.ceil(total / WG_SIZE), 1);
+      const su = new Uint32Array(4);
+      su[0] = total;
+      su[1] = numScanWgs;
+      this.device.queue.writeBuffer(this.mbUniform!, 0, su.buffer);
+    }
+    const histogramPipe = this.useSubgroupHistogram
+      ? this.pipes.histogramSubgroup!
+      : this.pipes.histogram;
+
+    const ts = (begin: number, end: number): GPUComputePassDescriptor => ({
+      timestampWrites: {
+        querySet,
+        beginningOfPassWriteIndex: begin,
+        endOfPassWriteIndex: end,
+      },
+    });
+
+    // Pass 0: drill into 5 sub-stages.
+    {
+      const pp = encoder.beginComputePass(ts(baseIndex + 0, baseIndex + 1));
+      pp.setBindGroup(0, this.bindGroups[0]!);
+      pp.setPipeline(histogramPipe);
+      pp.dispatchWorkgroups(numWgs);
+      pp.end();
+    }
+    if (this.useMultiBlockScan && this.pipes.scanMb) {
+      {
+        const pp = encoder.beginComputePass(ts(baseIndex + 2, baseIndex + 3));
+        pp.setBindGroup(0, this.mbBindGroup!);
+        pp.setPipeline(this.pipes.scanMb.perWg);
+        pp.dispatchWorkgroups(numScanWgs);
+        pp.end();
+      }
+      {
+        const pp = encoder.beginComputePass(ts(baseIndex + 4, baseIndex + 5));
+        pp.setBindGroup(0, this.mbBindGroup!);
+        pp.setPipeline(this.pipes.scanMb.blockSums);
+        pp.dispatchWorkgroups(1);
+        pp.end();
+      }
+      {
+        const pp = encoder.beginComputePass(ts(baseIndex + 6, baseIndex + 7));
+        pp.setBindGroup(0, this.mbBindGroup!);
+        pp.setPipeline(this.pipes.scanMb.addBlockSums);
+        pp.dispatchWorkgroups(numScanWgs);
+        pp.end();
+      }
+    } else {
+      // Single-WG scan (legacy) — bundle into the block_sums slot for
+      // schema stability.
+      const pp = encoder.beginComputePass(ts(baseIndex + 4, baseIndex + 5));
+      pp.setBindGroup(0, this.bindGroups[0]!);
+      pp.setPipeline(this.pipes.scan);
+      pp.dispatchWorkgroups(1);
+      pp.end();
+    }
+    {
+      const pp = encoder.beginComputePass(ts(baseIndex + 8, baseIndex + 9));
+      pp.setBindGroup(0, this.bindGroups[0]!);
+      pp.setPipeline(this.pipes.scatter);
+      pp.dispatchWorkgroups(numWgs);
+      pp.end();
+    }
+
+    // Passes 1-3: bundle each as one timestamp window.
+    for (let pass = 1; pass < PASSES; pass++) {
+      const slot = baseIndex + 10 + (pass - 1) * 2;
+      const pp = encoder.beginComputePass(ts(slot, slot + 1));
+      pp.setBindGroup(0, this.bindGroups[pass]!);
+      pp.setPipeline(histogramPipe);
+      pp.dispatchWorkgroups(numWgs);
+      if (this.useMultiBlockScan && this.pipes.scanMb) {
+        pp.setBindGroup(0, this.mbBindGroup!);
+        pp.setPipeline(this.pipes.scanMb.perWg);
+        pp.dispatchWorkgroups(numScanWgs);
+        pp.setPipeline(this.pipes.scanMb.blockSums);
+        pp.dispatchWorkgroups(1);
+        pp.setPipeline(this.pipes.scanMb.addBlockSums);
+        pp.dispatchWorkgroups(numScanWgs);
+        pp.setBindGroup(0, this.bindGroups[pass]!);
+      } else {
+        pp.setPipeline(this.pipes.scan);
+        pp.dispatchWorkgroups(1);
+      }
+      pp.setPipeline(this.pipes.scatter);
+      pp.dispatchWorkgroups(numWgs);
+      pp.end();
+    }
+  }
+
   encode(encoder: GPUCommandEncoder, count: number): void {
     if (count <= 1) return;
     if (count > this.capacity) {
