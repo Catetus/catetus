@@ -39,8 +39,20 @@ export interface CullPipelines {
   scanBgl: GPUBindGroupLayout;
 }
 
-export function createCullPipelines(device: GPUDevice): CullPipelines {
-  const cullMod = device.createShaderModule({ code: CULL_WGSL });
+/**
+ * Override the EWA dilation floor in the cull-pipeline WGSL. Mirrors the
+ * same `SF_EWA_DILATION` token-replace in `index.ts::applyDilationOverride`.
+ * Keeps cs_cull's radius prediction and cs_project_cmpct's c00/c11 in lock-
+ * step with the main project pass.
+ */
+function applyDilationToCullWgsl(wgsl: string, dilation: number): string {
+  if (dilation === 0.3) return wgsl;
+  const lit = dilation === 0 ? '0.0' : dilation.toFixed(6);
+  return wgsl.replace(/let reg = 0\.3; \/\/ SF_EWA_DILATION/g, `let reg = ${lit}; // SF_EWA_DILATION(override=${dilation})`);
+}
+
+export function createCullPipelines(device: GPUDevice, dilation: number = 0.3): CullPipelines {
+  const cullMod = device.createShaderModule({ code: applyDilationToCullWgsl(CULL_WGSL, dilation) });
   const scanMod = device.createShaderModule({ code: SCAN_MULTIBLOCK_WGSL });
 
   const cullBgl = device.createBindGroupLayout({

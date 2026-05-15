@@ -166,7 +166,8 @@ try {
     console.error('bench: SF_SKIP_SYNTH=1 — skipping synthetic bench');
   }
 
-  if (sceneList.length > 0) {
+  const skipRealBase = process.env.SF_SKIP_REAL_BASE === '1';
+  if (sceneList.length > 0 && !skipRealBase) {
     console.error(`bench: running real-scene bench on ${sceneList.length} scene(s)…`);
     const page2 = await ctx.newPage();
     page2.on('console', (msg) => process.stderr.write(`[page-real] ${msg.text()}\n`));
@@ -180,6 +181,20 @@ try {
     result.realScene = real;
   } else {
     console.error('bench: no real scenes — skipping real-scene bench');
+  }
+
+  if (sceneList.length > 0 && process.env.SF_DILATION_SWEEP === '1') {
+    console.error(`bench: running dilation sweep on ${sceneList.length} scene(s)…`);
+    const page3 = await ctx.newPage();
+    page3.on('console', (msg) => process.stderr.write(`[page-dilation] ${msg.text()}\n`));
+    await page3.goto(`http://127.0.0.1:${PORT}/real-scene-dilation.html`);
+    await page3.waitForFunction(
+      () => /** @type {any} */ (globalThis).__benchDilation && ((globalThis.__benchDilation.results && globalThis.__benchDilation.results.length > 0) || globalThis.__benchDilation.error),
+      null,
+      { timeout: 1_800_000 },
+    );
+    const dilation = await page3.evaluate(() => /** @type {any} */ (globalThis).__benchDilation);
+    result.dilationSweep = dilation;
   }
 } finally {
   await browser.close();
