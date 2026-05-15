@@ -13,6 +13,9 @@ use splatforge_optimize::{preset, write_tileset, TilesetOpts};
 use splatforge_ply::{read_ply, write_ply};
 use splatforge_spz::{read_spz, write_spz};
 
+mod license;
+use license::{cmd_license_install, cmd_license_status, cmd_license_refresh, cmd_serve};
+
 #[derive(Parser, Debug)]
 #[command(
     name = "splatforge",
@@ -159,6 +162,35 @@ enum Command {
         #[arg(long, default_value_t = 0.03_f32)]
         threshold: f32,
     },
+    /// Manage the Pro on-prem license (install, status, refresh). The
+    /// license file is `splatforge.lic` — Ed25519-signed JSON minted by
+    /// the SplatForge API. Required to run `splatforge serve`.
+    License {
+        #[command(subcommand)]
+        cmd: LicenseCmd,
+    },
+    /// Run the on-prem SplatForge Pro server. Reads the license at
+    /// `~/.splatforge/license.lic` (override with `--license`), verifies
+    /// the embedded Ed25519 signature + offline-grace window, then binds
+    /// the optimize/serve HTTP surface inside the customer's VPC.
+    Serve {
+        /// Bind address.
+        #[arg(long, default_value = "0.0.0.0:8080")]
+        bind: String,
+        /// Path to the license file.
+        #[arg(long)]
+        license: Option<PathBuf>,
+        /// Heartbeat endpoint base URL (the SplatForge API). Heartbeats
+        /// are skipped entirely when `SPLATFORGE_NO_TELEMETRY=1` is set
+        /// in the environment.
+        #[arg(long, default_value = "https://splatforge-api.fly.dev")]
+        api_base: String,
+        /// Number of active seats reported in the heartbeat. Required by
+        /// the license enforcement path; the server refuses to start if
+        /// this exceeds the license's `seats` claim.
+        #[arg(long, default_value_t = 1)]
+        active_seats: u32,
+    },
     /// Validate an asset against a SplatForge-supported standard
     /// (KHR_gaussian_splatting today; OpenUSD when the USDC reader path
     /// is wired). Wraps `splatforge-khr-validate` for the glTF case.
@@ -180,6 +212,37 @@ enum CorpusCmd {
     Run {
         /// Suite name (e.g. "smoke").
         suite: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum LicenseCmd {
+    /// Install a license file by copying it to `~/.splatforge/license.lic`.
+    /// Verifies the signature before installing — refuses to clobber the
+    /// existing license if the new one is invalid.
+    Install {
+        /// Path to the `splatforge.lic` to install.
+        path: PathBuf,
+    },
+    /// Print the current license status (org, seats, plan, valid_until,
+    /// last_refresh, offline grace remaining). Exits 0 when valid (with
+    /// or without grace), 1 otherwise — so a customer cron can gate
+    /// other automation on `splatforge license status`.
+    Status {
+        /// Override the license path.
+        #[arg(long)]
+        license: Option<PathBuf>,
+    },
+    /// Hit `/v1/license/refresh` on the API, replace the on-disk license
+    /// if the API hands back a fresher one, and reset the `last_refresh`
+    /// sidecar so the offline-grace clock starts over.
+    Refresh {
+        /// Override the license path.
+        #[arg(long)]
+        license: Option<PathBuf>,
+        /// Override the API base URL.
+        #[arg(long, default_value = "https://splatforge-api.fly.dev")]
+        api_base: String,
     },
 }
 
@@ -254,6 +317,19 @@ fn dispatch(cli: Cli) -> Result<()> {
             out,
             threshold,
         } => cmd_fidelity(&candidate, &baseline, out.as_deref(), threshold),
+        Command::License { cmd } => match cmd {
+            LicenseCmd::Install { path } => cmd_license_install(&path),
+            LicenseCmd::Status { license } => cmd_license_status(license.as_deref()),
+            LicenseCmd::Refresh { license, api_base } => {
+                cmd_license_refresh(license.as_deref(), &api_base)
+            }
+        },
+        Command::Serve {
+            bind,
+            license,
+            api_base,
+            active_seats,
+        } => cmd_serve(&bind, license.as_deref(), &api_base, active_seats),
         Command::SpecCheck { input, spec, json } => {
             cmd_spec_check(&input, spec.as_deref(), json)
         }

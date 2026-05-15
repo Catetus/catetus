@@ -13,6 +13,7 @@ members = [
     "crates/splatforge-cli",
     "crates/splatforge-mcp",
     "crates/splatforge-usd",
+    "crates/splatforge-license",
     "apps/api",
 ]
 
@@ -34,6 +35,7 @@ splatforge-usd-conformance = { path = "crates/splatforge-usd-conformance" }
 splatforge-optimize  = { path = "crates/splatforge-optimize" }
 splatforge-bench     = { path = "crates/splatforge-bench" }
 splatforge-usd       = { path = "crates/splatforge-usd" }
+splatforge-license   = { path = "crates/splatforge-license" }
 
 # Shared dependencies
 serde       = { version = "1", features = ["derive"] }

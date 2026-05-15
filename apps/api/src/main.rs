@@ -102,6 +102,16 @@ pub struct AppState {
     /// endpoint configured for both event categories) or different
     /// (separate endpoint per event category). Operator decision.
     pub checkout_webhook_secret: Option<Arc<String>>,
+    /// Pro on-prem license issuer. `None` disables the `/v1/license/*`
+    /// endpoints (dev / OSS-only deploys). See `license::LicenseIssuer`.
+    pub license_issuer: Option<Arc<splatforge_api::license::LicenseIssuer>>,
+}
+
+
+impl axum::extract::FromRef<AppState> for Option<std::sync::Arc<splatforge_api::license::LicenseIssuer>> {
+    fn from_ref(input: &AppState) -> Self {
+        input.license_issuer.clone()
+    }
 }
 
 #[tokio::main]
@@ -249,6 +259,8 @@ async fn main() -> anyhow::Result<()> {
         .map(Arc::new)
         .or_else(|| stripe_webhook_secret.clone());
 
+    let license_issuer = splatforge_api::license::LicenseIssuer::from_env()
+        .with_context(|| "loading LICENSE_PRIVATE_KEY")?;
     let state = AppState {
         jobs,
         modal: Arc::new(ModalClient::new(modal_url, modal_repack_url)),
@@ -265,6 +277,7 @@ async fn main() -> anyhow::Result<()> {
         pending_keys: Arc::new(PendingKeyCache::new()),
         pending_claim_tokens: Arc::new(PendingClaimTokens::new()),
         checkout_webhook_secret,
+        license_issuer: license_issuer.map(Arc::new),
     };
 
     // Background sweep: drop any pending plaintext / claim_token entry
@@ -319,6 +332,13 @@ async fn main() -> anyhow::Result<()> {
         // flood the corpus.
         .route("/v1/ratings", post(post_rating))
         .route("/v1/ratings/summary", get(ratings_summary))
+        // Pro on-prem license framework. issue is admin-only (bearer
+        // check inside the handler); refresh + heartbeat are customer-
+        // facing — refresh is gated by the inbound license's signature,
+        // heartbeat is best-effort telemetry.
+        .route("/v1/license/issue", post(splatforge_api::license::issue_route))
+        .route("/v1/license/refresh", post(splatforge_api::license::refresh_route))
+        .route("/v1/license/heartbeat", post(splatforge_api::license::heartbeat_route))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
 
     let paid_layer =
@@ -1518,4 +1538,18 @@ impl IntoResponse for ApiError {
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }
+}
+
+// ---------- ratings stubs ----------
+//
+// Stub handlers for `/v1/ratings` and `/v1/ratings/summary`. The
+// real implementation lands on the fidelity-ml branch (`feat/fidelity-v0.4`)
+// and integrates with the rating store; these stubs let the API compile
+// off main while that branch is in flight.
+async fn post_rating() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"ok": true, "note": "ratings disabled on this build"}))
+}
+
+async fn ratings_summary() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"summary": []}))
 }

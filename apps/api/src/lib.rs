@@ -13,3 +13,4 @@ pub mod billing;
 pub mod checkout;
 pub mod modal_client;
 pub mod store;
+pub mod license;
