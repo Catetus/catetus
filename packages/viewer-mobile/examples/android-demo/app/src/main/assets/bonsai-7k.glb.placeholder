@@ -1,0 +1,3 @@
+Drop a real `bonsai-7k.glb` next to this file and rename it `bonsai-7k.glb`
+before running the demo. The asset is downloaded from
+https://splatforge.dev/fixtures/bonsai-7k.glb at build time on a real device.
