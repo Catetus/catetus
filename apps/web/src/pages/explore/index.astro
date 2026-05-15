@@ -1,0 +1,528 @@
+---
+// /explore — public Gaussian-Splat registry alpha (Bet 6 v3.2).
+//
+// Static catalog of the SplatBench corpus plus a curated set of public
+// third-party splats. Filtering happens client-side (no backend for alpha).
+// Per the v3.2 plan, hosting policy is documented but not metered yet.
+import Base from "../../layouts/Base.astro";
+import index from "../../data/explore-index.json" with { type: "json" };
+import { splatbench } from "../../lib/splatbench";
+
+const title = "Explore — public Gaussian-Splat registry · SplatForge";
+const description =
+  "Browse the public SplatForge registry: " + index.countsBySource.total +
+  " indexed Gaussian-Splat scenes with thumbnails, licenses, attribution, and KHR-conformance badges.";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+
+function fmtSplats(n: number): string {
+  if (!n) return "—";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + "k";
+  return String(n);
+}
+function fmtBytes(n: number): string {
+  if (!n) return "—";
+  if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
+  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+  return n + " B";
+}
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/explore" aria-current="page">Explore</a>
+      <a href="/vs-splat-transform">vs splat-transform</a>
+      <a href="/compare">Compare</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="explore-hero">
+    <div class="hero-eyebrow">Explore · alpha</div>
+    <h1 class="explore-title">
+      The public Gaussian-Splat registry.
+    </h1>
+    <p class="explore-sub">
+      {index.countsBySource.total} scenes indexed —
+      <strong>{index.countsBySource.splatbench}</strong> from the SplatBench corpus
+      (Mip-NeRF 360 + deterministic synthetic probes) and
+      <strong>{index.countsBySource.external}</strong> third-party public splats
+      we link out to. Every entry shows splat count, license, attribution, and a KHR-conformance
+      badge so you know exactly what you're getting before you load it.
+    </p>
+    <div class="explore-ctas">
+      <a class="btn btn-primary" href="/explore/submit">Submit your splat →</a>
+      <a class="btn" href="#filters">Filter scenes</a>
+      <a class="btn" href={`${githubUrl}/blob/main/benches/seed-corpus/external-manifest.json`}>
+        external-manifest.json ↗
+      </a>
+    </div>
+    <details class="honest-note">
+      <summary>Why 23 and not 100?</summary>
+      <p>
+        The v3.2 plan called for ~100 seed scenes. We chose to ship honest numbers instead of
+        fabricated catalog inflation. The truly-public splat ecosystem is small: most large
+        datasets (DL3DV, ScanNet, ScanNet++) are gated CC-BY-NC and not redistributable, and
+        consumer apps (KIRI, Polycam, Luma) do not expose stable raw-asset URLs. We index
+        what we can verifiably link to. As contributors submit scenes, the registry grows.
+      </p>
+    </details>
+  </header>
+
+  <section id="filters" class="explore-filters" aria-label="Filter scenes">
+    <div class="filter-group">
+      <label class="filter-label">License</label>
+      <div class="chip-row" data-filter-group="license">
+        <button type="button" class="chip active" data-filter-value="*">All</button>
+        {index.facets.licenses.map((l) => (
+          <button type="button" class="chip" data-filter-value={l}>{l}</button>
+        ))}
+      </div>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label">Profile</label>
+      <div class="chip-row" data-filter-group="profile">
+        <button type="button" class="chip active" data-filter-value="*">All</button>
+        {index.facets.profiles.map((p) => (
+          <button type="button" class="chip" data-filter-value={p}>{p}</button>
+        ))}
+      </div>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label">Source</label>
+      <div class="chip-row" data-filter-group="source">
+        <button type="button" class="chip active" data-filter-value="*">All</button>
+        <button type="button" class="chip" data-filter-value="splatbench">SplatBench (self-hosted)</button>
+        <button type="button" class="chip" data-filter-value="external">External CDN</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label">KHR conformance</label>
+      <div class="chip-row" data-filter-group="khr">
+        <button type="button" class="chip active" data-filter-value="*">All</button>
+        <button type="button" class="chip" data-filter-value="pass">Pass</button>
+        <button type="button" class="chip" data-filter-value="fail-expected">Fail (run optimizer)</button>
+        <button type="button" class="chip" data-filter-value="unknown">Unknown</button>
+      </div>
+    </div>
+    <div class="filter-group filter-search">
+      <label class="filter-label" for="explore-search">Search</label>
+      <input
+        id="explore-search"
+        type="search"
+        placeholder="Scene name, attribution…"
+        data-filter-search
+        autocomplete="off"
+      />
+    </div>
+    <div class="filter-summary">
+      <span data-filter-count>{index.scenes.length}</span> of {index.scenes.length} scenes
+    </div>
+  </section>
+
+  <section class="explore-grid-section" aria-label="Scene grid">
+    <div class="explore-grid" data-scene-grid>
+      {index.scenes.map((s) => (
+        <a
+          class="scene-card"
+          href={`/explore/${s.id}`}
+          data-scene-id={s.id}
+          data-license={s.licenseBucket}
+          data-profile={s.profile}
+          data-source={s.source}
+          data-khr={s.khrConformance}
+          data-haystack={`${s.id} ${s.displayName} ${s.attribution} ${s.profileRaw} ${s.license}`.toLowerCase()}
+        >
+          <div class={`scene-thumb scene-thumb-${s.thumbHint}`} aria-hidden="true">
+            <span class="thumb-glyph">{s.source === "splatbench" ? "▦" : "↗"}</span>
+          </div>
+          <div class="scene-meta">
+            <div class="scene-title">{s.displayName}</div>
+            <div class="scene-row">
+              <span class={`badge badge-${s.khrConformance}`}>
+                KHR · {s.khrConformance === "pass" ? "pass" : s.khrConformance === "fail-expected" ? "needs optimize" : "unknown"}
+              </span>
+              <span class="badge badge-license">{s.licenseBucket}</span>
+            </div>
+            <div class="scene-row tabular">
+              <span>{fmtSplats(s.splatCount)} splats</span>
+              <span class="dot-sep">·</span>
+              <span>{fmtBytes(s.bytesIn)}</span>
+              <span class="dot-sep">·</span>
+              <span>{s.profile}</span>
+            </div>
+          </div>
+        </a>
+      ))}
+    </div>
+    <div class="empty-state" data-empty-state hidden>
+      <p>No scenes match the current filters. Try clearing one — or
+      <a href="/explore/submit">submit a scene</a> to help grow the registry.</p>
+    </div>
+  </section>
+
+  <section class="explore-policy" aria-labelledby="policy-title">
+    <h2 id="policy-title" class="section-title">Hosting policy</h2>
+    <p>
+      Per the v3.2 plan, the public registry is capped at $0.001 per view, total ≤15% of ARR.
+      For the alpha we don't meter views — but every external scene links out to its upstream
+      CDN, so the SplatForge bandwidth bill stays bounded by the SplatBench corpus alone
+      ({index.countsBySource.splatbench} scenes). When the registry grows past free-tier limits
+      we'll add per-view metering and a transparent monthly cost report.
+    </p>
+    <p>
+      <strong>Licensing:</strong> we accept submissions under CC0, CC-BY, CC-BY-SA, MIT, or
+      Apache-2.0. Research-open licenses (Mip-NeRF 360, Deep Blending) are tagged as
+      <code>research-open</code> and clearly distinguished from permissive consumer-OK licenses.
+    </p>
+  </section>
+
+  <footer class="site-footer">
+    <span>
+      Explore registry · splatforge <span class="tabular">v{splatbench.splatforgeVersion}</span> ·
+      <span class="tabular">index built {index.generatedAt}</span>
+    </span>
+    <span>
+      <a href={`${githubUrl}/blob/main/benches/seed-corpus/external-manifest.json`}>external-manifest.json</a> ·
+      <a href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.json`}>splatbench-v0.json</a> ·
+      Apache-2.0
+    </span>
+  </footer>
+</Base>
+
+<script>
+  // Client-side filter + search. No backend; we just toggle visibility on
+  // existing <a class="scene-card"> elements based on data-* attributes.
+  (function () {
+    const grid = document.querySelector<HTMLElement>("[data-scene-grid]");
+    const empty = document.querySelector<HTMLElement>("[data-empty-state]");
+    const countEl = document.querySelector<HTMLElement>("[data-filter-count]");
+    const searchEl = document.querySelector<HTMLInputElement>("[data-filter-search]");
+    if (!grid) return;
+
+    type FilterKey = "license" | "profile" | "source" | "khr";
+    const state: Record<FilterKey, string> = {
+      license: "*",
+      profile: "*",
+      source: "*",
+      khr: "*",
+    };
+    let query = "";
+
+    const cards = Array.from(grid.querySelectorAll<HTMLAnchorElement>(".scene-card"));
+
+    function apply(): void {
+      let visible = 0;
+      for (const c of cards) {
+        const lic = c.dataset.license || "";
+        const prof = c.dataset.profile || "";
+        const src = c.dataset.source || "";
+        const khr = c.dataset.khr || "";
+        const hay = c.dataset.haystack || "";
+        const match =
+          (state.license === "*" || state.license === lic) &&
+          (state.profile === "*" || state.profile === prof) &&
+          (state.source === "*" || state.source === src) &&
+          (state.khr === "*" || state.khr === khr) &&
+          (query === "" || hay.includes(query));
+        c.hidden = !match;
+        if (match) visible++;
+      }
+      if (countEl) countEl.textContent = String(visible);
+      if (empty) empty.hidden = visible !== 0;
+    }
+
+    document.querySelectorAll<HTMLElement>("[data-filter-group]").forEach((group) => {
+      const key = group.dataset.filterGroup as FilterKey;
+      group.querySelectorAll<HTMLButtonElement>("button.chip").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          group.querySelectorAll(".chip").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          state[key] = btn.dataset.filterValue || "*";
+          apply();
+        });
+      });
+    });
+
+    if (searchEl) {
+      searchEl.addEventListener("input", () => {
+        query = searchEl.value.trim().toLowerCase();
+        apply();
+      });
+    }
+  })();
+</script>
+
+<style>
+  .explore-hero {
+    padding: 16px 0 8px;
+    max-width: 760px;
+  }
+  .explore-title {
+    font-family: var(--sans);
+    font-size: clamp(36px, 5vw, 56px);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -1.2px;
+    margin: 0 0 18px;
+  }
+  .explore-sub {
+    color: var(--fg-muted);
+    font-size: 17px;
+    line-height: 1.6;
+    margin: 0 0 24px;
+  }
+  .explore-sub strong { color: var(--fg); font-variant-numeric: tabular-nums; }
+  .explore-ctas {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .honest-note {
+    margin-top: 12px;
+    color: var(--fg-dim);
+    font-size: 13px;
+    max-width: 640px;
+  }
+  .honest-note summary {
+    cursor: pointer;
+    color: var(--accent);
+    user-select: none;
+  }
+  .honest-note p {
+    margin-top: 10px;
+    line-height: 1.55;
+  }
+
+  /* Filters */
+  .explore-filters {
+    margin-top: 48px;
+    padding: 20px 22px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px 28px;
+  }
+  .filter-group { min-width: 0; }
+  .filter-label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--fg-dim);
+    margin-bottom: 8px;
+  }
+  .chip-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    appearance: none;
+    background: var(--bg-row);
+    border: 1px solid var(--line-strong);
+    color: var(--fg-muted);
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-family: var(--sans);
+    cursor: pointer;
+    transition: border-color 120ms, color 120ms, background 120ms;
+  }
+  .chip:hover { color: var(--fg); border-color: var(--accent); }
+  .chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .filter-search input {
+    width: 100%;
+    background: var(--bg-row);
+    border: 1px solid var(--line-strong);
+    color: var(--fg);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: var(--sans);
+  }
+  .filter-search input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+  .filter-summary {
+    grid-column: 1 / -1;
+    color: var(--fg-dim);
+    font-size: 12px;
+    font-family: var(--mono);
+    border-top: 1px dashed var(--line);
+    padding-top: 12px;
+  }
+  .filter-summary span { color: var(--fg); }
+
+  /* Grid */
+  .explore-grid-section { margin-top: 36px; }
+  .explore-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 18px;
+  }
+  .scene-card {
+    display: block;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    color: var(--fg);
+    text-decoration: none;
+    transition: border-color 120ms, transform 120ms;
+  }
+  .scene-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    text-decoration: none;
+  }
+  .scene-thumb {
+    aspect-ratio: 16 / 10;
+    background: linear-gradient(135deg, #1a2030 0%, #0c1018 100%);
+    display: grid;
+    place-items: center;
+    color: var(--fg-dim);
+    font-size: 48px;
+    position: relative;
+  }
+  .scene-thumb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 30% 30%, rgba(125,211,252,0.12), transparent 60%);
+    pointer-events: none;
+  }
+  .scene-thumb-indoor      { background: linear-gradient(135deg, #2b2418 0%, #0f0d09 100%); color: #c9a55a; }
+  .scene-thumb-indoor-kitchen { background: linear-gradient(135deg, #2b2418 0%, #0f0d09 100%); color: #c9a55a; }
+  .scene-thumb-indoor-room { background: linear-gradient(135deg, #2b2418 0%, #0f0d09 100%); color: #c9a55a; }
+  .scene-thumb-outdoor     { background: linear-gradient(135deg, #14302a 0%, #061212 100%); color: #4ec27e; }
+  .scene-thumb-outdoor-foliage { background: linear-gradient(135deg, #0f3225 0%, #06180f 100%); color: #4ec27e; }
+  .scene-thumb-foliage     { background: linear-gradient(135deg, #1a3a22 0%, #06180c 100%); color: #6ed68a; }
+  .scene-thumb-portrait    { background: linear-gradient(135deg, #2a1828 0%, #100610 100%); color: #d488b6; }
+  .scene-thumb-product-scan { background: linear-gradient(135deg, #1d2230 0%, #080a10 100%); color: #7dd3fc; }
+  .scene-thumb-synthetic-probe { background: linear-gradient(135deg, #1e1a2e 0%, #08060f 100%); color: #b89af0; }
+  .thumb-glyph {
+    font-size: 56px;
+    opacity: 0.6;
+    font-family: var(--mono);
+    position: relative;
+    z-index: 1;
+  }
+  .scene-meta { padding: 14px 16px 16px; }
+  .scene-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--fg);
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .scene-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--fg-dim);
+    margin-top: 6px;
+  }
+  .scene-row.tabular { font-family: var(--mono); }
+  .dot-sep { color: var(--line-strong); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--mono);
+    background: var(--bg-row);
+    border: 1px solid var(--line-strong);
+    color: var(--fg-muted);
+  }
+  .badge-pass { color: var(--good); border-color: rgba(52,211,153,0.4); }
+  .badge-fail-expected { color: var(--accent-warm); border-color: rgba(251,146,60,0.4); }
+  .badge-unknown { color: var(--fg-dim); }
+  .badge-license { background: transparent; }
+
+  .empty-state {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--fg-dim);
+    border: 1px dashed var(--line-strong);
+    border-radius: 10px;
+  }
+
+  .explore-policy {
+    margin-top: 64px;
+    padding-top: 40px;
+    border-top: 1px solid var(--line);
+    color: var(--fg-muted);
+    max-width: 720px;
+    line-height: 1.6;
+  }
+  .explore-policy h2 {
+    color: var(--fg);
+    margin-bottom: 16px;
+    font-size: 24px;
+  }
+  .explore-policy p { margin: 0 0 14px; }
+  .explore-policy code {
+    font-size: 12px;
+    background: var(--bg-elev);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .site-footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--fg-dim);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 18px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    color: var(--fg);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 120ms, border-color 120ms, transform 120ms;
+  }
+  .btn:hover { border-color: var(--accent); text-decoration: none; transform: translateY(-1px); }
+  .btn-primary {
+    background: var(--accent-warm);
+    border-color: var(--accent-warm);
+    color: #1a0f00;
+  }
+  .btn-primary:hover {
+    background: var(--accent-warm-strong);
+    border-color: var(--accent-warm-strong);
+  }
+</style>
+</Base>
