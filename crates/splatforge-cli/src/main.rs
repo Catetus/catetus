@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, SplatScene};
 use splatforge_gltf::{inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, WriteOpts};
+use splatforge_usd::{read_usda, read_usdc, write_usda, write_usdc, UsdWriteOpts};
 use splatforge_optimize::{preset, write_tileset, TilesetOpts};
 use splatforge_ply::{read_ply, write_ply};
 use splatforge_spz::{read_spz, write_spz};
@@ -42,7 +43,7 @@ enum Command {
     Convert {
         /// Input file.
         input: PathBuf,
-        /// Target format: ply, spz, gltf, glb.
+        /// Target format: ply, spz, gltf, glb, usda, usdc.
         #[arg(long, value_name = "FORMAT")]
         to: String,
         /// Output path.
@@ -192,6 +193,8 @@ fn load_scene(path: &Path) -> Result<(SplatScene, &'static str)> {
         "spz" => read_spz(path).with_context(|| format!("reading SPZ {}", path.display()))?,
         "gltf" => read_gltf(path).with_context(|| format!("reading glTF {}", path.display()))?,
         "glb" => read_glb(path).with_context(|| format!("reading GLB {}", path.display()))?,
+        "usda" => read_usda(path).with_context(|| format!("reading USDA {}", path.display()))?,
+        "usdc" => read_usdc(path).with_context(|| format!("reading USDC {}", path.display()))?,
         other => return Err(anyhow!("unsupported format: {other}")),
     };
     Ok((scene, fmt))
@@ -249,6 +252,14 @@ fn cmd_convert(input: &Path, to: &str, out: &Path) -> Result<()> {
         }
         "glb" => {
             write_glb(&scene, out, &WriteOpts::default())?;
+            Ok(())
+        }
+        "usda" => {
+            write_usda(&scene, out, &UsdWriteOpts::default())?;
+            Ok(())
+        }
+        "usdc" => {
+            write_usdc(&scene, out, &UsdWriteOpts::default())?;
             Ok(())
         }
         other => Err(anyhow!("unknown target format: {other}")),
