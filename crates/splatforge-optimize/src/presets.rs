@@ -18,6 +18,7 @@ pub const PRESETS: &[&str] = &[
     "thumbnail-preview",
     "quality-max",
     "size-min",
+    "geospatial",
 ];
 
 /// Build a `Pipeline` from a named preset.
@@ -74,6 +75,26 @@ pub fn preset(name: &str) -> Result<Pipeline> {
             .push(Box::new(QuantizeRotation { bits: 8 }))
             .push(Box::new(ReduceSHDegree { target_degree: 0 }))
             .push(Box::new(MortonSort)),
+        // `geospatial`: produces a Cesium 3D Tiles 1.1 tileset (tileset.json +
+        // per-LOD GLBs) when paired with the tileset emitter. The pipeline
+        // itself is the `web-mobile` baseline (prune + quantize + Morton),
+        // followed by a four-level LOD pyramid where each LOD halves the splat
+        // count of the previous one: LOD0=1.0, LOD1=0.5, LOD2=0.25, LOD3=0.125.
+        // The downstream tileset writer maps each LOD to a tile with halved
+        // `geometricError` and a `REPLACE` refinement chain, matching Cesium's
+        // screen-space-error model.
+        "geospatial" => Pipeline::new()
+            .push(Box::new(RemoveInvalidSplats))
+            .push(Box::new(OpacityPrune { threshold: 0.02 }))
+            .push(Box::new(FloaterPrune::default()))
+            .push(Box::new(QuantizePosition { bits: 15 }))
+            .push(Box::new(QuantizeScale { bits: 8 }))
+            .push(Box::new(QuantizeRotation { bits: 8 }))
+            .push(Box::new(ReduceSHDegree { target_degree: 0 }))
+            .push(Box::new(MortonSort))
+            .push(Box::new(BuildLOD {
+                levels: vec![0.5, 0.25, 0.125],
+            })),
         "size-min" => Pipeline::new()
             .push(Box::new(RemoveInvalidSplats))
             .push(Box::new(OpacityPrune { threshold: 0.05 }))

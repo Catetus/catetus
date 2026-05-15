@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, SplatScene};
 use splatforge_gltf::{inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, WriteOpts};
-use splatforge_optimize::preset;
+use splatforge_optimize::{preset, write_tileset, TilesetOpts};
 use splatforge_ply::{read_ply, write_ply};
 use splatforge_spz::{read_spz, write_spz};
 
@@ -68,6 +68,11 @@ enum Command {
         /// Output path; defaults to "<input>.optimized.gltf".
         #[arg(long, short = 'o')]
         out: Option<PathBuf>,
+        /// Output DIRECTORY for multi-tile presets (`geospatial`). The
+        /// directory is created if missing and will contain `tileset.json`
+        /// plus one `.glb` per LOD level. Mutually exclusive with `--out`.
+        #[arg(long, value_name = "DIR")]
+        output_dir: Option<PathBuf>,
         /// Emit machine-readable `PROGRESS frac=<0..1> stage=<name>` lines
         /// to stdout before each pipeline pass, plus one terminal `frac=1.0`.
         /// Consumed by the Modal worker to stream live progress to the UI.
@@ -143,8 +148,17 @@ fn dispatch(cli: Cli) -> Result<()> {
             chunked,
             compress,
             out,
+            output_dir,
             progress,
-        } => cmd_optimize(&input, &preset, chunked, compress, out.as_deref(), progress),
+        } => cmd_optimize(
+            &input,
+            &preset,
+            chunked,
+            compress,
+            out.as_deref(),
+            output_dir.as_deref(),
+            progress,
+        ),
         Command::Preview { input, port } => cmd_preview(&input, port),
         Command::Diff {
             before,
@@ -258,8 +272,22 @@ fn cmd_optimize(
     chunked: bool,
     compress: bool,
     out: Option<&Path>,
+    output_dir: Option<&Path>,
     progress: bool,
 ) -> Result<()> {
+    if out.is_some() && output_dir.is_some() {
+        return Err(anyhow!("--out and --output-dir are mutually exclusive"));
+    }
+    if preset_name == "geospatial" && output_dir.is_none() {
+        return Err(anyhow!(
+            "preset 'geospatial' requires --output-dir <DIR> (the Cesium tileset is multi-file)"
+        ));
+    }
+    if preset_name != "geospatial" && output_dir.is_some() {
+        return Err(anyhow!(
+            "--output-dir is only supported with --preset geospatial"
+        ));
+    }
     // The pipeline run is the longest single span; everything else is fast.
     // Reserve frac=0.00..0.90 for the optimize pipeline so we have headroom
     // for the post-write "encoding glTF" step (~0.90..0.98) and a final
@@ -288,6 +316,37 @@ fn cmd_optimize(
     } else {
         pipe.run(&mut scene)?
     };
+    // `geospatial` short-circuits to the tileset writer — no single .gltf out.
+    if preset_name == "geospatial" {
+        let dir = output_dir.expect("checked above");
+        if progress {
+            emit_progress(0.92, "writing-tileset");
+        }
+        let report_t = write_tileset(&scene, dir, &TilesetOpts::default())
+            .with_context(|| format!("writing 3D Tiles tileset to {}", dir.display()))?;
+        if progress {
+            emit_progress(0.98, "writing-report");
+        }
+        let report_path = dir.join("optimize-report.json");
+        std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
+        println!(
+            "optimized {} -> tileset {} ({} tiles, root error={:.4})",
+            input.display(),
+            report_t.tileset_json.display(),
+            report_t.tiles.len(),
+            report_t.tiles.first().map(|t| t.geometric_error).unwrap_or(0.0),
+        );
+        for t in &report_t.tiles {
+            println!(
+                "  lod{} fraction={:.4} splats={} geometricError={:.4} glb={}",
+                t.lod_index, t.fraction, t.splat_count, t.geometric_error, t.glb,
+            );
+        }
+        if progress {
+            emit_progress(1.00, "done");
+        }
+        return Ok(());
+    }
     let out = out
         .map(PathBuf::from)
         .unwrap_or_else(|| input.with_extension("optimized.gltf"));

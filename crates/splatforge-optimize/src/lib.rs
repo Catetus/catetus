@@ -4,6 +4,7 @@
 pub mod passes;
 pub mod pipeline;
 pub mod presets;
+pub mod tileset;
 
 pub use passes::{
     BuildLOD, FloaterPrune, MortonSort, ObjectAwarePruneExperimental, OpacityPrune, Pass,
@@ -12,3 +13,4 @@ pub use passes::{
 };
 pub use pipeline::{Pipeline, PipelineReport};
 pub use presets::preset;
+pub use tileset::{write_tileset, TileReport, TilesetOpts, TilesetReport};
