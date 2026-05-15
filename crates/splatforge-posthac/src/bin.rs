@@ -52,6 +52,22 @@ enum Cmd {
         #[arg(long)]
         raw_codes: PathBuf,
     },
+    /// Re-encode raw 8-bit codes against the hyperprior of an input `.pthc`,
+    /// then write a new fully-self-contained `.pthc`. Use this when the
+    /// Python training pipeline produced a `.pthc` with a broken (or
+    /// platform-divergent) bitstream — the trained weights + positions are
+    /// preserved, but the compressed payload is replaced with a Rust-emitted
+    /// one that round-trips bit-exact with `splatforge-posthac decode`.
+    Encode {
+        /// Input `.pthc` (provides weights + positions).
+        input: PathBuf,
+        /// File with the original 8-bit codes (same layout as `decode --out`).
+        #[arg(long)]
+        raw_codes: PathBuf,
+        /// Output `.pthc`.
+        #[arg(short, long)]
+        out: PathBuf,
+    },
 }
 
 fn read_codes_file(path: &PathBuf) -> std::io::Result<(usize, usize, Vec<u8>)> {
@@ -186,11 +202,59 @@ fn cmd_roundtrip(
     Ok(())
 }
 
+fn cmd_encode(
+    input: PathBuf,
+    raw_codes: PathBuf,
+    out: PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = fs::read(&input)?;
+    let c = read_container(&bytes)?;
+    let n = c.header.n as usize;
+    let d = c.header.d as usize;
+    let (n_raw, d_raw, raw) = read_codes_file(&raw_codes)?;
+    if (n_raw, d_raw) != (n, d) {
+        return Err(format!(
+            "shape mismatch: container N={} D={} vs codes N={} D={}",
+            n, d, n_raw, d_raw
+        )
+        .into());
+    }
+    eprintln!("[encode] N={n} D={d} — predict_all() in Rust");
+    let predictions = predict_all(
+        &c.positions,
+        c.header.pos_mn,
+        c.header.pos_mx,
+        &c.header.config,
+        &c.weights,
+    );
+    eprintln!("[encode] range-coding {} symbols", n * d);
+    let compressed = encode_codes(&raw, n, d, &predictions)?;
+    let mut buf = Vec::new();
+    write_container(&mut buf, &c.header, &c.weights, &c.positions, &compressed)?;
+    fs::write(&out, &buf)?;
+    let raw_bytes = (n * d) as f64;
+    let comp_bytes = (compressed.len() * 4) as f64;
+    println!(
+        "wrote {} ({:.2} MB total). compressed {:.2} MB → {:.2} MB ({:.2}× over 8-bit)",
+        out.display(),
+        buf.len() as f64 / 1e6,
+        raw_bytes / 1e6,
+        comp_bytes / 1e6,
+        raw_bytes / comp_bytes,
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Info { input } => cmd_info(input),
         Cmd::Decode { input, out } => cmd_decode(input, out),
         Cmd::RoundtripBytes { input, raw_codes } => cmd_roundtrip(input, raw_codes),
+        Cmd::Encode {
+            input,
+            raw_codes,
+            out,
+        } => cmd_encode(input, raw_codes, out),
     }
 }
