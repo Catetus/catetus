@@ -9,5 +9,11 @@ description = "Composable optimization passes for SplatForge."
 
 [dependencies]
 splatforge-core = { workspace = true }
+splatforge-gltf = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+splatforge-gltf = { workspace = true }
