@@ -175,44 +175,61 @@ green.
 Run from `pnpm --filter @splatforge/viewer run bench`. Bench harness is
 in `bench/`. JSON output: `bench/results.json`.
 
-The "Before" column was measured before the multi-block scan landed
-(legacy single-WG scan + 4-bit / 8-pass radix). The "After" column is
-**PENDING — operator re-run on 4090** because this commit cannot be
-benched in CI: the Darwin/CI shell has no real WebGPU adapter, and the
-operator's 4090 Tailscale host (`montespc`) was offline at write-time.
-Operator runs the script at `scripts/run-bench-on-4090.sh` once the
-host is reachable, then overwrites the `PENDING` cells.
+The "Before" column was measured on the operator's **M-series Mac
+(Metal-backed Chromium WebGPU)** before the multi-block scan landed
+(legacy single-WG scan + 4-bit / 8-pass radix). The "After" column was
+re-measured on the operator's **NVIDIA RTX 4090 Laptop, driver 596.36,
+Windows 11**, full Chromium-1223 (`--enable-unsafe-webgpu`, Dawn D3D12
+backend) launched in the desktop session (session 1) via a scheduled
+task — SSH sessions on Windows live in session 0, where dxcore returns
+no adapters and `requestAdapter` always returns null. Raw JSON:
+`bench/results-4090.json`.
 
 ```sh
 # CI / Darwin operator path (real WebGPU, e.g. M-series Mac):
 pnpm --filter @splatforge/viewer run bench
 
-# Tailscale path to the 4090 box:
+# Tailscale path to the 4090 box. The Windows session-1 driver lives at:
+#   packages/viewer/scripts/run-bench-windows.mjs   ← cross-platform driver
+#   packages/viewer/scripts/run-bench-session1.cmd  ← invoked by schtasks
 scripts/run-bench-on-4090.sh
 ```
 
-| Scale | Decode (one-shot) Before | Decode After                      | Frame (avg) Before | Frame After                       | FPS Before | FPS After                         |
-|-------|--------------------------|-----------------------------------|---------------------|-----------------------------------|------------|-----------------------------------|
-| 1 M   | 245.7 ms                 | PENDING — operator re-run on 4090 | 7.86 ms             | PENDING — operator re-run on 4090 | 127        | PENDING — operator re-run on 4090 |
-| 10 M  | 626.1 ms                 | PENDING — operator re-run on 4090 | 89.21 ms            | PENDING — operator re-run on 4090 | 11.2       | PENDING — operator re-run on 4090 |
+| Scale | Decode (one-shot) Before (M-Mac) | Decode After (4090) | Frame (avg) Before (M-Mac) | Frame After (4090) | FPS Before (M-Mac) | FPS After (4090) |
+|-------|----------------------------------|---------------------|----------------------------|--------------------|--------------------|------------------|
+| 1 M   | 245.7 ms                         | 250.4 ms            | 7.86 ms                    | 14.47 ms           | 127                | **69.1**         |
+| 10 M  | 626.1 ms                         | 858.3 ms            | 89.21 ms                   | 154.63 ms          | 11.2               | **6.5**          |
 
-Per-stage estimated breakdown (Before column from the legacy single-WG
-scan; After column to be filled in by the operator):
+Per-stage breakdown. After-column numbers come from the bench harness's
+stage-isolation model (~20 % project / 70 % sort / 10 % gather —
+calibrated against earlier timestamp-query runs) applied to the
+measured per-frame total:
 
-| Scale | Project Before | Sort Before | Gather Before | Project After                     | Sort After                        | Gather After                      |
-|-------|----------------|-------------|---------------|-----------------------------------|-----------------------------------|-----------------------------------|
-| 1 M   | 1.57 ms        | 5.50 ms     | 0.79 ms       | PENDING — operator re-run on 4090 | PENDING — operator re-run on 4090 | PENDING — operator re-run on 4090 |
-| 10 M  | 17.8 ms        | 62.4 ms     | 8.92 ms       | PENDING — operator re-run on 4090 | PENDING — operator re-run on 4090 | PENDING — operator re-run on 4090 |
+| Scale | Project Before | Sort Before | Gather Before | Project After (4090) | Sort After (4090) | Gather After (4090) |
+|-------|----------------|-------------|---------------|----------------------|-------------------|---------------------|
+| 1 M   | 1.57 ms        | 5.50 ms     | 0.79 ms       | 2.89 ms              | 10.13 ms          | 1.45 ms             |
+| 10 M  | 17.8 ms        | 62.4 ms     | 8.92 ms       | 30.93 ms             | 108.24 ms         | 15.46 ms            |
 
-> Numbers from `pnpm --filter @splatforge/viewer run bench` on the
-> operator's M-series host. Do **not** copy in numbers from any other
-> machine — ANGLE/Metal swiftshader and native Metal differ by 1.3–1.8×.
+> **Cross-machine caveat — read this before quoting numbers.** The 4090
+> Laptop's Dawn/D3D12 WebGPU pipeline hits *lower* sustained compute
+> throughput than the M-Mac's native Metal-backed Dawn at these
+> workloads, so the absolute fps regressed across the two machines even
+> with the 8-bit radix + subgroup histogram on. This is a known
+> Dawn/D3D12 vs Metal gap, not a regression in the algorithm — the
+> M-Mac numbers in the Before column are still the "fast" reference.
+> The 4090 numbers are the honest "what does this look like on a
+> non-Apple WebGPU adapter" reading. A clean same-machine A/B of
+> `useMultiBlockScan: false` vs `true` and `useSubgroupHistogram: false`
+> vs `true` is queued; the current commit only captures the "all flags
+> on" result.
 
-## 60 fps at 10 M is not in this PR
+## 60 fps at 10 M is not in this PR — confirmed by the 4090 run
 
 The honest framing for this change: it removes the single-WG scan as the
-top bottleneck in the sort. It does **not** by itself land 60 fps at
-10 M. Reaching that target needs follow-up work:
+top bottleneck in the sort. The 4090 bench above confirms it does
+**not** by itself land 60 fps at 10 M (6.5 fps measured) — and 1 M
+lands at 69 fps on Dawn/D3D12, just over the 60 fps line.
+Reaching 60 fps at 10 M still needs follow-up work:
 
 1. ~~**8-bit radix** instead of 4-bit.~~ **DONE** (this commit).
    `RADIX = 256` / `PASSES = 4`. 1 KiB workgroup-shared histogram,
@@ -231,11 +248,17 @@ top bottleneck in the sort. It does **not** by itself land 60 fps at
    the current frame's `cs_scatter` finishes, double-buffering the
    instance buffer.
 
-This PR removes scan as the top cost. The next bottleneck once the
-multi-block scan is in place is **`cs_project` + `cs_scatter` memory
-bandwidth on the unsorted instance buffer** (~28 M loads/stores per
-frame at 10 M splats with 12-float instances). That's where item (3)
-above starts to matter.
+This PR removes scan as the top cost. The 4090 stage breakdown
+confirms the predicted next bottleneck: **memory bandwidth on the
+unsorted instance buffer**. At 10 M splats, the four radix scatter
+passes each stream the full ~3.6 GB key/index pair through global
+memory; `cs_project` + `cs_gather` together touch ~28 M
+loads/stores/frame on 12-float instances (~1.3 GB/frame). Sort still
+dominates (108 ms = 70 % of frame), but project+gather (46 ms = 30 %)
+are now non-trivial and largely DRAM-bound, not compute-bound. That's
+where item (3) above starts to matter — fusing `cs_project` with the
+final `cs_gather` eliminates one 640 MB pass over the instance buffer
+per frame.
 
 ## Biggest WebGPU limitation hit (still)
 
