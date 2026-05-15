@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import struct
 import subprocess
 import tempfile
 import urllib.request
@@ -133,13 +134,18 @@ def run_optimize(
             }
             return _callback(callback_url, payload)
 
-        # 3. Upload the optimized artifact. The splatforge CLI emits a glTF
-        # manifest plus one or more sidecar files under `buffers/`. Upload
-        # every sidecar first, capture their final blob URLs, then rewrite
-        # the manifest's `buffers[].uri` fields to absolute URLs so the
-        # downloaded .gltf is self-contained (no missing-file surprise).
+        # 3. Pack glTF + sidecar buffer(s) into a single .glb (binary glTF).
+        # A .glb concatenates the JSON manifest and binary chunks into one
+        # file, so the user can drag it straight into any KHR_gaussian_-
+        # splatting-capable viewer without worrying about missing sidecars.
         try:
-            output_url = _upload_gltf_bundle(job_id, gltf_path)
+            glb_path = out_dir / "optimized.glb"
+            _pack_glb(gltf_path, glb_path)
+            output_url = _upload_blob(
+                f"jobs/{job_id}/optimized.glb",
+                glb_path,
+                "model/gltf-binary",
+            )
         except Exception as exc:  # noqa: BLE001
             return _callback(
                 callback_url,
@@ -167,30 +173,85 @@ def _download(url: str, dst: Path) -> None:
         shutil.copyfileobj(response, f, length=4 * 1024 * 1024)
 
 
-def _upload_gltf_bundle(job_id: str, gltf_path: Path) -> str:
-    """Upload a glTF manifest + every sidecar buffer it references.
+def _pack_glb(gltf_path: Path, glb_path: Path) -> None:
+    """Pack a .gltf + sidecar buffer(s) into a single .glb (binary glTF).
 
-    Returns the final URL of the patched manifest, whose buffer URIs have
-    been rewritten to absolute blob URLs. Self-contained: downloading the
-    .gltf is enough to render the scene anywhere.
+    Spec ref: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#binary-gltf-layout
+
+    File layout:
+      12-byte header:  magic "glTF" + version=2 + total_length
+       8-byte JSON chunk header: length + "JSON"  (4-byte type tag)
+         JSON payload, 0x20-padded to 4-byte boundary
+       8-byte BIN chunk header: length + "BIN\\0"
+         binary payload, 0x00-padded to 4-byte boundary
+
+    The KHR_gaussian_splatting outputs we handle today reference a single
+    sidecar buffer (`buffers/chunk_0000.bin`). For robustness in the face
+    of multi-chunk outputs, we concatenate every buffer's contents into a
+    single BIN chunk and shift each buffer's `byteOffset` accordingly.
     """
     manifest = json.loads(gltf_path.read_text(encoding="utf-8"))
     base_dir = gltf_path.parent
     buffers = manifest.get("buffers") or []
-    for buf in buffers:
-        uri = buf.get("uri")
-        if not uri or uri.startswith("data:") or uri.startswith("http"):
-            continue  # already inline / absolute, nothing to do
-        sidecar = (base_dir / uri).resolve()
-        if not sidecar.exists():
-            raise RuntimeError(f"manifest references missing buffer: {uri}")
-        key = f"jobs/{job_id}/{uri}"
-        buf["uri"] = _upload_blob(key, sidecar, "application/octet-stream")
-    # Write the patched manifest to a sibling file (don't mutate the
-    # original on disk — keeps idempotence in case the function retries).
-    patched = base_dir / "optimized.patched.gltf"
-    patched.write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
-    return _upload_blob(f"jobs/{job_id}/optimized.gltf", patched, "model/gltf+json")
+    if not buffers:
+        # Nothing to pack — just embed an empty BIN chunk so the glb is valid.
+        bin_blob = b""
+        offsets = []
+    else:
+        chunks: list[bytes] = []
+        offsets: list[int] = []
+        running = 0
+        for buf in buffers:
+            uri = buf.get("uri")
+            if not uri:
+                raise RuntimeError(
+                    "manifest buffer has no uri; embedded buffers not supported"
+                )
+            if uri.startswith("data:") or uri.startswith("http"):
+                raise RuntimeError(
+                    f"manifest buffer is already external ({uri[:60]}); "
+                    "expected on-disk sidecar"
+                )
+            sidecar = (base_dir / uri).resolve()
+            if not sidecar.exists():
+                raise RuntimeError(f"manifest references missing buffer: {uri}")
+            data = sidecar.read_bytes()
+            chunks.append(data)
+            offsets.append(running)
+            running += len(data)
+            # 4-byte align the next chunk inside the merged buffer.
+            pad = (-running) % 4
+            if pad:
+                chunks.append(b"\x00" * pad)
+                running += pad
+        bin_blob = b"".join(chunks)
+
+    # Rewrite the manifest: every buffer becomes a single merged buffer
+    # whose data lives in the BIN chunk. bufferViews shift to point into
+    # the merged buffer at the correct offset.
+    if buffers:
+        buffer_view_shifts = {
+            i: offsets[bv.get("buffer", 0)]
+            for i, bv in enumerate(manifest.get("bufferViews") or [])
+        }
+        manifest["buffers"] = [{"byteLength": len(bin_blob)}]
+        for i, bv in enumerate(manifest.get("bufferViews") or []):
+            bv["buffer"] = 0
+            bv["byteOffset"] = bv.get("byteOffset", 0) + buffer_view_shifts[i]
+
+    json_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+    json_pad = (-len(json_bytes)) % 4
+    json_bytes = json_bytes + (b" " * json_pad)
+    bin_pad = (-len(bin_blob)) % 4
+    bin_blob = bin_blob + (b"\x00" * bin_pad)
+
+    total = 12 + 8 + len(json_bytes) + 8 + len(bin_blob)
+    with glb_path.open("wb") as out:
+        out.write(struct.pack("<4sII", b"glTF", 2, total))
+        out.write(struct.pack("<I4s", len(json_bytes), b"JSON"))
+        out.write(json_bytes)
+        out.write(struct.pack("<I4s", len(bin_blob), b"BIN\x00"))
+        out.write(bin_blob)
 
 
 def _upload_blob(key: str, path: Path, content_type: str) -> str:
