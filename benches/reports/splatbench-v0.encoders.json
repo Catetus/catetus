@@ -1,10 +1,24 @@
 {
   "schema": "splatforge.splatbench.encoders/0.1",
-  "generatedAt": "2026-05-15T11:34:26.383Z",
+  "generatedAt": "2026-05-15T11:45:11.049Z",
   "encoders": [
     "splat-transform"
   ],
   "scenes": [
+    {
+      "scene": "bicycle_real",
+      "inputBytes": 896795076,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 48531366,
+          "wallSeconds": 708.993,
+          "wallMs": 709074,
+          "ratio": 18.48
+        }
+      }
+    },
     {
       "scene": "bonsai_mipnerf360_iter7k",
       "inputBytes": 286972500,
