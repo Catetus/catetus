@@ -1,0 +1,31 @@
+name: SplatForge Optimize
+
+on:
+  pull_request:
+    paths:
+      - '**/*.ply'
+      - '**/*.splat'
+      - '**/*.spz'
+      - '**/*.ksplat'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed so the action can `git diff base...head` to find the
+          # splat files touched by this PR.
+          fetch-depth: 0
+
+      - uses: splatforge/optimize-action@v1
+        with:
+          api-key: ${{ secrets.SPLATFORGE_API_KEY }}
+          preset: web-mobile
+          # Fail the PR if average output is more than 60% of input.
+          regression-threshold: '0.6'
