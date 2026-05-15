@@ -768,7 +768,14 @@ fn cmd_optimize(
     // from the CLI. Tracked: ship cull-default + codec-gs-mixed PR.
     if matches!(
         preset_name,
-        "codec-gs-stacked" | "codec-gs-mixed" | "codec-gs-mixed-k5"
+        "codec-gs-stacked"
+            | "codec-gs-mixed"
+            | "codec-gs-mixed-k5"
+            // `fcgs-instant` runs end-to-end on a Modal A100 via a private
+            // Modal app; there's no CPU fallback locally. Surface a clear
+            // pending message so users invoking the local CLI don't burn
+            // time waiting for an encoder that isn't here.
+            | "fcgs-instant"
     ) {
         return Err(anyhow!(
             "preset '{preset_name}' is known but the worker integration is pending — \
@@ -890,6 +897,13 @@ fn cmd_optimize(
                 // K=2 → 151× / 25.2 dB, K=5 → 59× / 26.3 dB on bicycle.
                 | "codec-gs-mixed"
                 | "codec-gs-mixed-k5"
+                // FCGS hosted preset (Chen et al. ICLR'25). Pre-trained
+                // feed-forward codec; the encoder runs on a Modal A100
+                // and emits a bitstream that the glTF wrapper points
+                // at — quantized integer accessors keep the manifest
+                // small even when the bitstream is referenced as a
+                // sidecar.
+                | "fcgs-instant"
         );
     let compress_variant = if compress_mode == Some("spz") {
         Some(splatforge_gltf::SpzVariant::V2)
