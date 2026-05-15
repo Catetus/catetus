@@ -91,10 +91,10 @@
       "type": "SCALAR",
       "normalized": true,
       "min": [
-        0.0
+        0
       ],
       "max": [
-        1.0
+        1
       ]
     },
     {
@@ -104,14 +104,14 @@
       "type": "VEC3",
       "normalized": true,
       "min": [
-        0.0,
-        0.0,
-        0.0
+        0,
+        0,
+        0
       ],
       "max": [
-        1.0,
-        1.0,
-        1.0
+        1,
+        1,
+        1
       ]
     }
   ],
@@ -121,16 +121,17 @@
         {
           "extensions": {
             "KHR_gaussian_splatting": {
-              "attributes": {
-                "POSITION": 0,
-                "_COLOR_DC": 4,
-                "_OPACITY": 3,
-                "_ROTATION": 1,
-                "_SCALE": 2
-              },
               "shDegree": 0
             }
-          }
+          },
+          "attributes": {
+            "KHR_gaussian_splatting:POSITION": 0,
+            "KHR_gaussian_splatting:COLOR_DC": 4,
+            "KHR_gaussian_splatting:OPACITY": 3,
+            "KHR_gaussian_splatting:ROTATION": 1,
+            "KHR_gaussian_splatting:SCALE": 2
+          },
+          "mode": 0
         }
       ]
     }

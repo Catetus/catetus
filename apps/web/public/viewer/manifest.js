@@ -14,8 +14,55 @@ export const UBYTE_COMPONENT = 5121;
 export const USHORT_COMPONENT = 5123;
 const GS_EXT = 'KHR_gaussian_splatting';
 const SF_EXT = 'SF_spatial_streaming_index';
+const RC_ATTR_KEYS = {
+    POSITION: `${GS_EXT}:POSITION`,
+    ROTATION: `${GS_EXT}:ROTATION`,
+    SCALE: `${GS_EXT}:SCALE`,
+    OPACITY: `${GS_EXT}:OPACITY`,
+    COLOR_DC: `${GS_EXT}:COLOR_DC`,
+    COLOR_SH: `${GS_EXT}:COLOR_SH`,
+};
 function isObject(x) {
     return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+/**
+ * Extract the attribute index table from the first splat primitive, supporting
+ * both the KHR_gaussian_splatting Release Candidate (RC) layout — namespaced
+ * keys on `primitive.attributes` next to `mode` — and the legacy layout —
+ * bare keys (`_ROTATION`, `_SCALE`, etc.) inside the per-primitive extension
+ * object. Schema sniff: any `KHR_gaussian_splatting:*` key on a primitive's
+ * `attributes` map means RC; otherwise fall back to legacy.
+ */
+function extractGaussianAttributes(g) {
+    for (const mesh of g.meshes ?? []) {
+        for (const prim of mesh.primitives ?? []) {
+            const primAttrs = prim.attributes;
+            if (isObject(primAttrs)) {
+                const hasRc = Object.keys(primAttrs).some((k) => k.startsWith(`${GS_EXT}:`));
+                if (hasRc) {
+                    return {
+                        attrs: {
+                            POSITION: typeof primAttrs[RC_ATTR_KEYS.POSITION] === 'number' ? primAttrs[RC_ATTR_KEYS.POSITION] : undefined,
+                            _ROTATION: typeof primAttrs[RC_ATTR_KEYS.ROTATION] === 'number' ? primAttrs[RC_ATTR_KEYS.ROTATION] : undefined,
+                            _SCALE: typeof primAttrs[RC_ATTR_KEYS.SCALE] === 'number' ? primAttrs[RC_ATTR_KEYS.SCALE] : undefined,
+                            _OPACITY: typeof primAttrs[RC_ATTR_KEYS.OPACITY] === 'number' ? primAttrs[RC_ATTR_KEYS.OPACITY] : undefined,
+                            _COLOR_DC: typeof primAttrs[RC_ATTR_KEYS.COLOR_DC] === 'number' ? primAttrs[RC_ATTR_KEYS.COLOR_DC] : undefined,
+                            _COLOR_SH: typeof primAttrs[RC_ATTR_KEYS.COLOR_SH] === 'number' ? primAttrs[RC_ATTR_KEYS.COLOR_SH] : undefined,
+                        },
+                        layout: 'rc',
+                    };
+                }
+            }
+            const e = prim.extensions?.[GS_EXT];
+            if (isObject(e)) {
+                const legacy = e.attributes;
+                if (isObject(legacy)) {
+                    return { attrs: legacy, layout: 'legacy' };
+                }
+            }
+        }
+    }
+    return { attrs: {}, layout: 'legacy' };
 }
 function asVec3(x, fallback) {
     if (Array.isArray(x) && x.length >= 3) {
@@ -104,7 +151,8 @@ export function parseManifest(json) {
         throw new Error(`manifest_invalid: missing ${GS_EXT} extension`);
     }
     // Resolve attribute → SoA byte-slice (relative to its buffer's start).
-    const attrs = primExt?.attributes ?? {};
+    // Auto-detect RC (namespaced primitive-level attributes) vs legacy.
+    const { attrs } = extractGaussianAttributes(g);
     const posSlice = accessorSlice(g, attrs.POSITION);
     const rotSlice = accessorSlice(g, attrs._ROTATION);
     const sclSlice = accessorSlice(g, attrs._SCALE);

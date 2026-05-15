@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeGlb } from '../glb.js';
+import { decodeGlb, manifestFromGlb } from '../glb.js';
 
 function makeGlb(jsonText: string, bin: Uint8Array = new Uint8Array(0)): Uint8Array {
   const jsonBytes = new TextEncoder().encode(jsonText);
@@ -45,5 +45,83 @@ describe('decodeGlb', () => {
     dv.setUint32(4, 1, true);
     dv.setUint32(8, 20, true);
     expect(() => decodeGlb(new Uint8Array(buf))).toThrow(/glb_invalid/);
+  });
+});
+
+describe('manifestFromGlb — KHR_gaussian_splatting layout auto-detection', () => {
+  // Five SoA bufferViews: pos(12)/rot(16)/scl(12)/op(4)/dc(12) = 56 bytes/1 splat.
+  const sharedGltf = {
+    asset: { version: '2.0' },
+    buffers: [{ byteLength: 56 }],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: 12 },
+      { buffer: 0, byteOffset: 12, byteLength: 16 },
+      { buffer: 0, byteOffset: 28, byteLength: 12 },
+      { buffer: 0, byteOffset: 40, byteLength: 4 },
+      { buffer: 0, byteOffset: 44, byteLength: 12 },
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 1, type: 'VEC3' },
+      { bufferView: 1, componentType: 5126, count: 1, type: 'VEC4' },
+      { bufferView: 2, componentType: 5126, count: 1, type: 'VEC3' },
+      { bufferView: 3, componentType: 5126, count: 1, type: 'SCALAR' },
+      { bufferView: 4, componentType: 5126, count: 1, type: 'VEC3' },
+    ],
+    extensions: {
+      KHR_gaussian_splatting: { splatCount: 1, shDegree: 0 },
+    },
+  };
+
+  const legacyPrim = {
+    mode: 0,
+    extensions: {
+      KHR_gaussian_splatting: {
+        attributes: {
+          POSITION: 0,
+          _ROTATION: 1,
+          _SCALE: 2,
+          _OPACITY: 3,
+          _COLOR_DC: 4,
+        },
+      },
+    },
+  };
+
+  const rcPrim = {
+    mode: 0,
+    attributes: {
+      'KHR_gaussian_splatting:POSITION': 0,
+      'KHR_gaussian_splatting:ROTATION': 1,
+      'KHR_gaussian_splatting:SCALE': 2,
+      'KHR_gaussian_splatting:OPACITY': 3,
+      'KHR_gaussian_splatting:COLOR_DC': 4,
+    },
+    extensions: { KHR_gaussian_splatting: {} },
+  };
+
+  function gltfFor(prim: object): string {
+    return JSON.stringify({ ...sharedGltf, meshes: [{ primitives: [prim] }] });
+  }
+
+  it('accepts legacy attribute layout', () => {
+    const glb = makeGlb(gltfFor(legacyPrim), new Uint8Array(56));
+    const out = decodeGlb(glb);
+    const { manifest } = manifestFromGlb(out);
+    expect(manifest.chunks[0]!.attributeLayout).toBeDefined();
+  });
+
+  it('accepts RC attribute layout', () => {
+    const glb = makeGlb(gltfFor(rcPrim), new Uint8Array(56));
+    const out = decodeGlb(glb);
+    const { manifest } = manifestFromGlb(out);
+    expect(manifest.chunks[0]!.attributeLayout).toBeDefined();
+  });
+
+  it('produces byte-equal layouts across both shapes', () => {
+    const legacyOut = manifestFromGlb(decodeGlb(makeGlb(gltfFor(legacyPrim), new Uint8Array(56))));
+    const rcOut = manifestFromGlb(decodeGlb(makeGlb(gltfFor(rcPrim), new Uint8Array(56))));
+    expect(rcOut.manifest.chunks[0]!.attributeLayout).toEqual(
+      legacyOut.manifest.chunks[0]!.attributeLayout,
+    );
   });
 });
