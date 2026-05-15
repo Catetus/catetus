@@ -345,6 +345,151 @@ export async function runBench(device: GPUDevice, splatCount: number, iterations
   };
 }
 
+
+/** Result entry for the cull-enabled bench. */
+export interface CullBenchResult {
+  splatCount: number;
+  survivors: number;
+  cullRate: number;
+  tau: number;
+  decodeMs: number;
+  perFrameMs: number;
+  framesPerSecond: number;
+  iterations: number;
+  perStageMsTimestamp?: {
+    cullCompact: number;
+    projectCmpct: number;
+    sortFull: number;
+    gather: number;
+    totalGpuMs: number;
+  };
+}
+
+/** Run the cull-enabled bench at one scale + tau. */
+export async function runBenchCull(
+  device: GPUDevice,
+  splatCount: number,
+  tau: number,
+  iterations: number,
+): Promise<CullBenchResult> {
+  const scene = buildSyntheticScene(splatCount);
+  const pipeline = new ComputeDecodePipeline({ device, capacity: splatCount, useCull: true });
+
+  const decodeStart = performance.now();
+  pipeline.uploadChunk(scene.descriptor, scene.bytes);
+  await device.queue.onSubmittedWorkDone();
+  const decodeMs = performance.now() - decodeStart;
+
+  const camera: CameraPose = {
+    position: [0, 0, 4],
+    target: [0, 0, 0],
+    up: [0, 1, 0],
+    fovY: Math.PI / 3,
+    near: 0.1,
+    far: 100,
+    aspect: 1,
+  };
+  const { view, viewProj } = buildViewProj(camera, 1);
+  const focal: [number, number] = [512 / (2 * Math.tan(Math.PI / 6)), 512 / (2 * Math.tan(Math.PI / 6))];
+  const viewport: [number, number] = [512, 512];
+
+  // Warm-up frame to populate cachedSurvivors via the readback path.
+  {
+    const e = device.createCommandEncoder();
+    await pipeline.encodeWithCull(e, view, viewProj, focal, viewport, tau);
+    device.queue.submit([e.finish()]);
+    await device.queue.onSubmittedWorkDone();
+    await pipeline.cull!.readSurvivorCount();
+  }
+  // Second warm-up so the sort + gather actually run with cachedSurvivors.
+  {
+    const e = device.createCommandEncoder();
+    await pipeline.encodeWithCull(e, view, viewProj, focal, viewport, tau);
+    device.queue.submit([e.finish()]);
+    await device.queue.onSubmittedWorkDone();
+    await pipeline.cull!.readSurvivorCount();
+  }
+  const survivors = pipeline.cull!.cachedSurvivors;
+  const cullRate = 1 - survivors / splatCount;
+
+  // Timed loop.
+  const t0 = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    const e = device.createCommandEncoder();
+    await pipeline.encodeWithCull(e, view, viewProj, focal, viewport, tau);
+    device.queue.submit([e.finish()]);
+  }
+  await device.queue.onSubmittedWorkDone();
+  const totalMs = performance.now() - t0;
+  const perFrameMs = totalMs / iterations;
+  const fps = 1000 / perFrameMs;
+
+  // Per-stage timestamp timings.
+  let perStageMsTimestamp: CullBenchResult['perStageMsTimestamp'];
+  if (device.features.has('timestamp-query')) {
+    const tsIterations = 11;
+    const TS_COUNT = 8;
+    const querySet = device.createQuerySet({ type: 'timestamp', count: TS_COUNT });
+    const resolveBuf = device.createBuffer({
+      size: TS_COUNT * 8,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+    });
+    const readBuf = device.createBuffer({
+      size: TS_COUNT * 8,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const samplesCull: number[] = [];
+    const samplesProj: number[] = [];
+    const samplesSort: number[] = [];
+    const samplesGather: number[] = [];
+    const samplesTotal: number[] = [];
+    for (let i = 0; i < tsIterations; i++) {
+      const enc = device.createCommandEncoder();
+      pipeline.encodeWithCullTimed(enc, view, viewProj, focal, viewport, querySet, 0, tau);
+      enc.resolveQuerySet(querySet, 0, TS_COUNT, resolveBuf, 0);
+      enc.copyBufferToBuffer(resolveBuf, 0, readBuf, 0, TS_COUNT * 8);
+      device.queue.submit([enc.finish()]);
+      await readBuf.mapAsync(GPUMapMode.READ);
+      const ts = new BigInt64Array(readBuf.getMappedRange().slice(0));
+      readBuf.unmap();
+      const a = Number(ts[1] - ts[0]) / 1e6;
+      const b = Number(ts[3] - ts[2]) / 1e6;
+      const c = Number(ts[5] - ts[4]) / 1e6;
+      const d = Number(ts[7] - ts[6]) / 1e6;
+      samplesCull.push(a);
+      samplesProj.push(b);
+      samplesSort.push(c);
+      samplesGather.push(d);
+      samplesTotal.push(a + b + c + d);
+    }
+    const median = (xs: number[]) => xs.slice().sort((p, q) => p - q)[Math.floor(xs.length / 2)];
+    perStageMsTimestamp = {
+      cullCompact:  median(samplesCull),
+      projectCmpct: median(samplesProj),
+      sortFull:     median(samplesSort),
+      gather:       median(samplesGather),
+      totalGpuMs:   median(samplesTotal),
+    };
+    querySet.destroy();
+    resolveBuf.destroy();
+    readBuf.destroy();
+  }
+
+  pipeline.destroy();
+
+  return {
+    splatCount,
+    survivors,
+    cullRate,
+    tau,
+    decodeMs,
+    perFrameMs,
+    framesPerSecond: fps,
+    iterations,
+    perStageMsTimestamp,
+  };
+}
+
 /** Entry point — populates `window.__bench` with an array of results. */
 export async function main(): Promise<void> {
   const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
@@ -386,25 +531,40 @@ export async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(msg);
   };
+  // Tau candidates to try — start at 1/255 (B3 memo target); if that prunes
+  // < 5% of the synthetic scene we additionally probe 1/1024 and 1/4096.
+  // Synthetic scenes have opacity ~ U(0.5, 1.0) and small scales (0.02-0.05),
+  // so 1/255 alone tends to leave nearly everything alive; the higher tau
+  // probes show how the cull behaves once a meaningful fraction is pruned.
+  const cullOut: CullBenchResult[] = [];
   for (const n of [1_000_000, 10_000_000]) {
     try {
-      // Fewer iterations for the 10M case so headless runs stay <2 min.
       const iters = n >= 5_000_000 ? 10 : 30;
       reportProgress(`bench: starting n=${n} iters=${iters}`);
       const r = await runBench(device, n, iters);
       reportProgress(`bench: n=${n} decodeMs=${r.decodeMs.toFixed(1)} perFrameMs=${r.perFrameMs.toFixed(2)}`);
       out.push(r);
+
+      // Cull bench at the same scale. Try multiple tau values.
+      for (const tau of [1 / 255, 1 / 1024, 1 / 4096]) {
+        reportProgress(`bench: cull n=${n} tau=1/${(1 / tau).toFixed(0)}`);
+        const c = await runBenchCull(device, n, tau, iters);
+        reportProgress(`bench: cull n=${n} tau=1/${(1 / tau).toFixed(0)} survivors=${c.survivors} (${(c.cullRate * 100).toFixed(1)}% culled) perFrameMs=${c.perFrameMs.toFixed(2)} fps=${c.framesPerSecond.toFixed(1)}`);
+        cullOut.push(c);
+      }
     } catch (err) {
       (window as unknown as { __bench: unknown }).__bench = {
         error: `bench_failed_${n}`,
         message: String((err as Error)?.message ?? err),
         results: out,
+        cullResults: cullOut,
       };
       return;
     }
   }
   (window as unknown as { __bench: unknown }).__bench = {
     results: out,
+    cullResults: cullOut,
     sizes: { bytes_per_decoded_splat: BYTES_PER_DECODED_SPLAT, floats_per_instance: FLOATS_PER_INSTANCE },
     adapter: adapterInfo,
     limits: want,

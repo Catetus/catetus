@@ -23,6 +23,7 @@ const radix = readFileSync(join(wgpu, 'radix_sort.wgsl'), 'utf8');
 const fused = readFileSync(join(wgpu, 'cs_project_gather.wgsl'), 'utf8');
 const scan = readFileSync(join(wgpu, 'scan_multiblock.wgsl'), 'utf8');
 const histo = readFileSync(join(wgpu, 'histogram_subgroup.wgsl'), 'utf8');
+const cull = readFileSync(join(wgpu, 'cs_cull.wgsl'), 'utf8');
 
 const escape = (s) => '`' + s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${') + '`';
 
@@ -38,6 +39,8 @@ export const PROJECT_GATHER_WGSL: string = ${escape(fused)};
 export const SCAN_MULTIBLOCK_WGSL: string = ${escape(scan)};
 
 export const HISTOGRAM_SUBGROUP_WGSL: string = ${escape(histo)};
+
+export const CULL_WGSL: string = ${escape(cull)};
 `;
 
 writeFileSync(join(wgpu, 'shaders.generated.ts'), out);
