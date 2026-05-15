@@ -2888,6 +2888,7 @@ dependencies = [
  "splatforge-fidelity",
  "splatforge-gltf",
  "splatforge-license",
+ "splatforge-lodge",
  "splatforge-optimize",
  "splatforge-ply",
  "splatforge-spz",
@@ -2962,6 +2963,21 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "splatforge-lodge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "serde",
+ "serde_json",
+ "splatforge-core",
+ "splatforge-ply",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
 ]
 
 [[package]]
