@@ -129,8 +129,7 @@ fn glb_spz_compressed_roundtrip() {
         }
         // Quat smallest-three is lossy at the ~1/63 level; just check it
         // came back roughly unit-norm and aligned (rotation field present).
-        let n: f32 =
-            a.rotation.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let n: f32 = a.rotation.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!((n - 1.0).abs() < 0.1, "rotation not unit norm: {n}");
     }
 }

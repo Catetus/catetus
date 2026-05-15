@@ -14,9 +14,7 @@
 //! behavior that the rating-handler glue is supposed to enforce.
 
 use axum::http::{HeaderMap, HeaderValue};
-use splatforge_api::ratings::{
-    respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR,
-};
+use splatforge_api::ratings::{respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR};
 use splatforge_api::store::{JobStore, JobStoreApi};
 
 /* ----------------------------------------------------------------------- */
@@ -196,11 +194,7 @@ async fn count_recent_ratings_respects_window() {
 #[tokio::test]
 async fn summary_buckets_winners_correctly() {
     let store = JobStore::in_memory().await.expect("store");
-    let cases = &[
-        ("left", 4),
-        ("right", 2),
-        ("tie", 3),
-    ];
+    let cases = &[("left", 4), ("right", 2), ("tie", 3)];
     for (winner, n) in cases {
         for i in 0..*n {
             // Spread across respondent hashes so the rate limit
@@ -280,8 +274,14 @@ fn headers_with(ip: Option<&str>, ua: Option<&str>) -> HeaderMap {
 
 #[test]
 fn respondent_hash_is_deterministic() {
-    let a = respondent_hash(&headers_with(Some("203.0.113.7"), Some("Mozilla/5.0 (X11)")));
-    let b = respondent_hash(&headers_with(Some("203.0.113.7"), Some("Mozilla/5.0 (X11)")));
+    let a = respondent_hash(&headers_with(
+        Some("203.0.113.7"),
+        Some("Mozilla/5.0 (X11)"),
+    ));
+    let b = respondent_hash(&headers_with(
+        Some("203.0.113.7"),
+        Some("Mozilla/5.0 (X11)"),
+    ));
     assert_eq!(a, b, "identical headers must yield identical hash");
     // SHA-256 hex digest = 64 chars.
     assert_eq!(a.len(), 64);
@@ -332,7 +332,10 @@ fn respondent_hash_falls_back_to_x_real_ip() {
     let with_real = respondent_hash(&{
         let mut h = HeaderMap::new();
         h.insert("x-real-ip", HeaderValue::from_static("198.51.100.42"));
-        h.insert(axum::http::header::USER_AGENT, HeaderValue::from_static("UA"));
+        h.insert(
+            axum::http::header::USER_AGENT,
+            HeaderValue::from_static("UA"),
+        );
         h
     });
     let without_either = respondent_hash(&headers_with(None, Some("UA")));

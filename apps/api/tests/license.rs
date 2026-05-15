@@ -34,7 +34,8 @@ fn issuer_signs_license_a_cli_can_verify() {
     // The CLI's default LicenseConfig (which points at EMBEDDED_PUBLIC_KEY)
     // must accept it. This is the round-trip an on-prem customer hits.
     let cfg = LicenseConfig::default();
-    cfg.validate(&lic, Utc::now(), None).expect("valid round-trip");
+    cfg.validate(&lic, Utc::now(), None)
+        .expect("valid round-trip");
 }
 
 #[test]

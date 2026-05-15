@@ -136,8 +136,7 @@ fn main() {
             compress: Some(SpzVariant::V2),
             ..Default::default()
         };
-        write_glb(&scene, &out_dir.join("05_valid_spz_stub.glb"), &opts)
-            .expect("write 05");
+        write_glb(&scene, &out_dir.join("05_valid_spz_stub.glb"), &opts).expect("write 05");
     }
 
     // 06: invalid GLB — extensionsUsed lacks KHR_gaussian_splatting.
@@ -228,8 +227,7 @@ fn main() {
                 .expect("extensionsUsed array");
             used.retain(|x| x.as_str() != Some("KHR_gaussian_splatting_compression_spz"));
         });
-        fs::write(out_dir.join("12_invalid_spz_missing_ext_used.glb"), bytes)
-            .expect("write 12");
+        fs::write(out_dir.join("12_invalid_spz_missing_ext_used.glb"), bytes).expect("write 12");
     }
 
     // 13: invalid GLB — SPZ blob's leading 4 bytes (the magic) overwritten
@@ -249,8 +247,7 @@ fn main() {
         // sits immediately after the JSON chunk; locate it by walking
         // chunks from offset 12.
         zero_bin_chunk_prefix(&mut bytes);
-        fs::write(out_dir.join("13_invalid_spz_wrong_magic.glb"), bytes)
-            .expect("write 13");
+        fs::write(out_dir.join("13_invalid_spz_wrong_magic.glb"), bytes).expect("write 13");
     }
 
     println!("wrote 13 fixtures to {}", out_dir.display());

@@ -41,11 +41,7 @@ fn deterministic_scene(n: usize, with_sh: bool) -> SplatScene {
             }
             Color::Sh { degree: 3, coeffs }
         } else {
-            Color::Rgb([
-                ((f * 0.1).fract().abs()).clamp(0.0, 1.0),
-                0.2,
-                0.3,
-            ])
+            Color::Rgb([((f * 0.1).fract().abs()).clamp(0.0, 1.0), 0.2, 0.3])
         };
         scene.splats.push(Splat {
             position: [f, f * 0.5, -f],
@@ -68,11 +64,7 @@ fn dense_grid_scene() -> SplatScene {
                     rotation: [0.0, 0.0, 0.0, 1.0],
                     scale: [0.25, 0.25, 0.25],
                     opacity: 0.5,
-                    color: Color::Rgb([
-                        x as f32 / 4.0,
-                        y as f32 / 4.0,
-                        z as f32 / 4.0,
-                    ]),
+                    color: Color::Rgb([x as f32 / 4.0, y as f32 / 4.0, z as f32 / 4.0]),
                 });
             }
         }
@@ -97,11 +89,7 @@ fn three_splat_scene() -> SplatScene {
     let positions = [[0.0, 0.0, 0.0], [1.0, 0.5, -1.0], [2.0, 1.0, -2.0]];
     let scales = [[0.5, 0.5, 0.5], [1.0, 1.0, 1.0], [0.25, 0.5, 0.25]];
     let opacities = [0.5, 0.75, 1.0];
-    let colors = [
-        [0.1, 0.2, 0.3],
-        [0.5, 0.5, 0.5],
-        [0.9, 0.7, 0.1],
-    ];
+    let colors = [[0.1, 0.2, 0.3], [0.5, 0.5, 0.5], [0.9, 0.7, 0.1]];
     // USD authoring quat is (w,x,y,z); IR is (x,y,z,w).
     let quats = [q0, q1, q2];
     for i in 0..3 {
@@ -122,7 +110,11 @@ fn normalise(q: [f32; 4]) -> [f32; 4] {
     [q[0] / n, q[1] / n, q[2] / n, q[3] / n]
 }
 
-fn write_negative_usda(path: &Path, scene_factory: fn() -> SplatScene, mutate: impl FnOnce(&str) -> String) -> std::io::Result<()> {
+fn write_negative_usda(
+    path: &Path,
+    scene_factory: fn() -> SplatScene,
+    mutate: impl FnOnce(&str) -> String,
+) -> std::io::Result<()> {
     let scene = scene_factory();
     let baseline = render_usda(&scene, &UsdWriteOpts::default());
     let mutated = mutate(&baseline);

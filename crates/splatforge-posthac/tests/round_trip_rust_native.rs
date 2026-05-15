@@ -29,7 +29,10 @@ fn rust_native_round_trip() {
         &container.header.config,
         &container.weights,
     );
-    eprintln!("[rust-roundtrip] computed predict_all() for {} splats", predictions.len());
+    eprintln!(
+        "[rust-roundtrip] computed predict_all() for {} splats",
+        predictions.len()
+    );
 
     // Encode some synthetic codes deterministically (we don't have the
     // original 8-bit codes in this test — they're inside Python's
@@ -55,5 +58,8 @@ fn rust_native_round_trip() {
     for (i, (&a, &b)) in codes.iter().zip(decoded.iter()).enumerate() {
         assert_eq!(a, b, "mismatch at byte {i}: encoded {a} ≠ decoded {b}");
     }
-    eprintln!("[rust-roundtrip] BIT-EXACT round-trip on {} symbols", codes.len());
+    eprintln!(
+        "[rust-roundtrip] BIT-EXACT round-trip on {} symbols",
+        codes.len()
+    );
 }

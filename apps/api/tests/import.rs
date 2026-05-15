@@ -65,7 +65,10 @@ async fn luma_resolves_complete_capture() {
     )
     .await
     .expect("resolve");
-    assert_eq!(resolved.source_url, "https://cdn-luma.com/scenes/abc-123/scene.ply");
+    assert_eq!(
+        resolved.source_url,
+        "https://cdn-luma.com/scenes/abc-123/scene.ply"
+    );
     assert_eq!(resolved.capture_id, "abc-123");
     assert!(resolved.filename.ends_with(".ply"));
 }
@@ -93,7 +96,13 @@ async fn luma_rejects_still_processing() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::Unsupported { provider: "luma", .. }));
+    assert!(matches!(
+        err,
+        ImportError::Unsupported {
+            provider: "luma",
+            ..
+        }
+    ));
     assert_eq!(err.http_status(), 415);
 }
 
@@ -121,7 +130,13 @@ async fn luma_rejects_offsite_asset_url() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::UnsafeAssetUrl { provider: "luma", .. }));
+    assert!(matches!(
+        err,
+        ImportError::UnsafeAssetUrl {
+            provider: "luma",
+            ..
+        }
+    ));
 }
 
 #[tokio::test]
@@ -144,7 +159,13 @@ async fn luma_404_maps_to_invalid_share_url() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::InvalidShareUrl { provider: "luma", .. }));
+    assert!(matches!(
+        err,
+        ImportError::InvalidShareUrl {
+            provider: "luma",
+            ..
+        }
+    ));
 }
 
 #[tokio::test]
@@ -167,7 +188,13 @@ async fn luma_5xx_maps_to_upstream_failed() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::UpstreamFailed { provider: "luma", .. }));
+    assert!(matches!(
+        err,
+        ImportError::UpstreamFailed {
+            provider: "luma",
+            ..
+        }
+    ));
     assert_eq!(err.http_status(), 502);
 }
 
@@ -185,7 +212,13 @@ async fn luma_bad_share_url_rejected_before_http() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::InvalidShareUrl { provider: "luma", .. }));
+    assert!(matches!(
+        err,
+        ImportError::InvalidShareUrl {
+            provider: "luma",
+            ..
+        }
+    ));
 }
 
 /* ---------- POLYCAM ---------- */
@@ -209,7 +242,13 @@ async fn polycam_allowlist_rejects_non_polycam_cdn() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::UnsafeAssetUrl { provider: "polycam", .. }));
+    assert!(matches!(
+        err,
+        ImportError::UnsafeAssetUrl {
+            provider: "polycam",
+            ..
+        }
+    ));
 }
 
 #[tokio::test]
@@ -236,7 +275,13 @@ async fn polycam_bad_share_url_rejected() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::InvalidShareUrl { provider: "polycam", .. }));
+    assert!(matches!(
+        err,
+        ImportError::InvalidShareUrl {
+            provider: "polycam",
+            ..
+        }
+    ));
 }
 
 /* ---------- SCANIVERSE ---------- */
@@ -262,7 +307,13 @@ async fn scaniverse_returns_415_when_no_ply_sibling() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::Unsupported { provider: "scaniverse", .. }));
+    assert!(matches!(
+        err,
+        ImportError::Unsupported {
+            provider: "scaniverse",
+            ..
+        }
+    ));
     assert_eq!(err.http_status(), 415);
     let msg = err.to_string();
     assert!(
@@ -284,7 +335,13 @@ async fn scaniverse_bad_share_url_rejected() {
     )
     .await
     .unwrap_err();
-    assert!(matches!(err, ImportError::InvalidShareUrl { provider: "scaniverse", .. }));
+    assert!(matches!(
+        err,
+        ImportError::InvalidShareUrl {
+            provider: "scaniverse",
+            ..
+        }
+    ));
 }
 
 /* ---------- RATE LIMITER ---------- */
@@ -307,8 +364,12 @@ async fn rate_limit_fires_after_budget() {
     let limiter = ImportRateLimiter::new(2, Duration::from_secs(60));
     let share = "https://lumalabs.ai/capture/abc-123";
 
-    assert!(run_import(&resolver, &limiter, "k1", Provider::Luma, share).await.is_ok());
-    assert!(run_import(&resolver, &limiter, "k1", Provider::Luma, share).await.is_ok());
+    assert!(run_import(&resolver, &limiter, "k1", Provider::Luma, share)
+        .await
+        .is_ok());
+    assert!(run_import(&resolver, &limiter, "k1", Provider::Luma, share)
+        .await
+        .is_ok());
     let err = run_import(&resolver, &limiter, "k1", Provider::Luma, share)
         .await
         .unwrap_err();
@@ -316,5 +377,7 @@ async fn rate_limit_fires_after_budget() {
     assert_eq!(err.http_status(), 429);
 
     // Different key has its own budget — proves per-key isolation.
-    assert!(run_import(&resolver, &limiter, "k2", Provider::Luma, share).await.is_ok());
+    assert!(run_import(&resolver, &limiter, "k2", Provider::Luma, share)
+        .await
+        .is_ok());
 }

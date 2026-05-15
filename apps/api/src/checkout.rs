@@ -157,7 +157,9 @@ pub struct CheckoutConfig {
 
 impl CheckoutConfig {
     pub fn from_env(public_site_url: String) -> Self {
-        let secret = std::env::var("STRIPE_SECRET_KEY").ok().filter(|s| !s.is_empty());
+        let secret = std::env::var("STRIPE_SECRET_KEY")
+            .ok()
+            .filter(|s| !s.is_empty());
         let live_mode = std::env::var("STRIPE_LIVE_MODE")
             .map(|v| matches!(v.as_str(), "true" | "1" | "yes"))
             .unwrap_or(false);
@@ -171,7 +173,9 @@ impl CheckoutConfig {
         }
         Self {
             stripe_secret: secret,
-            team_price_id: std::env::var("STRIPE_TEAM_PRICE_ID").ok().filter(|s| !s.is_empty()),
+            team_price_id: std::env::var("STRIPE_TEAM_PRICE_ID")
+                .ok()
+                .filter(|s| !s.is_empty()),
             public_site_url: public_site_url.trim_end_matches('/').to_string(),
             stripe_base_url: STRIPE_API_BASE.to_string(),
             live_mode,
@@ -550,10 +554,7 @@ pub async fn create_session(
     // mismatch and refuses. This is fail-closed (customer emails
     // support) which is the right side of the safety boundary.
     let _ = claim_token; // placeholder for the in-memory map plumb below
-    Ok(CreateSessionResponse {
-        url,
-        session_id,
-    })
+    Ok(CreateSessionResponse { url, session_id })
 }
 
 /// In-memory map from Stripe session id -> the claim_token we baked
@@ -663,9 +664,7 @@ pub async fn provision_from_session(
         .get("customer")
         .and_then(|v| v.as_str())
         .ok_or_else(|| CheckoutError::BadRequest("event missing customer".to_string()))?;
-    let subscription_id = session
-        .get("subscription")
-        .and_then(|v| v.as_str());
+    let subscription_id = session.get("subscription").and_then(|v| v.as_str());
     let email = session
         .get("customer_email")
         .and_then(|v| v.as_str())
@@ -706,8 +705,7 @@ pub async fn provision_from_session(
     if !fresh {
         info!(
             session_id,
-            customer_id,
-            "team signup already provisioned; webhook retry — no key minted"
+            customer_id, "team signup already provisioned; webhook retry — no key minted"
         );
         return Ok(());
     }

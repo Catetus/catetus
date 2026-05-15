@@ -65,8 +65,7 @@ impl SqliteJobStore {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(
-                SqliteConnectOptions::from_str("sqlite::memory:")?
-                    .create_if_missing(true),
+                SqliteConnectOptions::from_str("sqlite::memory:")?.create_if_missing(true),
             )
             .await?;
         sqlx::migrate!("./migrations/sqlite").run(&pool).await?;
@@ -286,10 +285,7 @@ impl JobStoreApi for SqliteJobStore {
         }))
     }
 
-    async fn mark_team_signup_revealed(
-        &self,
-        stripe_session_id: &str,
-    ) -> Result<bool, StoreError> {
+    async fn mark_team_signup_revealed(&self, stripe_session_id: &str) -> Result<bool, StoreError> {
         let now = Utc::now().to_rfc3339();
         let res = sqlx::query(
             r#"
@@ -413,10 +409,7 @@ impl JobStoreApi for SqliteJobStore {
     }
 
     /// Last `limit` audit events, newest first.
-    async fn list_audit_events(
-        &self,
-        limit: u32,
-    ) -> Result<Vec<super::AuditEvent>, StoreError> {
+    async fn list_audit_events(&self, limit: u32) -> Result<Vec<super::AuditEvent>, StoreError> {
         let rows = sqlx::query(
             "SELECT id, key_prefix, route, method, status, body_size, duration_ms, error, created_at \
              FROM audit_events ORDER BY created_at DESC LIMIT ?1",
@@ -544,7 +537,10 @@ mod tests {
         store.update(&job).await.expect("update");
         let got = store.get(&job.id).await.expect("get").expect("present");
         assert_eq!(got.status, JobStatus::Done);
-        assert_eq!(got.output_url.as_deref(), Some("https://example.com/out.glb"));
+        assert_eq!(
+            got.output_url.as_deref(),
+            Some("https://example.com/out.glb")
+        );
         assert_eq!(got.tier, Tier::Paid);
     }
 

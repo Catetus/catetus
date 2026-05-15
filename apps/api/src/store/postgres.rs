@@ -270,10 +270,7 @@ impl JobStoreApi for PostgresJobStore {
         }))
     }
 
-    async fn mark_team_signup_revealed(
-        &self,
-        stripe_session_id: &str,
-    ) -> Result<bool, StoreError> {
+    async fn mark_team_signup_revealed(&self, stripe_session_id: &str) -> Result<bool, StoreError> {
         let now = Utc::now().to_rfc3339();
         let res = sqlx::query(
             r#"

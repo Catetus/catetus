@@ -162,9 +162,13 @@ impl Limits {
         let mut out = Self::default();
         let Some(raw) = raw else { return out };
         for entry in raw.split(',') {
-            let Some((name, value)) = entry.split_once('=') else { continue };
+            let Some((name, value)) = entry.split_once('=') else {
+                continue;
+            };
             let name = name.trim();
-            let Ok(n) = value.trim().parse::<u32>() else { continue };
+            let Ok(n) = value.trim().parse::<u32>() else {
+                continue;
+            };
             if n == 0 {
                 continue;
             }
@@ -284,12 +288,10 @@ impl Limiter {
         let refill_rate = cap.refill_per_sec();
         let now = self.clock.now();
         let mut map = self.buckets.lock().expect("ratelimit mutex poisoned");
-        let state = map
-            .entry((key.to_string(), class))
-            .or_insert(BucketState {
-                tokens: cap.capacity as f64,
-                last_refill: now,
-            });
+        let state = map.entry((key.to_string(), class)).or_insert(BucketState {
+            tokens: cap.capacity as f64,
+            last_refill: now,
+        });
         // Refill since last touch. Saturate at `cap.capacity` — a long
         // idle period mustn't overflow into negative deficit.
         let elapsed = now.saturating_duration_since(state.last_refill);

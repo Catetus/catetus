@@ -57,17 +57,7 @@ fn mutating_routes_are_audited() {
 #[tokio::test]
 async fn write_then_query_roundtrip() {
     let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
-    audit::record(
-        &store,
-        "key_aaa_",
-        "/v1/jobs",
-        "POST",
-        200,
-        42,
-        12,
-        None,
-    )
-    .await;
+    audit::record(&store, "key_aaa_", "/v1/jobs", "POST", 200, 42, 12, None).await;
     audit::record(
         &store,
         "key_bbb_",
@@ -95,17 +85,7 @@ async fn key_prefix_is_what_lands_in_audit() {
     let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
     let full_key = "sk_test_super_long_secret_xyz";
     let prefix = key_prefix(full_key);
-    audit::record(
-        &store,
-        &prefix,
-        "/v1/jobs",
-        "POST",
-        200,
-        0,
-        1,
-        None,
-    )
-    .await;
+    audit::record(&store, &prefix, "/v1/jobs", "POST", 200, 0, 1, None).await;
     let rows = store.list_audit_events(10).await.expect("query");
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].key_prefix, "sk_test_");
@@ -117,17 +97,7 @@ async fn key_prefix_is_what_lands_in_audit() {
 async fn list_audit_respects_limit() {
     let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
     for i in 0..25 {
-        audit::record(
-            &store,
-            "k_",
-            "/v1/jobs",
-            "POST",
-            200,
-            0,
-            i as u64,
-            None,
-        )
-        .await;
+        audit::record(&store, "k_", "/v1/jobs", "POST", 200, 0, i as u64, None).await;
     }
     let small = store.list_audit_events(5).await.expect("query");
     assert_eq!(small.len(), 5);

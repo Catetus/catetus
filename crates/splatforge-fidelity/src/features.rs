@@ -114,9 +114,15 @@ pub fn summarise(scene: &SplatScene) -> Summary {
     }
     let centroid = [sum_pos[0] / n, sum_pos[1] / n, sum_pos[2] / n];
     let pos_std_xyz = [
-        ((sum_pos2[0] / n) - centroid[0] * centroid[0]).max(0.0).sqrt(),
-        ((sum_pos2[1] / n) - centroid[1] * centroid[1]).max(0.0).sqrt(),
-        ((sum_pos2[2] / n) - centroid[2] * centroid[2]).max(0.0).sqrt(),
+        ((sum_pos2[0] / n) - centroid[0] * centroid[0])
+            .max(0.0)
+            .sqrt(),
+        ((sum_pos2[1] / n) - centroid[1] * centroid[1])
+            .max(0.0)
+            .sqrt(),
+        ((sum_pos2[2] / n) - centroid[2] * centroid[2])
+            .max(0.0)
+            .sqrt(),
     ];
     let extent = [bmax[0] - bmin[0], bmax[1] - bmin[1], bmax[2] - bmin[2]];
     let scene_diag = (extent[0] * extent[0] + extent[1] * extent[1] + extent[2] * extent[2]).sqrt();
@@ -195,9 +201,15 @@ pub fn summarise(scene: &SplatScene) -> Summary {
     }
     let color_mean_rgb = [sum_rgb[0] / n, sum_rgb[1] / n, sum_rgb[2] / n];
     let color_std_rgb = [
-        ((sum_rgb2[0] / n) - color_mean_rgb[0] * color_mean_rgb[0]).max(0.0).sqrt(),
-        ((sum_rgb2[1] / n) - color_mean_rgb[1] * color_mean_rgb[1]).max(0.0).sqrt(),
-        ((sum_rgb2[2] / n) - color_mean_rgb[2] * color_mean_rgb[2]).max(0.0).sqrt(),
+        ((sum_rgb2[0] / n) - color_mean_rgb[0] * color_mean_rgb[0])
+            .max(0.0)
+            .sqrt(),
+        ((sum_rgb2[1] / n) - color_mean_rgb[1] * color_mean_rgb[1])
+            .max(0.0)
+            .sqrt(),
+        ((sum_rgb2[2] / n) - color_mean_rgb[2] * color_mean_rgb[2])
+            .max(0.0)
+            .sqrt(),
     ];
     let sh_high_order_energy = sum_rest_sq / (sum_rest_sq + sum_dc_sq + 1e-9);
 
@@ -252,7 +264,12 @@ fn nn_density(splats: &[Splat]) -> (f64, f64) {
     let step_nb = (n / n_nb).max(1);
     let step_probe = (n_nb / n_probe).max(1);
     let nb: Vec<&Splat> = splats.iter().step_by(step_nb).take(n_nb).collect();
-    let probe: Vec<&Splat> = nb.iter().copied().step_by(step_probe).take(n_probe).collect();
+    let probe: Vec<&Splat> = nb
+        .iter()
+        .copied()
+        .step_by(step_probe)
+        .take(n_probe)
+        .collect();
 
     let mut dists: Vec<f64> = Vec::with_capacity(probe.len());
     for (pi, p) in probe.iter().enumerate() {

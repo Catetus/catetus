@@ -152,7 +152,10 @@ mod tests {
             Some("/v1/jobs/:id/result")
         );
         assert_eq!(route_template("POST", "/v1/jobs"), Some("/v1/jobs"));
-        assert_eq!(route_template("POST", "/v1/jobs/batch"), Some("/v1/jobs/batch"));
+        assert_eq!(
+            route_template("POST", "/v1/jobs/batch"),
+            Some("/v1/jobs/batch")
+        );
     }
 
     #[test]

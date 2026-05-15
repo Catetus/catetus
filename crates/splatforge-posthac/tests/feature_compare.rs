@@ -47,8 +47,16 @@ fn compare_splat0_features() {
         for d in 0..3 {
             g[d] = pos_norm[d] * scale;
         }
-        let x0 = [g[0].floor() as i64, g[1].floor() as i64, g[2].floor() as i64];
-        let xf = [g[0] - x0[0] as f32, g[1] - x0[1] as f32, g[2] - x0[2] as f32];
+        let x0 = [
+            g[0].floor() as i64,
+            g[1].floor() as i64,
+            g[2].floor() as i64,
+        ];
+        let xf = [
+            g[0] - x0[0] as f32,
+            g[1] - x0[1] as f32,
+            g[2] - x0[2] as f32,
+        ];
         let level_offset = lvl * hashmap_size * f_per_lvl;
         for dx in 0..2_i64 {
             for dy in 0..2_i64 {

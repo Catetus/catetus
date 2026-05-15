@@ -94,8 +94,7 @@ fn interop_load_pthc_or_skip() {
     let mut predictions = Vec::with_capacity(n);
     for i in 0..n {
         let p = [
-            (positions[3 * i] - header.pos_mn[0])
-                / (header.pos_mx[0] - header.pos_mn[0]).max(1e-9),
+            (positions[3 * i] - header.pos_mn[0]) / (header.pos_mx[0] - header.pos_mn[0]).max(1e-9),
             (positions[3 * i + 1] - header.pos_mn[1])
                 / (header.pos_mx[1] - header.pos_mn[1]).max(1e-9),
             (positions[3 * i + 2] - header.pos_mn[2])
@@ -104,7 +103,10 @@ fn interop_load_pthc_or_skip() {
         predictions.push(predict(p, &header.config, &weights));
     }
 
-    eprintln!("[interop] running Rust range-decoder on {} splats × {} attrs...", n, d);
+    eprintln!(
+        "[interop] running Rust range-decoder on {} splats × {} attrs...",
+        n, d
+    );
     let decoded = decode_codes(&compressed, n, d, &predictions).expect("decode");
     assert_eq!(decoded.len(), n * d);
     eprintln!("[interop] decoded {} bytes successfully", decoded.len());

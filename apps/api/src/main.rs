@@ -44,14 +44,14 @@ use splatforge_api::checkout::{
 };
 use splatforge_api::modal_client::{self, ModalClient};
 use splatforge_api::ratelimit::{self, Decision, Limiter, Limits, RouteClass};
-use splatforge_api::ratings::{
-    respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR,
-};
+use splatforge_api::ratings::{respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR};
 use splatforge_api::routes::import::{
     self as import_route, CaptureResolver, HttpCaptureResolver, ImportError, ImportRateLimiter,
     ImportRequest, ImportResponse, Provider,
 };
-use splatforge_api::store::{self, AuditEvent, DynJobStore, Job, JobStatus, RatingSummaryRow, Tier};
+use splatforge_api::store::{
+    self, AuditEvent, DynJobStore, Job, JobStatus, RatingSummaryRow, Tier,
+};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
@@ -131,8 +131,9 @@ pub struct AppState {
     pub import_limiter: Arc<ImportRateLimiter>,
 }
 
-
-impl axum::extract::FromRef<AppState> for Option<std::sync::Arc<splatforge_api::license::LicenseIssuer>> {
+impl axum::extract::FromRef<AppState>
+    for Option<std::sync::Arc<splatforge_api::license::LicenseIssuer>>
+{
     fn from_ref(input: &AppState) -> Self {
         input.license_issuer.clone()
     }
@@ -155,17 +156,16 @@ async fn main() -> anyhow::Result<()> {
     // Persisted job state. Default to `./data/jobs.db` so a vanilla `cargo
     // run` works without ceremony; production sets DATABASE_URL to a
     // mounted-volume path.
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://data/jobs.db".to_string());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://data/jobs.db".to_string());
     if let Some(path) = database_url
         .strip_prefix("sqlite://")
         .or_else(|| database_url.strip_prefix("sqlite:"))
     {
         if let Some(parent) = std::path::Path::new(path).parent() {
             if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("creating sqlite parent dir {}", parent.display())
-                })?;
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating sqlite parent dir {}", parent.display()))?;
             }
         }
     }
@@ -178,14 +178,18 @@ async fn main() -> anyhow::Result<()> {
     // at least one key set).
     let api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_API_KEYS").ok());
     let paid_api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_PAID_API_KEYS").ok());
-    let admin_api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_ADMIN_API_KEYS").ok());
+    let admin_api_keys: HashSet<String> =
+        parse_keys(std::env::var("SPLATFORGE_ADMIN_API_KEYS").ok());
     if admin_api_keys.is_empty() {
         warn!(
             "SPLATFORGE_ADMIN_API_KEYS is empty — /v1/admin/audit is disabled (503). \
              Set this to enable the audit-log read endpoint."
         );
     } else {
-        info!(n_admin_keys = admin_api_keys.len(), "admin audit endpoint enabled");
+        info!(
+            n_admin_keys = admin_api_keys.len(),
+            "admin audit endpoint enabled"
+        );
     }
     let rate_limits = Limits::from_env(std::env::var("SPLATFORGE_RATE_LIMITS").ok().as_deref());
     info!(
@@ -213,7 +217,10 @@ async fn main() -> anyhow::Result<()> {
              A100 paid path to billing-attached customers."
         );
     } else {
-        info!(n_paid_keys = paid_api_keys.len(), "paid-tier bearer auth enabled");
+        info!(
+            n_paid_keys = paid_api_keys.len(),
+            "paid-tier bearer auth enabled"
+        );
     }
 
     // Dedicated client for outbound webhook firing. Short timeout so a
@@ -362,10 +369,8 @@ async fn main() -> anyhow::Result<()> {
     //   - `upload`— same auth as `paid` but with a 2 GB body cap.
     //   - `admin` — gated on SPLATFORGE_ADMIN_API_KEYS; serves the audit log.
     let auth_layer = middleware::from_fn_with_state(state.clone(), require_api_key);
-    let rate_audit_layer =
-        middleware::from_fn_with_state(state.clone(), rate_limit_and_audit);
-    let admin_layer =
-        middleware::from_fn_with_state(state.clone(), require_admin_api_key);
+    let rate_audit_layer = middleware::from_fn_with_state(state.clone(), rate_limit_and_audit);
+    let admin_layer = middleware::from_fn_with_state(state.clone(), require_admin_api_key);
 
     let open = Router::new()
         .route("/healthz", get(healthz))
@@ -398,13 +403,21 @@ async fn main() -> anyhow::Result<()> {
         // check inside the handler); refresh + heartbeat are customer-
         // facing — refresh is gated by the inbound license's signature,
         // heartbeat is best-effort telemetry.
-        .route("/v1/license/issue", post(splatforge_api::license::issue_route))
-        .route("/v1/license/refresh", post(splatforge_api::license::refresh_route))
-        .route("/v1/license/heartbeat", post(splatforge_api::license::heartbeat_route))
+        .route(
+            "/v1/license/issue",
+            post(splatforge_api::license::issue_route),
+        )
+        .route(
+            "/v1/license/refresh",
+            post(splatforge_api::license::refresh_route),
+        )
+        .route(
+            "/v1/license/heartbeat",
+            post(splatforge_api::license::heartbeat_route),
+        )
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
 
-    let paid_layer =
-        middleware::from_fn_with_state(state.clone(), require_paid_api_key);
+    let paid_layer = middleware::from_fn_with_state(state.clone(), require_paid_api_key);
 
     let paid = Router::new()
         .route("/v1/jobs", post(create_job))
@@ -534,7 +547,10 @@ async fn require_api_key(
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default();
-        auth.strip_prefix("Bearer ").unwrap_or_default().trim().to_owned()
+        auth.strip_prefix("Bearer ")
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
     };
     if presented.is_empty() {
         return Err(ApiError::Unauthorized(
@@ -705,8 +721,7 @@ async fn rate_limit_and_audit(
             });
             let body_bytes = serde_json::to_vec(&body).expect("json");
             let body_size = body_bytes.len() as u64;
-            let mut response =
-                (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response();
+            let mut response = (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response();
             response.headers_mut().insert(
                 "Retry-After",
                 HeaderValue::from_str(&retry_after_s.to_string())
@@ -717,7 +732,12 @@ async fn rate_limit_and_audit(
                 HeaderValue::from_str(&remaining.to_string())
                     .unwrap_or(HeaderValue::from_static("0")),
             );
-            (response, body_size, 429u16, Some("rate-limited".to_string()))
+            (
+                response,
+                body_size,
+                429u16,
+                Some("rate-limited".to_string()),
+            )
         }
         _ => {
             // Allowed (or unclassified route): proceed and capture
@@ -737,8 +757,7 @@ async fn rate_limit_and_audit(
             if let Some(r) = remaining_hdr {
                 let _ = response.headers_mut().insert(
                     "X-RateLimit-Remaining",
-                    HeaderValue::from_str(&r.to_string())
-                        .unwrap_or(HeaderValue::from_static("0")),
+                    HeaderValue::from_str(&r.to_string()).unwrap_or(HeaderValue::from_static("0")),
                 );
             }
             let err_note = if status >= 400 {
@@ -754,8 +773,7 @@ async fn rate_limit_and_audit(
     // GET /v1/jobs/:id passes through here too (it has its own bucket)
     // but `audit::is_audited` returns false for it, so we skip.
     if audit::is_audited(method.as_str(), &path) {
-        let route_tmpl =
-            audit::route_template(method.as_str(), &path).unwrap_or("/v1/unknown");
+        let route_tmpl = audit::route_template(method.as_str(), &path).unwrap_or("/v1/unknown");
         let elapsed = started.elapsed().as_millis() as u64;
         audit::record(
             &state.jobs,
@@ -1079,10 +1097,7 @@ async fn build_job(
     }
 }
 
-fn job_creation_response(
-    job: &Job,
-    _state: &AppState,
-) -> Result<CreateJobResponse, ApiError> {
+fn job_creation_response(job: &Job, _state: &AppState) -> Result<CreateJobResponse, ApiError> {
     let (upload_url, upload_method) = match job.status {
         JobStatus::AwaitingUpload => (
             Some(format!("blob://stub/{}", job.blob_key)),
@@ -1145,7 +1160,10 @@ fn validate_source_url(url: &str) -> Result<(), ApiError> {
         "[fc",
         "[fd",
     ];
-    if FORBIDDEN_HOST_PREFIXES.iter().any(|p| host_lower.starts_with(p)) {
+    if FORBIDDEN_HOST_PREFIXES
+        .iter()
+        .any(|p| host_lower.starts_with(p))
+    {
         return Err(ApiError::BadRequest(format!(
             "source_url host {host} is in a private / loopback range"
         )));
@@ -1180,7 +1198,9 @@ fn validate_webhook_url(url: &str) -> Result<(), ApiError> {
 /// Job JSON. Logs but never errors — webhook delivery is best-effort.
 /// Caller should already have persisted the job before invoking this.
 async fn fire_webhook(state: &AppState, job: &Job) {
-    let Some(url) = job.webhook_url.as_deref() else { return };
+    let Some(url) = job.webhook_url.as_deref() else {
+        return;
+    };
     let payload = match serde_json::to_value(job) {
         Ok(v) => v,
         Err(e) => {
@@ -1188,12 +1208,7 @@ async fn fire_webhook(state: &AppState, job: &Job) {
             return;
         }
     };
-    let resp = state
-        .webhook_http
-        .post(url)
-        .json(&payload)
-        .send()
-        .await;
+    let resp = state.webhook_http.post(url).json(&payload).send().await;
     match resp {
         Ok(r) if r.status().is_success() => {
             info!(job_id = %job.id, status = %r.status(), "webhook delivered");
@@ -1518,10 +1533,7 @@ async fn job_result(
     // that retries will see the seconds row already claimed and skip.
     // This is the load-bearing invariant — see BILLING.md "double-fire"
     // section.
-    if terminal
-        && matches!(job.status, JobStatus::Done)
-        && job.tier == Tier::Paid
-    {
+    if terminal && matches!(job.status, JobStatus::Done) && job.tier == Tier::Paid {
         if let Err(e) = state
             .billing
             .record_repack_job(
@@ -1577,7 +1589,9 @@ async fn stripe_webhook(
             "stripe webhook secret not configured".to_string(),
         ));
     };
-    let sig = headers.get("stripe-signature").and_then(|v| v.to_str().ok());
+    let sig = headers
+        .get("stripe-signature")
+        .and_then(|v| v.to_str().ok());
     let now = chrono::Utc::now().timestamp();
     let event = billing::verify_webhook(
         &body,
@@ -1695,7 +1709,9 @@ async fn checkout_webhook(
             "checkout webhook secret not configured".to_string(),
         ));
     };
-    let sig = headers.get("stripe-signature").and_then(|v| v.to_str().ok());
+    let sig = headers
+        .get("stripe-signature")
+        .and_then(|v| v.to_str().ok());
     let now = chrono::Utc::now().timestamp();
     let event = billing::verify_webhook(
         &body,
@@ -1753,12 +1769,7 @@ async fn reveal_route(
     State(state): State<AppState>,
     Json(req): Json<RevealRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let resp = checkout::reveal_key(
-        state.jobs.as_ref(),
-        state.pending_keys.as_ref(),
-        req,
-    )
-    .await?;
+    let resp = checkout::reveal_key(state.jobs.as_ref(), state.pending_keys.as_ref(), req).await?;
     Ok(Json(serde_json::json!({
         "api_key": resp.api_key,
         "key_prefix": resp.key_prefix,
@@ -1813,8 +1824,13 @@ async fn post_rating(
     headers: HeaderMap,
     Json(req): Json<PostRatingRequest>,
 ) -> Result<Json<PostRatingResponse>, ApiError> {
-    validate_rating(&req.scene_id, &req.left_preset, &req.right_preset, &req.winner)
-        .map_err(ApiError::BadRequest)?;
+    validate_rating(
+        &req.scene_id,
+        &req.left_preset,
+        &req.right_preset,
+        &req.winner,
+    )
+    .map_err(ApiError::BadRequest)?;
 
     let respondent = respondent_hash(&headers);
 
@@ -1918,7 +1934,9 @@ async fn do_import(
         preset: "web-mobile".to_string(),
         filename,
         size_bytes: 0,
-        label: req.label.or_else(|| Some(format!("{}:{}", provider.as_str(), resolved.capture_id))),
+        label: req
+            .label
+            .or_else(|| Some(format!("{}:{}", provider.as_str(), resolved.capture_id))),
         status: JobStatus::Queued,
         blob_key,
         blob_url: Some(resolved.source_url.clone()),
@@ -2071,9 +2089,7 @@ impl IntoResponse for ApiError {
             | ApiError::BadGateway(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
             ApiError::Unsupported(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, self.to_string()),
             ApiError::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
-            ApiError::Internal(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
-            }
+            ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ApiError::TooManyRequests(_) => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
@@ -2176,4 +2192,3 @@ async fn admin_audit(
     let events = state.jobs.list_audit_events(limit).await?;
     Ok(Json(AuditListResponse { events }))
 }
-

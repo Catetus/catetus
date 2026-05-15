@@ -33,7 +33,9 @@ impl Clock for TestClock {
 
 fn make_clock(start: Instant) -> (Box<dyn Clock + Send + Sync>, Arc<Mutex<Instant>>) {
     let inner = Arc::new(Mutex::new(start));
-    let clk: Box<dyn Clock + Send + Sync> = Box::new(TestClock { inner: inner.clone() });
+    let clk: Box<dyn Clock + Send + Sync> = Box::new(TestClock {
+        inner: inner.clone(),
+    });
     (clk, inner)
 }
 
@@ -62,7 +64,10 @@ fn burst_consumes_capacity_then_429s() {
         }
     }
     match l.take("k_free", RouteClass::CreateJob, Tier::Free) {
-        Decision::Deny { retry_after_s, remaining } => {
+        Decision::Deny {
+            retry_after_s,
+            remaining,
+        } => {
             assert!(retry_after_s >= 1, "retry_after_s must be at least 1");
             assert_eq!(remaining, 0);
         }
@@ -249,11 +254,23 @@ fn keys_are_isolated_from_each_other() {
     };
     let l = Limiter::with_clock(limits, clk_box);
     // Drain key A.
-    assert!(matches!(l.take("a", RouteClass::CreateJob, Tier::Free), Decision::Allow { .. }));
-    assert!(matches!(l.take("a", RouteClass::CreateJob, Tier::Free), Decision::Allow { .. }));
-    assert!(matches!(l.take("a", RouteClass::CreateJob, Tier::Free), Decision::Deny { .. }));
+    assert!(matches!(
+        l.take("a", RouteClass::CreateJob, Tier::Free),
+        Decision::Allow { .. }
+    ));
+    assert!(matches!(
+        l.take("a", RouteClass::CreateJob, Tier::Free),
+        Decision::Allow { .. }
+    ));
+    assert!(matches!(
+        l.take("a", RouteClass::CreateJob, Tier::Free),
+        Decision::Deny { .. }
+    ));
     // Key B has its own bucket.
-    assert!(matches!(l.take("b", RouteClass::CreateJob, Tier::Free), Decision::Allow { remaining: 1 }));
+    assert!(matches!(
+        l.take("b", RouteClass::CreateJob, Tier::Free),
+        Decision::Allow { remaining: 1 }
+    ));
 }
 
 /* ---------- (d) per-class isolation ---------- */
@@ -311,7 +328,10 @@ fn env_override_applies_per_class() {
 fn env_override_ignores_typos() {
     // A typo in SPLATFORGE_RATE_LIMITS shouldn't blackhole a class.
     let l = Limits::from_env(Some("create_freee=2,not_a_class=5"));
-    assert_eq!(l.create_free.capacity, 60, "typo'd key must fall back to default");
+    assert_eq!(
+        l.create_free.capacity, 60,
+        "typo'd key must fall back to default"
+    );
 }
 
 /* ---------- key masking ---------- */

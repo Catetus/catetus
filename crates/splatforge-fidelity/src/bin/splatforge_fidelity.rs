@@ -17,9 +17,10 @@ fn parse() -> Result<(PathBuf, Option<PathBuf>, bool)> {
     while let Some(a) = args.next() {
         match a.as_str() {
             "--baseline" | "-b" => {
-                baseline = Some(PathBuf::from(args.next().ok_or_else(|| anyhow::anyhow!(
-                    "--baseline requires a path"
-                ))?));
+                baseline =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        anyhow::anyhow!("--baseline requires a path")
+                    })?));
             }
             "--pretty" => pretty = true,
             "-h" | "--help" => {

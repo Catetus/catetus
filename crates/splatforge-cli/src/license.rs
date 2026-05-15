@@ -239,8 +239,7 @@ pub fn cmd_serve(
         );
     }
 
-    let server = tiny_http::Server::http(bind)
-        .map_err(|e| anyhow!("bind {bind}: {e}"))?;
+    let server = tiny_http::Server::http(bind).map_err(|e| anyhow!("bind {bind}: {e}"))?;
     eprintln!("splatforge serve: listening on http://{bind}");
     for req in server.incoming_requests() {
         let url = req.url().to_string();
@@ -327,4 +326,3 @@ mod tests {
         assert!(p.to_string_lossy().contains(".splatforge"));
     }
 }
-

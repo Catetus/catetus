@@ -269,9 +269,7 @@ pub struct HeartbeatResponse {
 /// table so a customer who stops beaconing for 7+ days raises a CRM
 /// flag. Failed heartbeats never return 5xx — the customer's `serve`
 /// box treats them as best-effort and logs locally.
-pub async fn heartbeat_route(
-    Json(req): Json<HeartbeatRequest>,
-) -> Json<HeartbeatResponse> {
+pub async fn heartbeat_route(Json(req): Json<HeartbeatRequest>) -> Json<HeartbeatResponse> {
     info!(
         org = %req.org_id,
         active_seats = req.active_seats,
@@ -334,8 +332,8 @@ mod tests {
             issued_at: Utc::now(),
         };
         let lic = issuer.sign(claims);
-        let cfg = LicenseConfig::default()
-            .with_public_key(&issuer.signing.verifying_key().to_bytes());
+        let cfg =
+            LicenseConfig::default().with_public_key(&issuer.signing.verifying_key().to_bytes());
         cfg.validate(&lic, Utc::now(), None).unwrap();
     }
 }

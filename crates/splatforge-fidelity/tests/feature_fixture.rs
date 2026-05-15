@@ -31,7 +31,11 @@ fn feature_extraction_on_bonsai_real() {
     assert_eq!(r.features.len(), NUM_FEATURES);
     assert_eq!(r.feature_names.len(), NUM_FEATURES);
     assert!(r.score.is_finite(), "score not finite: {}", r.score);
-    assert!((0.0..=1.0).contains(&r.score), "score out of [0,1]: {}", r.score);
+    assert!(
+        (0.0..=1.0).contains(&r.score),
+        "score out of [0,1]: {}",
+        r.score
+    );
 
     // identity-mode: pos_centroid_drift (feature 0) MUST be 0 because we
     // don't have a real baseline centroid.

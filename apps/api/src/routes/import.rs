@@ -46,23 +46,35 @@ pub enum ImportError {
     /// Caller-supplied share URL didn't match the provider's URL shape.
     /// Returned as 400 — same as `/v1/jobs` BadRequest.
     #[error("invalid {provider} share URL: {detail}")]
-    InvalidShareUrl { provider: &'static str, detail: String },
+    InvalidShareUrl {
+        provider: &'static str,
+        detail: String,
+    },
 
     /// Provider returned a response that doesn't carry a usable asset URL
     /// — typically a still-processing capture, or (for Scaniverse) a USDZ
     /// without an embedded PLY. Returned as 415 so the client can show a
     /// "convert to PLY in the desktop app" hint without retrying.
     #[error("{provider} capture is not importable: {detail}")]
-    Unsupported { provider: &'static str, detail: String },
+    Unsupported {
+        provider: &'static str,
+        detail: String,
+    },
 
     /// Provider lookup failed for transport / 5xx reasons. Mapped to 502.
     #[error("{provider} lookup failed: {detail}")]
-    UpstreamFailed { provider: &'static str, detail: String },
+    UpstreamFailed {
+        provider: &'static str,
+        detail: String,
+    },
 
     /// Resolved asset URL points somewhere unsafe (private IP, http://, …).
     /// Mapped to 400 — the caller's share URL is the proximate cause.
     #[error("resolved {provider} asset URL rejected: {detail}")]
-    UnsafeAssetUrl { provider: &'static str, detail: String },
+    UnsafeAssetUrl {
+        provider: &'static str,
+        detail: String,
+    },
 
     /// Caller has burned through their 10 imports/min budget. Mapped to 429.
     #[error("import rate limit exceeded ({limit}/min)")]
@@ -180,7 +192,10 @@ pub fn parse_luma_share(share_url: &str) -> Result<String, ImportError> {
             detail: "missing capture id".into(),
         });
     }
-    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(ImportError::InvalidShareUrl {
             provider: "luma",
             detail: "capture id contains unexpected characters".into(),
@@ -257,7 +272,10 @@ pub fn parse_polycam_share(share_url: &str) -> Result<String, ImportError> {
             detail: "missing capture id".into(),
         });
     }
-    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(ImportError::InvalidShareUrl {
             provider: "polycam",
             detail: "capture id contains unexpected characters".into(),
@@ -333,7 +351,10 @@ pub fn parse_scaniverse_share(share_url: &str) -> Result<String, ImportError> {
             detail: "missing scan id".into(),
         });
     }
-    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(ImportError::InvalidShareUrl {
             provider: "scaniverse",
             detail: "scan id contains unexpected characters".into(),
@@ -398,7 +419,11 @@ impl CaptureResolver for HttpCaptureResolver {
     /// rather than a 404 from the worker fetch.
     async fn resolve_luma(&self, share_url: &str) -> Result<ResolvedCapture, ImportError> {
         let capture_id = parse_luma_share(share_url)?;
-        let url = format!("{}/captures/{}", self.luma_api_base.trim_end_matches('/'), capture_id);
+        let url = format!(
+            "{}/captures/{}",
+            self.luma_api_base.trim_end_matches('/'),
+            capture_id
+        );
         let resp = self
             .http
             .get(&url)
@@ -422,10 +447,11 @@ impl CaptureResolver for HttpCaptureResolver {
                 detail: format!("{status}: {body}"),
             });
         }
-        let body: serde_json::Value = resp.json().await.map_err(|e| ImportError::UpstreamFailed {
-            provider: "luma",
-            detail: format!("decoding JSON: {e}"),
-        })?;
+        let body: serde_json::Value =
+            resp.json().await.map_err(|e| ImportError::UpstreamFailed {
+                provider: "luma",
+                detail: format!("decoding JSON: {e}"),
+            })?;
         let status = body.get("status").and_then(|v| v.as_str()).unwrap_or("");
         if !status.eq_ignore_ascii_case("complete") && !status.eq_ignore_ascii_case("ready") {
             return Err(ImportError::Unsupported {
@@ -438,7 +464,8 @@ impl CaptureResolver for HttpCaptureResolver {
             .and_then(|v| v.as_str())
             .ok_or(ImportError::Unsupported {
                 provider: "luma",
-                detail: "response missing gaussian_splat_url — capture is not a Gaussian splat".into(),
+                detail: "response missing gaussian_splat_url — capture is not a Gaussian splat"
+                    .into(),
             })?;
         validate_luma_asset_url(asset_url)?;
         Ok(ResolvedCapture {
@@ -456,15 +483,15 @@ impl CaptureResolver for HttpCaptureResolver {
         validate_polycam_asset_url(&asset_url)?;
         // HEAD probe — most CDN edges support it cheaply and we get a
         // clear 404 vs 200 signal before queueing worker work.
-        let resp = self
-            .http
-            .head(&asset_url)
-            .send()
-            .await
-            .map_err(|e| ImportError::UpstreamFailed {
-                provider: "polycam",
-                detail: e.to_string(),
-            })?;
+        let resp =
+            self.http
+                .head(&asset_url)
+                .send()
+                .await
+                .map_err(|e| ImportError::UpstreamFailed {
+                    provider: "polycam",
+                    detail: e.to_string(),
+                })?;
         if resp.status() == 404 {
             return Err(ImportError::Unsupported {
                 provider: "polycam",
@@ -496,15 +523,15 @@ impl CaptureResolver for HttpCaptureResolver {
         let base = self.scaniverse_cdn_base.trim_end_matches('/');
         let ply_url = format!("{base}/{scan_id}.ply");
         // HEAD probe for the optional .ply sibling.
-        let resp = self
-            .http
-            .head(&ply_url)
-            .send()
-            .await
-            .map_err(|e| ImportError::UpstreamFailed {
-                provider: "scaniverse",
-                detail: e.to_string(),
-            })?;
+        let resp =
+            self.http
+                .head(&ply_url)
+                .send()
+                .await
+                .map_err(|e| ImportError::UpstreamFailed {
+                    provider: "scaniverse",
+                    detail: e.to_string(),
+                })?;
         if resp.status().is_success() {
             return Ok(ResolvedCapture {
                 source_url: ply_url,

@@ -125,7 +125,10 @@ impl BillingClient {
     /// `"live"` (real Stripe), `"test"` (real Stripe, test-mode key), or
     /// `"dry-run"` (no Stripe credentials — log only).
     pub fn from_env(store: DynJobStore) -> (Self, &'static str) {
-        match std::env::var("STRIPE_SECRET_KEY").ok().filter(|s| !s.is_empty()) {
+        match std::env::var("STRIPE_SECRET_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+        {
             Some(secret) => {
                 let live_mode = std::env::var("STRIPE_LIVE_MODE")
                     .map(|v| matches!(v.as_str(), "true" | "1" | "yes"))
@@ -190,7 +193,8 @@ impl BillingClient {
         };
 
         // 1 run, always.
-        self.post_meter_event(job_id, customer_id, SKU_REPACK_RUNS, 1).await?;
+        self.post_meter_event(job_id, customer_id, SKU_REPACK_RUNS, 1)
+            .await?;
 
         // Compute-seconds when available. The /repack synchronous handler
         // doesn't know elapsed time; the Modal callback does. Both call
@@ -243,7 +247,11 @@ impl BillingClient {
                 );
                 Ok(())
             }
-            Backend::Live { http, secret, base_url } => {
+            Backend::Live {
+                http,
+                secret,
+                base_url,
+            } => {
                 let url = format!("{base_url}/v1/billing/meter_events");
                 let form = [
                     ("event_name", sku.to_string()),
@@ -271,8 +279,10 @@ impl BillingClient {
                         body,
                     });
                 }
-                let body: serde_json::Value =
-                    resp.json().await.map_err(|e| BillingError::Transport(e.to_string()))?;
+                let body: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| BillingError::Transport(e.to_string()))?;
                 let stripe_event_id = body
                     .get("identifier")
                     .and_then(|v| v.as_str())
@@ -339,12 +349,18 @@ impl KeyCustomerMap {
             let (key, customer) = match entry.rsplit_once(':') {
                 Some((k, v)) => (k.trim(), v.trim()),
                 None => {
-                    warn!(entry, "SPLATFORGE_KEY_CUSTOMERS: entry missing ':' separator, skipping");
+                    warn!(
+                        entry,
+                        "SPLATFORGE_KEY_CUSTOMERS: entry missing ':' separator, skipping"
+                    );
                     continue;
                 }
             };
             if key.is_empty() || customer.is_empty() {
-                warn!(entry, "SPLATFORGE_KEY_CUSTOMERS: empty key or customer id, skipping");
+                warn!(
+                    entry,
+                    "SPLATFORGE_KEY_CUSTOMERS: empty key or customer id, skipping"
+                );
                 continue;
             }
             if !customer.starts_with("cus_") {
@@ -455,9 +471,7 @@ pub fn verify_webhook(
     for sig in v1_sigs {
         // Same-length constant-time compare; differing lengths short-circuit
         // to false but in constant time relative to `sig`.
-        if sig.len() == expected_hex.len()
-            && sig.as_bytes().ct_eq(expected_hex.as_bytes()).into()
-        {
+        if sig.len() == expected_hex.len() && sig.as_bytes().ct_eq(expected_hex.as_bytes()).into() {
             ok = true;
             break;
         }
@@ -585,8 +599,7 @@ mod tests {
     }
 
     fn sign(secret: &str, ts: i64, body: &[u8]) -> String {
-        let mut mac =
-            <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes()).unwrap();
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(ts.to_string().as_bytes());
         mac.update(b".");
         mac.update(body);

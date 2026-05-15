@@ -12,9 +12,9 @@
 pub mod audit;
 pub mod billing;
 pub mod checkout;
+pub mod license;
 pub mod modal_client;
 pub mod ratelimit;
 pub mod ratings;
 pub mod routes;
 pub mod store;
-pub mod license;

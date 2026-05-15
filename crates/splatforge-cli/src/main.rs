@@ -8,13 +8,13 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, SplatScene};
 use splatforge_gltf::{inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, WriteOpts};
-use splatforge_usd::{read_usda, read_usdc, write_usda, write_usdc, UsdWriteOpts};
 use splatforge_optimize::{preset, write_tileset, TilesetOpts};
 use splatforge_ply::{read_ply, write_ply};
 use splatforge_spz::{read_spz, write_spz};
+use splatforge_usd::{read_usda, read_usdc, write_usda, write_usdc, UsdWriteOpts};
 
 mod license;
-use license::{cmd_license_install, cmd_license_status, cmd_license_refresh, cmd_serve};
+use license::{cmd_license_install, cmd_license_refresh, cmd_license_status, cmd_serve};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -342,9 +342,11 @@ fn dispatch(cli: Cli) -> Result<()> {
             out,
             threshold,
         } => cmd_fidelity(&candidate, &baseline, out.as_deref(), threshold),
-        Command::FidelityScore { candidate, baseline, pretty } => {
-            cmd_fidelity_score(&candidate, baseline.as_deref(), pretty)
-        }
+        Command::FidelityScore {
+            candidate,
+            baseline,
+            pretty,
+        } => cmd_fidelity_score(&candidate, baseline.as_deref(), pretty),
         Command::License { cmd } => match cmd {
             LicenseCmd::Install { path } => cmd_license_install(&path),
             LicenseCmd::Status { license } => cmd_license_status(license.as_deref()),
@@ -358,9 +360,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             api_base,
             active_seats,
         } => cmd_serve(&bind, license.as_deref(), &api_base, active_seats),
-        Command::SpecCheck { input, spec, json } => {
-            cmd_spec_check(&input, spec.as_deref(), json)
-        }
+        Command::SpecCheck { input, spec, json } => cmd_spec_check(&input, spec.as_deref(), json),
     }
 }
 
@@ -550,7 +550,11 @@ fn cmd_optimize(
             input.display(),
             report_t.tileset_json.display(),
             report_t.tiles.len(),
-            report_t.tiles.first().map(|t| t.geometric_error).unwrap_or(0.0),
+            report_t
+                .tiles
+                .first()
+                .map(|t| t.geometric_error)
+                .unwrap_or(0.0),
         );
         for t in &report_t.tiles {
             println!(
@@ -563,7 +567,11 @@ fn cmd_optimize(
         }
         return Ok(());
     }
-    let default_ext = if target_glb { "optimized.glb" } else { "optimized.gltf" };
+    let default_ext = if target_glb {
+        "optimized.glb"
+    } else {
+        "optimized.gltf"
+    };
     let out = out
         .map(PathBuf::from)
         .unwrap_or_else(|| input.with_extension(default_ext));
@@ -649,16 +657,16 @@ fn compress_buffer_files(gltf_path: &Path) -> Result<(u64, u64)> {
     // because a deeper layout isn't part of the writer's contract.
     let roots = [parent.to_path_buf(), parent.join("buffers")];
     for root in roots.iter().filter(|p| p.is_dir()) {
-        for entry in std::fs::read_dir(root)
-            .with_context(|| format!("reading {}", root.display()))?
+        for entry in
+            std::fs::read_dir(root).with_context(|| format!("reading {}", root.display()))?
         {
             let entry = entry?;
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) != Some("bin") {
                 continue;
             }
-            let raw = std::fs::read(&path)
-                .with_context(|| format!("reading {}", path.display()))?;
+            let raw =
+                std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
             // Level 19 is zstd's near-max ratio. For ~100 MB of quantized
             // splat data, encoding is ~1-2 seconds — fine for an offline
             // optimize step. Drop to level 3 if benchmarking shows this
@@ -923,10 +931,7 @@ fn cmd_submit(
     }
     let up = Cmd::new("curl").args(&upload_args).output()?;
     if !up.status.success() {
-        anyhow::bail!(
-            "upload failed: {}",
-            String::from_utf8_lossy(&up.stderr)
-        );
+        anyhow::bail!("upload failed: {}", String::from_utf8_lossy(&up.stderr));
     }
     eprintln!("✓ upload complete");
 
@@ -954,10 +959,7 @@ fn cmd_submit(
         }
         let poll = Cmd::new("curl").args(&poll_args).output()?;
         if !poll.status.success() {
-            anyhow::bail!(
-                "poll failed: {}",
-                String::from_utf8_lossy(&poll.stderr)
-            );
+            anyhow::bail!("poll failed: {}", String::from_utf8_lossy(&poll.stderr));
         }
         let pj: serde_json::Value = serde_json::from_slice(&poll.stdout)?;
         let status = pj
@@ -1089,7 +1091,6 @@ mod diff_tests {
         let _ = std::fs::remove_file(&dir);
     }
 }
-
 
 fn cmd_fidelity_score(candidate: &Path, baseline: Option<&Path>, pretty: bool) -> Result<()> {
     let report = splatforge_fidelity::score_ply(candidate, baseline)

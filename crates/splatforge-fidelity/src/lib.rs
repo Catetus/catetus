@@ -27,9 +27,7 @@ use splatforge_ply::read_ply;
 pub mod features;
 pub mod weights_v04;
 
-pub use features::{
-    build_feature_vector, summarise, FEATURE_NAMES, IDENTITY, NUM_FEATURES,
-};
+pub use features::{build_feature_vector, summarise, FEATURE_NAMES, IDENTITY, NUM_FEATURES};
 
 /// JSON-serialisable score report. The CLI emits this verbatim.
 #[derive(Debug, Clone, Serialize)]
@@ -83,13 +81,12 @@ pub fn forward(features: &[f32; NUM_FEATURES]) -> f32 {
 
 /// Score a single PLY against an optional baseline. Returns the full report.
 pub fn score_ply(cand: &Path, baseline: Option<&Path>) -> Result<ScoreReport> {
-    let cand_scene = read_ply(cand)
-        .with_context(|| format!("read candidate PLY {}", cand.display()))?;
+    let cand_scene =
+        read_ply(cand).with_context(|| format!("read candidate PLY {}", cand.display()))?;
     let cand_summary = summarise(&cand_scene);
     let base_summary = match baseline {
         Some(p) => {
-            let s = read_ply(p)
-                .with_context(|| format!("read baseline PLY {}", p.display()))?;
+            let s = read_ply(p).with_context(|| format!("read baseline PLY {}", p.display()))?;
             Some(summarise(&s))
         }
         None => None,
@@ -138,8 +135,8 @@ mod tests {
 
     #[test]
     fn metadata_parses() {
-        let v: serde_json::Value = serde_json::from_str(weights_v04::METADATA_JSON)
-            .expect("metadata JSON should parse");
+        let v: serde_json::Value =
+            serde_json::from_str(weights_v04::METADATA_JSON).expect("metadata JSON should parse");
         assert_eq!(v["version"], "0.4.0-mlp22");
         // bootstrap flag must be present.
         assert!(v["bootstrap"].is_boolean());

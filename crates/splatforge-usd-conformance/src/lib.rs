@@ -143,16 +143,12 @@ impl Clause {
             Clause::AttrOrientationsType => "`orientations` attribute MUST be typed `quatf[]`.",
             Clause::AttrScalesPresent => "ParticleField3DGaussianSplat MUST author `scales`.",
             Clause::AttrScalesType => "`scales` attribute MUST be typed `float3[]`.",
-            Clause::AttrOpacitiesPresent => {
-                "ParticleField3DGaussianSplat MUST author `opacities`."
-            }
+            Clause::AttrOpacitiesPresent => "ParticleField3DGaussianSplat MUST author `opacities`.",
             Clause::AttrOpacitiesRange => {
                 "`opacities` values MUST lie in [0, 1] (post-sigmoid convention — \
                  see SPEC-GAPS #4)."
             }
-            Clause::AttrColorsDcPresent => {
-                "ParticleField3DGaussianSplat MUST author `colorsDC`."
-            }
+            Clause::AttrColorsDcPresent => "ParticleField3DGaussianSplat MUST author `colorsDC`.",
             Clause::AttrColorsDcRange => {
                 "`colorsDC` values MUST lie in [0, 1] per `color3f` convention."
             }
@@ -271,7 +267,8 @@ pub fn validate_path(path: &Path) -> Result<Report, ValidateError> {
             // same semantic content, and the schema clauses are written
             // against the textual schema in the OpenUSD docs.
             let scene = splatforge_usd::read_usdc(path)?;
-            let text = splatforge_usd::render_usda(&scene, &splatforge_usd::UsdWriteOpts::default());
+            let text =
+                splatforge_usd::render_usda(&scene, &splatforge_usd::UsdWriteOpts::default());
             (text, "usdc")
         }
         other => return Err(ValidateError::UnsupportedExt(other.to_string())),
@@ -414,8 +411,7 @@ fn parse_doc(raw: &str) -> ParsedDoc<'_> {
     let widths = pull_scalar_array(raw, &["float[] widths"]);
     let velocities = pull_vec3_array(raw, &["vector3f[] velocities"]);
     let extent = pull_vec3_array(raw, &["float3[] extent"]);
-    let sh_coefficients =
-        pull_scalar_array(raw, &["custom float[] splatforge:shCoefficients"]);
+    let sh_coefficients = pull_scalar_array(raw, &["custom float[] splatforge:shCoefficients"]);
     let display_color_interp = pull_quoted(raw, "primvars:displayColor:interpolation");
 
     // Type checks: only need to know whether the *type* matched if the key is
@@ -495,10 +491,7 @@ fn run_clauses(raw: &str) -> Vec<ClauseResult> {
 
     // METERS_PER_UNIT_POSITIVE
     out.push(match doc.meters_per_unit {
-        None => skip(
-            Clause::MetersPerUnitPositive,
-            "metersPerUnit not authored",
-        ),
+        None => skip(Clause::MetersPerUnitPositive, "metersPerUnit not authored"),
         Some(v) if v > 0.0 && v.is_finite() => pass(Clause::MetersPerUnitPositive),
         Some(v) => fail(
             Clause::MetersPerUnitPositive,
@@ -599,10 +592,7 @@ fn run_clauses(raw: &str) -> Vec<ClauseResult> {
     out.push(if doc.colors_dc.is_some() {
         pass(Clause::AttrColorsDcPresent)
     } else {
-        fail(
-            Clause::AttrColorsDcPresent,
-            "missing `colorsDC` attribute",
-        )
+        fail(Clause::AttrColorsDcPresent, "missing `colorsDC` attribute")
     });
     out.push(match &doc.colors_dc {
         None => skip(Clause::AttrColorsDcRange, "`colorsDC` not authored"),
@@ -716,10 +706,7 @@ fn run_clauses(raw: &str) -> Vec<ClauseResult> {
                     None => pass(Clause::ExtentConsistent),
                     Some((i, k, v)) => fail(
                         Clause::ExtentConsistent,
-                        format!(
-                            "points[{i}][{k}]={v} outside extent {:?}..={:?}",
-                            lo, hi
-                        ),
+                        format!("points[{i}][{k}]={v} outside extent {:?}..={:?}", lo, hi),
                     ),
                 }
             }
@@ -728,10 +715,7 @@ fn run_clauses(raw: &str) -> Vec<ClauseResult> {
 
     // QUATS_NORMALIZED
     out.push(match &doc.orientations {
-        None => skip(
-            Clause::QuaternionsNormalized,
-            "`orientations` not authored",
-        ),
+        None => skip(Clause::QuaternionsNormalized, "`orientations` not authored"),
         Some(qs) => {
             let mut worst: Option<(usize, f32)> = None;
             for (i, q) in qs.iter().enumerate() {
@@ -880,7 +864,9 @@ fn typed_presence(raw: &str, attr_name: &str, want_type: &str) -> Option<bool> {
     for line in raw.lines() {
         let trimmed = line.trim_start();
         // Skip lines that don't look like attribute declarations.
-        if !trimmed.contains(&format!(" {attr_name} ")) && !trimmed.contains(&format!(" {attr_name}=")) {
+        if !trimmed.contains(&format!(" {attr_name} "))
+            && !trimmed.contains(&format!(" {attr_name}="))
+        {
             continue;
         }
         // Tokens are roughly: [modifier?] <type> <attr> = ...

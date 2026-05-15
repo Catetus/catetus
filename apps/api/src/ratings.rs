@@ -81,7 +81,9 @@ pub fn validate_rating(
         return Err("left_preset and right_preset must differ".to_string());
     }
     if !KNOWN_PRESETS.contains(&left_preset) || !KNOWN_PRESETS.contains(&right_preset) {
-        return Err(format!("unknown preset (expected one of {KNOWN_PRESETS:?})"));
+        return Err(format!(
+            "unknown preset (expected one of {KNOWN_PRESETS:?})"
+        ));
     }
     if scene_id.is_empty() || scene_id.len() > 128 {
         return Err("scene_id must be 1..128 chars".to_string());

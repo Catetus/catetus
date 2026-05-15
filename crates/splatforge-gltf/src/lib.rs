@@ -1522,9 +1522,10 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
             .and_then(|v| v.as_u64())
             .ok_or_else(|| GltfError::Malformed("SPZ extension missing bufferView".to_string()))?
             as usize;
-        let bv = root.buffer_views.get(bv_idx).ok_or_else(|| {
-            GltfError::Malformed(format!("SPZ bufferView {bv_idx} out of range"))
-        })?;
+        let bv = root
+            .buffer_views
+            .get(bv_idx)
+            .ok_or_else(|| GltfError::Malformed(format!("SPZ bufferView {bv_idx} out of range")))?;
         if bv.buffer != 0 {
             return Err(GltfError::Malformed(
                 "SPZ GLB only supports buffer 0".to_string(),

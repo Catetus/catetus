@@ -267,10 +267,7 @@ pub trait JobStoreApi {
         stripe_session_id: &str,
     ) -> Result<Option<TeamSignupRow>, StoreError>;
 
-    async fn mark_team_signup_revealed(
-        &self,
-        stripe_session_id: &str,
-    ) -> Result<bool, StoreError>;
+    async fn mark_team_signup_revealed(&self, stripe_session_id: &str) -> Result<bool, StoreError>;
 
     /* ---------- ratings (fidelity-ml v0.4) ---------- */
 
@@ -314,10 +311,7 @@ pub trait JobStoreApi {
     /// Return the most-recent `limit` audit events. Default returns an
     /// empty list so the `/v1/admin/audit` route stays functional on
     /// backends that haven't implemented the table.
-    async fn list_audit_events(
-        &self,
-        _limit: u32,
-    ) -> Result<Vec<AuditEvent>, StoreError> {
+    async fn list_audit_events(&self, _limit: u32) -> Result<Vec<AuditEvent>, StoreError> {
         Ok(Vec::new())
     }
 }
@@ -397,12 +391,11 @@ impl BlobBackend {
         body: Body,
         content_type: &str,
     ) -> Result<String, BlobError> {
-        let token = self
-            .token
-            .as_ref()
-            .ok_or(BlobError::NotConfigured)?
-            .clone();
-        let url = format!("{BLOB_HOST}/{}?addRandomSuffix=0", key.trim_start_matches('/'));
+        let token = self.token.as_ref().ok_or(BlobError::NotConfigured)?.clone();
+        let url = format!(
+            "{BLOB_HOST}/{}?addRandomSuffix=0",
+            key.trim_start_matches('/')
+        );
         let resp = self
             .http
             .put(&url)

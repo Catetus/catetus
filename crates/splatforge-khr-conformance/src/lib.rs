@@ -877,7 +877,10 @@ fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult
     out.push(if !spz_in_use {
         skip(Clause::SpzVersion, "SPZ extension not declared")
     } else {
-        match spz_ext_blob.and_then(|e| e.get("version")).and_then(|v| v.as_u64()) {
+        match spz_ext_blob
+            .and_then(|e| e.get("version"))
+            .and_then(|v| v.as_u64())
+        {
             None => fail(Clause::SpzVersion, "SPZ extension missing version field"),
             Some(2) => pass(Clause::SpzVersion),
             Some(other) => fail(
@@ -1010,16 +1013,14 @@ fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult
             {
                 // SPZ header: u32 magic, u32 version, u32 splat_count (LE).
                 let header = &bin_bytes[off..off + 12];
-                let count = u32::from_le_bytes([header[8], header[9], header[10], header[11]])
-                    as usize;
+                let count =
+                    u32::from_le_bytes([header[8], header[9], header[10], header[11]]) as usize;
                 if count == want {
                     pass(Clause::SpzDecodedCount)
                 } else {
                     fail(
                         Clause::SpzDecodedCount,
-                        format!(
-                            "SPZ header splat_count={count} but primitive declares {want}"
-                        ),
+                        format!("SPZ header splat_count={count} but primitive declares {want}"),
                     )
                 }
             }
@@ -1031,10 +1032,7 @@ fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult
                 Clause::SpzDecodedCount,
                 "SPZ blob splat_count not checkable on .gltf (no BIN chunk)",
             ),
-            (None, _, _) => skip(
-                Clause::SpzDecodedCount,
-                "SPZ bufferView did not resolve",
-            ),
+            (None, _, _) => skip(Clause::SpzDecodedCount, "SPZ bufferView did not resolve"),
             _ => skip(Clause::SpzDecodedCount, "SPZ blob too small for header"),
         }
     });

@@ -14,9 +14,7 @@
 
 use std::sync::Arc;
 
-use splatforge_api::store::{
-    DynJobStore, Job, JobStatus, PostgresJobStore, SqliteJobStore, Tier,
-};
+use splatforge_api::store::{DynJobStore, Job, JobStatus, PostgresJobStore, SqliteJobStore, Tier};
 use uuid::Uuid;
 
 /* ----------------------------------------------------------------------- */
@@ -71,7 +69,10 @@ async fn assert_roundtrip_insert_get_update(store: DynJobStore) {
 
     let got = store.get(&job.id).await.expect("get").expect("present");
     assert_eq!(got.status, JobStatus::Done);
-    assert_eq!(got.output_url.as_deref(), Some("https://example.com/out.glb"));
+    assert_eq!(
+        got.output_url.as_deref(),
+        Some("https://example.com/out.glb")
+    );
     assert_eq!(got.tier, Tier::Paid);
     assert_eq!(got.customer_id.as_deref(), Some("cus_test"));
 }
@@ -141,8 +142,14 @@ async fn assert_team_signup_idempotent(store: DynJobStore) {
     let session = "cs_test_dup_42";
     let first = store
         .claim_team_signup(
-            session, "cus_a", Some("sub_a"), "buyer@example.com",
-            "claim-token", "sf_live_AAAA", "deadbeef-hash", 1,
+            session,
+            "cus_a",
+            Some("sub_a"),
+            "buyer@example.com",
+            "claim-token",
+            "sf_live_AAAA",
+            "deadbeef-hash",
+            1,
         )
         .await
         .expect("claim 1");
@@ -150,8 +157,14 @@ async fn assert_team_signup_idempotent(store: DynJobStore) {
 
     let second = store
         .claim_team_signup(
-            session, "cus_a", Some("sub_a"), "buyer@example.com",
-            "claim-token-DIFFERENT", "sf_live_BBBB", "different-hash", 1,
+            session,
+            "cus_a",
+            Some("sub_a"),
+            "buyer@example.com",
+            "claim-token-DIFFERENT",
+            "sf_live_BBBB",
+            "different-hash",
+            1,
         )
         .await
         .expect("claim 2");
@@ -166,7 +179,10 @@ async fn assert_team_signup_idempotent(store: DynJobStore) {
     assert_eq!(row.claim_token, "claim-token");
     assert_eq!(row.key_prefix, "sf_live_AAAA");
     assert_eq!(row.email, "buyer@example.com");
-    assert!(row.key_revealed_at.is_none(), "fresh row must not be revealed");
+    assert!(
+        row.key_revealed_at.is_none(),
+        "fresh row must not be revealed"
+    );
 
     // First reveal flips the flag, second is a no-op.
     let flipped = store
@@ -309,31 +325,43 @@ async fn postgres_store() -> Option<(DynJobStore, testcontainers::ContainerAsync
 
 #[tokio::test]
 async fn postgres_roundtrip_insert_get_update() {
-    let Some((store, _c)) = postgres_store().await else { return };
+    let Some((store, _c)) = postgres_store().await else {
+        return;
+    };
     assert_roundtrip_insert_get_update(store).await;
 }
 #[tokio::test]
 async fn postgres_list_by_batch() {
-    let Some((store, _c)) = postgres_store().await else { return };
+    let Some((store, _c)) = postgres_store().await else {
+        return;
+    };
     assert_list_by_batch(store).await;
 }
 #[tokio::test]
 async fn postgres_claim_billing_event_idempotent() {
-    let Some((store, _c)) = postgres_store().await else { return };
+    let Some((store, _c)) = postgres_store().await else {
+        return;
+    };
     assert_claim_billing_event_idempotent(store).await;
 }
 #[tokio::test]
 async fn postgres_get_missing_returns_none() {
-    let Some((store, _c)) = postgres_store().await else { return };
+    let Some((store, _c)) = postgres_store().await else {
+        return;
+    };
     assert_get_missing_returns_none(store).await;
 }
 #[tokio::test]
 async fn postgres_team_signup_idempotent() {
-    let Some((store, _c)) = postgres_store().await else { return };
+    let Some((store, _c)) = postgres_store().await else {
+        return;
+    };
     assert_team_signup_idempotent(store).await;
 }
 #[tokio::test]
 async fn postgres_ratings_summarize() {
-    let Some((store, _c)) = postgres_store().await else { return };
+    let Some((store, _c)) = postgres_store().await else {
+        return;
+    };
     assert_ratings_summarize(store).await;
 }
