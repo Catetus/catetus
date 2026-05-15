@@ -1,10 +1,38 @@
 {
   "schema": "splatforge.splatbench.encoders/0.1",
-  "generatedAt": "2026-05-15T05:06:03.622Z",
+  "generatedAt": "2026-05-15T05:16:04.952Z",
   "encoders": [
     "splat-transform"
   ],
   "scenes": [
+    {
+      "scene": "splatbench_banding_proxy",
+      "inputBytes": 2481530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 474422,
+          "wallSeconds": 4.343,
+          "wallMs": 4370,
+          "ratio": 5.23
+        }
+      }
+    },
+    {
+      "scene": "splatbench_depth_proxy",
+      "inputBytes": 3721530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 540579,
+          "wallSeconds": 3.99,
+          "wallMs": 4014,
+          "ratio": 6.88
+        }
+      }
+    },
     {
       "scene": "splatbench_floater_proxy",
       "inputBytes": 62001531,
@@ -12,10 +40,66 @@
         "splat-transform": {
           "ok": true,
           "version": "2.1.1",
-          "outputBytes": 5801808,
-          "wallSeconds": 29.347,
-          "wallMs": 29373,
+          "outputBytes": 5801466,
+          "wallSeconds": 33.354,
+          "wallMs": 33380,
           "ratio": 10.69
+        }
+      }
+    },
+    {
+      "scene": "splatbench_foliage_proxy",
+      "inputBytes": 7441530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 1231753,
+          "wallSeconds": 6.495,
+          "wallMs": 6531,
+          "ratio": 6.04
+        }
+      }
+    },
+    {
+      "scene": "splatbench_indoor_proxy",
+      "inputBytes": 24801531,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 4193483,
+          "wallSeconds": 18.114,
+          "wallMs": 18150,
+          "ratio": 5.91
+        }
+      }
+    },
+    {
+      "scene": "splatbench_lowlight_proxy",
+      "inputBytes": 1985529,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 302492,
+          "wallSeconds": 3.434,
+          "wallMs": 3461,
+          "ratio": 6.56
+        }
+      }
+    },
+    {
+      "scene": "splatbench_motion_proxy",
+      "inputBytes": 2977530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 521506,
+          "wallSeconds": 3.549,
+          "wallMs": 3571,
+          "ratio": 5.71
         }
       }
     },
@@ -26,10 +110,80 @@
         "splat-transform": {
           "ok": true,
           "version": "2.1.1",
-          "outputBytes": 8934805,
-          "wallSeconds": 57.151,
-          "wallMs": 57173,
+          "outputBytes": 8935384,
+          "wallSeconds": 58.001,
+          "wallMs": 58034,
           "ratio": 13.88
+        }
+      }
+    },
+    {
+      "scene": "splatbench_portrait_proxy",
+      "inputBytes": 2977530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 516162,
+          "wallSeconds": 4.691,
+          "wallMs": 4722,
+          "ratio": 5.77
+        }
+      }
+    },
+    {
+      "scene": "splatbench_product_proxy",
+      "inputBytes": 2481530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 500067,
+          "wallSeconds": 4.514,
+          "wallMs": 4546,
+          "ratio": 4.96
+        }
+      }
+    },
+    {
+      "scene": "splatbench_specular_proxy",
+      "inputBytes": 2977530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 511800,
+          "wallSeconds": 4.352,
+          "wallMs": 4383,
+          "ratio": 5.82
+        }
+      }
+    },
+    {
+      "scene": "splatbench_texture_proxy",
+      "inputBytes": 3721530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 575383,
+          "wallSeconds": 4.322,
+          "wallMs": 4355,
+          "ratio": 6.47
+        }
+      }
+    },
+    {
+      "scene": "splatbench_transparency_proxy",
+      "inputBytes": 6201530,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 1150793,
+          "wallSeconds": 5.554,
+          "wallMs": 5586,
+          "ratio": 5.39
         }
       }
     }

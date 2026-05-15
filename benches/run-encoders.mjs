@@ -44,10 +44,26 @@ const ENCODER_FILTER = process.env.ENCODERS ? new Set(process.env.ENCODERS.split
 console.log(`Encoders: ${encoders.map((e) => e.name).join(", ") || "(none)"}`);
 console.log(`Scenes:   ${scenes.length}`);
 
+// Merge with any prior report so a partial sweep (`SCENES=foo,bar`) does
+// not drop scenes captured by an earlier invocation. The harness is
+// otherwise idempotent — a re-run for a given (scene, encoder) replaces
+// just that row in-place.
+let prior = { schema: "", encoders: [], scenes: [] };
+if (existsSync(OUT_FILE)) {
+  try {
+    prior = JSON.parse(readFileSync(OUT_FILE, "utf8"));
+  } catch (e) {
+    console.warn(`[bench] could not parse ${OUT_FILE}; starting fresh: ${e.message}`);
+  }
+}
+const priorByScene = new Map((prior.scenes ?? []).map((s) => [s.scene, s]));
+
 const report = {
   schema: "splatforge.splatbench.encoders/0.1",
   generatedAt: new Date().toISOString(),
-  encoders: encoders.map((e) => e.name),
+  encoders: Array.from(
+    new Set([...(prior.encoders ?? []), ...encoders.map((e) => e.name)]),
+  ),
   scenes: [],
 };
 
@@ -57,7 +73,15 @@ mkdirSync(tmpRoot, { recursive: true });
 for (const scene of scenes) {
   if (SCENE_FILTER && !SCENE_FILTER.has(scene.name)) continue;
   const inputBytes = statSync(scene.path).size;
-  const sceneRow = { scene: scene.name, inputBytes, runs: {} };
+  // Seed the row from prior data so unfiltered encoders' results survive
+  // a targeted re-run (e.g. `ENCODERS=splat-transform` shouldn't drop
+  // SOG or CodecGS-Lite numbers captured in a different sweep).
+  const seed = priorByScene.get(scene.name);
+  const sceneRow = {
+    scene: scene.name,
+    inputBytes,
+    runs: { ...(seed?.runs ?? {}) },
+  };
 
   for (const enc of encoders) {
     if (ENCODER_FILTER && !ENCODER_FILTER.has(enc.name)) continue;
@@ -99,7 +123,15 @@ for (const scene of scenes) {
   }
 
   report.scenes.push(sceneRow);
+  priorByScene.delete(scene.name);
 }
+
+// Preserve any scenes that weren't in this sweep (filter or absent).
+for (const leftover of priorByScene.values()) {
+  report.scenes.push(leftover);
+}
+// Stable sort by scene name so commits diff sensibly.
+report.scenes.sort((a, b) => a.scene.localeCompare(b.scene));
 
 writeFileSync(OUT_FILE, JSON.stringify(report, null, 2));
 console.log(`\nWrote ${OUT_FILE}`);
