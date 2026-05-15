@@ -192,16 +192,35 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     zone.addEventListener("dragover", hot);
     zone.addEventListener("dragleave", cool);
 
-    function setStatus(state, label, meta) {
+    const bar = document.querySelector("[data-job-progress-bar]");
+    function setStatus(state, label, meta, percent) {
       status.hidden = false;
       status.dataset.state = state;
       statusLabel.textContent = label;
       statusMeta.textContent = meta || "";
       progress.classList.remove("indeterminate");
-      if (state === "uploading" || state === "queued" || state === "running") {
+      if (typeof percent === "number" && bar instanceof HTMLElement) {
+        bar.style.width = Math.max(0, Math.min(100, percent)).toFixed(1) + "%";
+      } else if (state === "queued" || state === "running") {
         progress.classList.add("indeterminate");
+      } else if (state === "done" || state === "error") {
+        if (bar instanceof HTMLElement) bar.style.width = "100%";
       }
       cta.innerHTML = "";
+    }
+
+    function formatBytes(n) {
+      if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
+      if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+      if (n >= 1024) return (n / 1024).toFixed(0) + " KB";
+      return n + " B";
+    }
+    function formatEta(seconds) {
+      if (!isFinite(seconds) || seconds < 0) return "";
+      if (seconds < 60) return Math.ceil(seconds) + "s left";
+      const m = Math.floor(seconds / 60);
+      const s = Math.ceil(seconds - m * 60);
+      return m + "m " + (s > 0 ? s + "s " : "") + "left";
     }
 
     function fail(message) {
@@ -252,26 +271,30 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       return await r.json();
     }
 
-    async function uploadToR2(uploadUrl, file, contentType) {
-      const r = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "content-type": contentType },
-        body: file,
+    function uploadBytes(uploadUrl, file, contentType, onProgress) {
+      return new Promise(function (resolve, reject) {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", uploadUrl, true);
+        xhr.setRequestHeader("content-type", contentType);
+        xhr.upload.onprogress = function (e) {
+          if (e.lengthComputable) onProgress(e.loaded, e.total);
+        };
+        xhr.onload = function () {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error("upload " + xhr.status + " — " + xhr.responseText));
+        };
+        xhr.onerror = function () { reject(new Error("upload failed (network)")); };
+        xhr.onabort = function () { reject(new Error("upload aborted")); };
+        xhr.send(file);
       });
-      if (!r.ok) {
-        const text = await r.text();
-        throw new Error("PUT R2 " + r.status + " — " + text);
-      }
     }
 
-    async function createJob(filename, sizeBytes, sourceUrl) {
+    async function createJob(sourceUrl) {
       const r = await fetch(apiBase + "/v1/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           preset: "web-mobile",
-          filename: filename,
-          size_bytes: sizeBytes,
           source_url: sourceUrl,
         }),
       });
@@ -293,16 +316,14 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
 
     function renderJob(job) {
       const s = job.status;
-      if (s === "awaiting-upload") {
-        setStatus("uploading", "uploading", "preparing");
-      } else if (s === "uploading") {
-        setStatus("uploading", "uploading", "API fetching from R2");
+      if (s === "awaiting-upload" || s === "uploading") {
+        setStatus("running", "processing", "preparing scene");
       } else if (s === "queued") {
-        setStatus("queued", "queued", "modal cold-start in flight");
+        setStatus("running", "processing", "queued for optimize");
       } else if (s === "running") {
-        setStatus("running", "running", "splatforge optimize");
+        setStatus("running", "processing", "optimizing");
       } else if (s === "done") {
-        setStatus("done", "done", "");
+        setStatus("done", "done", "ready to download", 100);
         if (job.output_url) {
           const a = document.createElement("a");
           a.href = job.output_url;
@@ -355,25 +376,33 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
           "</code>. Choose a different file.";
         return;
       }
-      headline.textContent = "Reaching the hosted API…";
-      body.innerHTML =
-        "Registering <code>" + file.name + "</code> with the optimize queue";
-      setStatus("uploading", "uploading", "creating job");
+      headline.textContent = "Uploading " + file.name;
+      body.innerHTML = formatBytes(file.size);
+      setStatus("uploading", "uploading", "starting…", 0);
 
       try {
         const reachable = await ping();
-        if (!reachable) throw new Error("/healthz did not return ok");
-        // 1. Get a presigned R2 PUT URL.
-        setStatus("uploading", "uploading", "signing upload URL");
+        if (!reachable) throw new Error("the optimize service is unreachable");
         const signed = await requestUploadUrl(file);
-        // 2. Stream the file body directly to R2 (no proxy).
-        const sizeKb = Math.round(file.size / 1024);
-        setStatus("uploading", "uploading",
-                  "streaming " + sizeKb + " KB to R2");
-        await uploadToR2(signed.uploadUrl, file, signed.contentType);
-        // 3. Hand the matching GET URL to the optimize API.
-        setStatus("uploading", "uploading", "creating job");
-        const job = await createJob(file.name, file.size, signed.sourceUrl);
+        const uploadStart = Date.now();
+        let lastEtaUpdate = 0;
+        await uploadBytes(signed.uploadUrl, file, signed.contentType,
+          function (loaded, total) {
+            const now = Date.now();
+            const elapsed = Math.max(0.001, (now - uploadStart) / 1000);
+            const bps = loaded / elapsed;
+            const pct = total > 0 ? (loaded / total) * 100 : 0;
+            if (now - lastEtaUpdate < 200) return;
+            lastEtaUpdate = now;
+            const remaining = total > 0 && bps > 0 ? (total - loaded) / bps : Infinity;
+            const meta =
+              pct.toFixed(0) + "%  ·  " +
+              (bps / 1024 / 1024).toFixed(1) + " MB/s  ·  " +
+              formatEta(remaining);
+            setStatus("uploading", "uploading", meta, pct);
+          });
+        setStatus("running", "processing", "starting optimize", 0);
+        const job = await createJob(signed.sourceUrl);
         headline.textContent = "Optimizing " + file.name;
         body.innerHTML = "Job " + job.id;
         await waitFor(job.id);
