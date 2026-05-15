@@ -500,6 +500,23 @@ fn cmd_optimize(
             "preset 'geospatial' requires --output-dir <DIR> (the Cesium tileset is multi-file)"
         ));
     }
+    // Hosted-only presets — the CLI knows the names (so users get pricing
+    // and a useful error instead of "unknown preset") but the actual
+    // encoder runs in the worker / Modal app. Wiring the worker through
+    // here is a separate integration; until then, surface a clear
+    // pending-integration message.
+    // TODO(codec-gs-mixed): wire novel-3 mixed_crf.py encoder through
+    // splatforge-private/apps/diff-repack so this preset runs end-to-end
+    // from the CLI. Tracked: ship cull-default + codec-gs-mixed PR.
+    if matches!(
+        preset_name,
+        "codec-gs-stacked" | "codec-gs-mixed" | "codec-gs-mixed-k5"
+    ) {
+        return Err(anyhow!(
+            "preset '{preset_name}' is known but the worker integration is pending — \
+             submit the job through the hosted API to use it"
+        ));
+    }
     if preset_name != "geospatial" && output_dir.is_some() {
         return Err(anyhow!(
             "--output-dir is only supported with --preset geospatial"
@@ -609,6 +626,12 @@ fn cmd_optimize(
                 // process. A4.1 BUILT 2026-05-15 on bicycle:
                 // 152× / 22.37 dB.
                 | "codec-gs-stacked"
+                // Mixed-CRF stacked: encodes the top-K% of splats by
+                // importance (opacity × det(scale)^(2/3)) at CRF 14 and
+                // the rest at CRF 28. novel-3 BUILT 2026-05-15:
+                // K=2 → 151× / 25.2 dB, K=5 → 59× / 26.3 dB on bicycle.
+                | "codec-gs-mixed"
+                | "codec-gs-mixed-k5"
         );
     let compress_variant = if compress_mode == Some("spz") {
         Some(splatforge_gltf::SpzVariant::V2)
