@@ -607,25 +607,49 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     }
 
     const PHASE_COPY = {
-      fetching: "fetching source from storage",
+      fetching: "fetching source",
       optimizing: "optimizing splats",
       packaging: "packaging output",
+      "loading-input": "loading scene",
+      "encoding-gltf": "encoding glTF",
+      "writing-report": "finalizing",
+      done: "wrapping up",
+      RemoveInvalidSplats: "removing invalid splats",
+      OpacityPrune: "pruning low-opacity splats",
+      FloaterPrune: "pruning floaters",
+      QuantizePosition: "quantizing positions",
+      QuantizeScale: "quantizing scale",
+      QuantizeRotation: "quantizing rotation",
+      ReduceSHDegree: "reducing SH degree",
+      MortonSort: "morton-sorting splats",
+      BuildLOD: "building LODs",
     };
     let processingStartedAt = 0;
     function renderProgress(job) {
       const s = job.status;
-      const phase = job.phase && PHASE_COPY[job.phase];
-      // Elapsed-time suffix, refreshed every poll. Better-than-nothing
-      // signal when the worker hasn't sent a phase update yet.
+      const phase = job.phase ? (PHASE_COPY[job.phase] || job.phase) : null;
       const elapsed = processingStartedAt
         ? Math.max(0, Math.round((Date.now() - processingStartedAt) / 1000))
         : 0;
+      // ETA from observed throughput: if we know how far along we are and
+      // how long we've been running, project linearly.
+      let etaSuffix = "";
+      if (
+        typeof job.percent === "number" &&
+        job.percent > 0.02 &&
+        job.percent < 0.99 &&
+        elapsed > 1
+      ) {
+        const remaining = elapsed * (1 - job.percent) / job.percent;
+        etaSuffix = "  ·  ~" + Math.max(1, Math.ceil(remaining)) + "s left";
+      }
       const elapsedSuffix = elapsed > 0 ? "  ·  " + elapsed + "s elapsed" : "";
+      const pct = typeof job.percent === "number" ? job.percent * 100 : null;
       if (s === "queued") {
         setProgress("Processing", "waiting for a worker" + elapsedSuffix, null);
       } else if (s === "running") {
-        const sub = (phase || "optimizing your scene") + elapsedSuffix;
-        setProgress("Processing", sub, null);
+        const sub = (phase || "optimizing your scene") + elapsedSuffix + etaSuffix;
+        setProgress("Processing", sub, pct);
       } else if (s === "awaiting-upload" || s === "uploading") {
         setProgress("Processing", "preparing scene" + elapsedSuffix, null);
       }

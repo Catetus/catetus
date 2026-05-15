@@ -114,11 +114,13 @@ def run_optimize(
         _post_phase(callback_url, "fetching")
         _download(blob_url, src_path)
 
-        # Phase 2: run splatforge optimize → gltf.
+        # Phase 2: run splatforge optimize → gltf. Stream stdout line-by-line
+        # so we can forward `PROGRESS frac=X stage=Y` lines emitted by
+        # `--progress` straight through to the API as live updates.
         _post_phase(callback_url, "optimizing")
         gltf_path = out_dir / "optimized.gltf"
         optimize_log = work / "optimize.log"
-        rc = _run_cli(
+        rc = _run_cli_streaming(
             [
                 "splatforge",
                 "optimize",
@@ -127,8 +129,10 @@ def run_optimize(
                 preset,
                 "--out",
                 str(gltf_path),
+                "--progress",
             ],
             optimize_log,
+            callback_url,
         )
         if rc != 0 or not gltf_path.exists():
             payload = {
@@ -318,6 +322,74 @@ def _run_cli(argv: list[str], log_path: Path) -> int:
     return proc.returncode
 
 
+def _run_cli_streaming(
+    argv: list[str], log_path: Path, callback_url: Optional[str]
+) -> int:
+    """Spawn the CLI, forwarding `PROGRESS` lines to the API as they arrive.
+
+    Two responsibilities:
+      1. Tee every line of stdout/stderr to `log_path` so error tails still
+         work on failure (mirrors `_run_cli` behavior for non-progress
+         output).
+      2. Watch for lines matching `PROGRESS frac=<float> stage=<name>` and
+         POST them upstream as `{status:running, phase:<stage>,
+         percent:<frac>}`. Throttled to one POST per 500ms (plus the
+         terminal frac=1.0 always fires) so a chatty CLI can't DDOS the
+         API.
+    """
+    import time
+
+    last_post = 0.0
+    proc = subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,  # line-buffered
+        text=True,
+    )
+    assert proc.stdout is not None
+    try:
+        with log_path.open("w", encoding="utf-8", errors="replace") as log:
+            for line in proc.stdout:
+                log.write(line)
+                log.flush()
+                if not line.startswith("PROGRESS "):
+                    continue
+                frac, stage = _parse_progress_line(line)
+                if frac is None or stage is None:
+                    continue
+                now = time.monotonic()
+                # Always post the terminal frac=1.0; throttle the rest.
+                if frac < 0.999 and (now - last_post) < 0.5:
+                    continue
+                last_post = now
+                _post_phase(callback_url, stage, percent=frac)
+    finally:
+        proc.wait()
+    return proc.returncode
+
+
+def _parse_progress_line(line: str) -> tuple[Optional[float], Optional[str]]:
+    """Pull `frac=<float>` and `stage=<name>` out of a `PROGRESS ...` line.
+
+    Forgiving of token order and extra tokens so future CLI versions can
+    add fields without breaking the worker. Returns `(None, None)` on
+    parse failure rather than raising — a malformed line shouldn't kill
+    the entire optimize job.
+    """
+    frac: Optional[float] = None
+    stage: Optional[str] = None
+    for tok in line.strip().split():
+        if tok.startswith("frac="):
+            try:
+                frac = float(tok[len("frac="):])
+            except ValueError:
+                pass
+        elif tok.startswith("stage="):
+            stage = tok[len("stage="):]
+    return frac, stage
+
+
 def _tail(path: Path, n: int) -> str:
     """Return the last ``n`` bytes of a log file as text (best-effort)."""
     if not path.exists():
@@ -345,23 +417,25 @@ def _callback(callback_url: Optional[str], payload: dict) -> dict:
     return payload
 
 
-def _post_phase(callback_url: Optional[str], phase: str) -> None:
+def _post_phase(
+    callback_url: Optional[str], phase: str, percent: Optional[float] = None
+) -> None:
     """Fire-and-forget intermediate progress ping. Lets the API surface
-    `phase` to clients so users see "downloading", "optimizing",
-    "packaging" instead of a single opaque "running" state for the
-    full duration of the job. Failure here is non-fatal — the final
-    callback at the end of the job carries the authoritative status.
+    `phase` (and optional `percent`) to clients so users see "downloading",
+    "optimizing 47%", "packaging" instead of a single opaque "running"
+    state for the full duration of the job. Failure here is non-fatal —
+    the final callback at the end of the job carries the authoritative
+    status.
     """
     if not callback_url:
         return
+    payload: dict = {"status": "running", "phase": phase}
+    if percent is not None:
+        payload["percent"] = max(0.0, min(1.0, percent))
     try:
         import requests  # noqa: PLC0415
 
-        requests.post(
-            callback_url,
-            json={"status": "running", "phase": phase},
-            timeout=5,
-        )
+        requests.post(callback_url, json=payload, timeout=5)
     except Exception:  # noqa: BLE001
         pass
 

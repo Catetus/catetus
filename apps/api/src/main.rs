@@ -429,6 +429,7 @@ async fn build_job(
             output_url: None,
             preview_url: None,
             phase: None,
+            percent: None,
             webhook_url: req.webhook_url,
             batch_id,
             created_at,
@@ -464,6 +465,7 @@ async fn build_job(
             output_url: None,
             preview_url: None,
             phase: None,
+            percent: None,
             webhook_url: req.webhook_url,
             batch_id,
             created_at,
@@ -719,6 +721,11 @@ pub struct ResultPayload {
     /// during `status=running` so the UI can show what step is happening.
     #[serde(default)]
     pub phase: Option<String>,
+    /// Optional fractional progress in [0, 1] alongside `phase`. Workers
+    /// forwarding splatforge CLI `--progress` output include this so the
+    /// UI can render a determinate bar instead of an indeterminate slide.
+    #[serde(default)]
+    pub percent: Option<f32>,
     #[serde(default)]
     pub error: Option<String>,
 }
@@ -757,6 +764,9 @@ async fn job_result(
             job.status = JobStatus::Running;
             if let Some(phase) = body.phase {
                 job.phase = Some(phase);
+            }
+            if let Some(pct) = body.percent {
+                job.percent = Some(pct.clamp(0.0, 1.0));
             }
         }
         other => {

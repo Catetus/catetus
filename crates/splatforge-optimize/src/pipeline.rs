@@ -47,16 +47,35 @@ impl Pipeline {
 
     /// Run every pass in order, capturing stats.
     pub fn run(&self, scene: &mut SplatScene) -> Result<PipelineReport> {
+        self.run_with_progress(scene, |_, _, _| {})
+    }
+
+    /// Like `run` but invokes `progress(pass_index, total_passes, pass_name)`
+    /// before each pass starts and once more after the last pass with
+    /// `(total_passes, total_passes, "done")`. Lets callers stream
+    /// pass-level progress to a UI / subprocess pipe without coupling the
+    /// pipeline to any particular sink.
+    pub fn run_with_progress<F>(
+        &self,
+        scene: &mut SplatScene,
+        mut progress: F,
+    ) -> Result<PipelineReport>
+    where
+        F: FnMut(usize, usize, &str),
+    {
         let mut ctx = PassContext::default();
         let before = scene.splats.len();
-        let mut passes = Vec::with_capacity(self.passes.len());
-        for p in &self.passes {
+        let total = self.passes.len();
+        let mut passes = Vec::with_capacity(total);
+        for (i, p) in self.passes.iter().enumerate() {
+            progress(i, total, p.name());
             let stats = p.run(scene, &mut ctx)?;
             passes.push(NamedPassStats {
                 name: p.name().to_string(),
                 stats,
             });
         }
+        progress(total, total, "done");
         let after = scene.splats.len();
         Ok(PipelineReport {
             splats_before: before,

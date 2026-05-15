@@ -68,6 +68,12 @@ enum Command {
         /// Output path; defaults to "<input>.optimized.gltf".
         #[arg(long, short = 'o')]
         out: Option<PathBuf>,
+        /// Emit machine-readable `PROGRESS frac=<0..1> stage=<name>` lines
+        /// to stdout before each pipeline pass, plus one terminal `frac=1.0`.
+        /// Consumed by the Modal worker to stream live progress to the UI.
+        /// Off by default so interactive CLI output stays clean.
+        #[arg(long)]
+        progress: bool,
     },
     /// Serve a tiny static preview viewer.
     Preview {
@@ -137,7 +143,8 @@ fn dispatch(cli: Cli) -> Result<()> {
             chunked,
             compress,
             out,
-        } => cmd_optimize(&input, &preset, chunked, compress, out.as_deref()),
+            progress,
+        } => cmd_optimize(&input, &preset, chunked, compress, out.as_deref(), progress),
         Command::Preview { input, port } => cmd_preview(&input, port),
         Command::Diff {
             before,
@@ -234,16 +241,53 @@ fn cmd_convert(input: &Path, to: &str, out: &Path) -> Result<()> {
     }
 }
 
+/// Write a single line in the machine-readable progress format. Workers parse
+/// this with a simple `line.starts_with("PROGRESS ")` test, so the prefix and
+/// `frac=` / `stage=` token names must stay stable. Stdout is line-buffered
+/// in the Modal worker because we run with `bufsize=1`.
+fn emit_progress(frac: f32, stage: &str) {
+    let clamped = frac.clamp(0.0, 1.0);
+    println!("PROGRESS frac={:.4} stage={}", clamped, stage);
+    use std::io::Write as _;
+    let _ = std::io::stdout().flush();
+}
+
 fn cmd_optimize(
     input: &Path,
     preset_name: &str,
     chunked: bool,
     compress: bool,
     out: Option<&Path>,
+    progress: bool,
 ) -> Result<()> {
+    // The pipeline run is the longest single span; everything else is fast.
+    // Reserve frac=0.00..0.90 for the optimize pipeline so we have headroom
+    // for the post-write "encoding glTF" step (~0.90..0.98) and a final
+    // "done" tick at 1.0. Without that headroom the bar would hit 100% and
+    // then sit there while we write 30+ MB of buffer files.
+    if progress {
+        // Initial tick — surfaces "starting" to the UI immediately, before
+        // any pass runs (PLY parse for a giant scene can take 5+ seconds).
+        emit_progress(0.00, "loading-input");
+    }
     let (mut scene, _) = load_scene(input)?;
     let pipe = preset(preset_name)?;
-    let report = pipe.run(&mut scene)?;
+    let report = if progress {
+        pipe.run_with_progress(&mut scene, |i, total, name| {
+            // Map pass index to the [0.05, 0.90] band so the bar reaches
+            // 5% by the time the first pass starts and 90% when the last
+            // pass finishes ("done" emitted by run_with_progress lands at
+            // i == total, frac = 0.90).
+            let frac = if total == 0 {
+                0.90
+            } else {
+                0.05 + (i as f32 / total as f32) * 0.85
+            };
+            emit_progress(frac, name);
+        })?
+    } else {
+        pipe.run(&mut scene)?
+    };
     let out = out
         .map(PathBuf::from)
         .unwrap_or_else(|| input.with_extension("optimized.gltf"));
@@ -266,7 +310,13 @@ fn cmd_optimize(
         lod_fractions: vec![1.0],
         quantize,
     };
+    if progress {
+        emit_progress(0.92, "encoding-gltf");
+    }
     write_gltf(&scene, &out, &opts)?;
+    if progress {
+        emit_progress(0.98, "writing-report");
+    }
     let report_path = out.with_extension("json");
     std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
     println!(
@@ -276,6 +326,9 @@ fn cmd_optimize(
         report_path.display()
     );
 
+    if progress {
+        emit_progress(1.00, "done");
+    }
     if compress {
         let (orig, comp) = compress_buffer_files(&out)?;
         let ratio = if comp > 0 {
