@@ -1,0 +1,79 @@
+name: blender-addon
+
+# Build the Blender add-on .zip on every push that touches the add-on tree
+# (or this workflow file). For tagged releases we additionally attach the
+# zip as a release asset so users can grab it without cloning the repo.
+on:
+  push:
+    paths:
+      - "integrations/blender/**"
+      - ".github/workflows/blender-addon.yml"
+  pull_request:
+    paths:
+      - "integrations/blender/**"
+      - ".github/workflows/blender-addon.yml"
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The add-on is pure Python — we just need to parse-check it before
+      # packaging so a syntax error never makes it into a release artifact.
+      - name: Syntax-check add-on modules
+        run: |
+          python -c "
+          import ast, pathlib
+          for p in pathlib.Path('integrations/blender/splatforge_addon').rglob('*.py'):
+              ast.parse(p.read_text())
+              print('OK', p)
+          "
+
+      - name: Build add-on zip
+        run: bash integrations/blender/dist/build.sh
+
+      # Surface the version on the action summary so a maintainer scanning
+      # the actions tab can confirm at-a-glance which version a green run
+      # built.
+      - name: Extract version
+        id: ver
+        run: |
+          v=$(python -c "
+          import ast, pathlib
+          src = pathlib.Path('integrations/blender/splatforge_addon/__init__.py').read_text()
+          for node in ast.walk(ast.parse(src)):
+              if isinstance(node, ast.Assign):
+                  for t in node.targets:
+                      if getattr(t, 'id', '') == 'bl_info':
+                          d = ast.literal_eval(node.value)
+                          print('.'.join(str(x) for x in d['version']))
+                          raise SystemExit
+          ")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "### SplatForge Blender add-on $v" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: splatforge_addon-${{ steps.ver.outputs.version }}
+          path: integrations/blender/dist/splatforge_addon-*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      # On release events: attach the .zip directly to the GitHub release
+      # so users get a one-click download next to the source-code tarball.
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: integrations/blender/dist/splatforge_addon-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

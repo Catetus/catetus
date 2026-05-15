@@ -87,3 +87,7 @@ packages/viewer/dist-bench/
 tasks/todo.md
 /benches/scenes/bonsai_mipnerf360_iter7k.ply
 /benches/scenes/real/
+
+# Blender add-on build artifacts — CI rebuilds these on every push.
+integrations/blender/dist/*.zip
+
