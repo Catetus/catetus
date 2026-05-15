@@ -601,6 +601,7 @@ fn cmd_optimize(
         lod_fractions: vec![1.0],
         quantize,
         compress: compress_variant,
+        ..Default::default()
     };
     if progress {
         emit_progress(0.92, "encoding-gltf");

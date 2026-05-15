@@ -207,10 +207,7 @@ fn main() {
         //   SH_DC       VEC3 FLOAT          4*12 = 48
         // Total padded: 48 + 32 + 16 + 4 + 48 = 148. Round buffer to 148.
         let mut value = baseline_json(None);
-        value["extensionsUsed"] = json!([
-            "KHR_gaussian_splatting",
-            "KHR_mesh_quantization"
-        ]);
+        value["extensionsUsed"] = json!(["KHR_gaussian_splatting", "KHR_mesh_quantization"]);
         value["buffers"][0]["byteLength"] = json!(148);
         value["bufferViews"] = json!([
             { "buffer": 0, "byteOffset": 0,   "byteLength": 48 },
@@ -249,9 +246,7 @@ fn main() {
             bin.extend_from_slice(&[200u8, 200, 200, 0]);
         }
         // OPACITY (normalized unsigned byte) — pad each scalar group to 4.
-        for _ in 0..N_SPLATS {
-            bin.push(127);
-        }
+        bin.extend(std::iter::repeat(127u8).take(N_SPLATS));
         // SH_DC.
         for _ in 0..N_SPLATS {
             for c in [0.1_f32, 0.2, 0.3] {
@@ -279,9 +274,15 @@ fn main() {
         bvs.push(json!({ "buffer": 0, "byteOffset": 272, "byteLength": 48 }));
         bvs.push(json!({ "buffer": 0, "byteOffset": 320, "byteLength": 48 }));
         let accs = value["accessors"].as_array_mut().unwrap();
-        accs.push(json!({ "bufferView": 5, "componentType": 5126, "count": N_SPLATS, "type": "VEC3" }));
-        accs.push(json!({ "bufferView": 6, "componentType": 5126, "count": N_SPLATS, "type": "VEC3" }));
-        accs.push(json!({ "bufferView": 7, "componentType": 5126, "count": N_SPLATS, "type": "VEC3" }));
+        accs.push(
+            json!({ "bufferView": 5, "componentType": 5126, "count": N_SPLATS, "type": "VEC3" }),
+        );
+        accs.push(
+            json!({ "bufferView": 6, "componentType": 5126, "count": N_SPLATS, "type": "VEC3" }),
+        );
+        accs.push(
+            json!({ "bufferView": 7, "componentType": 5126, "count": N_SPLATS, "type": "VEC3" }),
+        );
         let attrs = value["meshes"][0]["primitives"][0]["attributes"]
             .as_object_mut()
             .unwrap();
@@ -354,8 +355,7 @@ fn main() {
 
     // 10: invalid .gltf — per-splat accessor counts disagree.
     write_gltf_with_mutator(&out_dir.join("10_invalid_count_mismatch.gltf"), |v| {
-        let op_idx = v["meshes"][0]["primitives"][0]["attributes"]
-            ["KHR_gaussian_splatting:OPACITY"]
+        let op_idx = v["meshes"][0]["primitives"][0]["attributes"]["KHR_gaussian_splatting:OPACITY"]
             .as_u64()
             .expect("op idx") as usize;
         v["accessors"][op_idx]["count"] = json!(7);

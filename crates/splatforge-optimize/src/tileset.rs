@@ -262,6 +262,7 @@ pub fn write_tileset(
         lod_fractions: vec![1.0],
         quantize: opts.quantize_glb,
         compress: None,
+        ..Default::default()
     };
 
     // Emit one GLB per LOD level. We name them by their original BuildLOD

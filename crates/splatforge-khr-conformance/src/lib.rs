@@ -308,11 +308,7 @@ pub fn validate_path(path: &Path) -> Result<Report, ValidateError> {
         .unwrap_or_default();
     let bytes = fs::read(path)?;
     let (json_str, container, bin) = match ext.as_str() {
-        "gltf" => (
-            String::from_utf8_lossy(&bytes).to_string(),
-            "gltf",
-            None,
-        ),
+        "gltf" => (String::from_utf8_lossy(&bytes).to_string(), "gltf", None),
         "glb" => {
             let (j, b) = extract_glb_chunks(&bytes)?;
             (j, "glb", b)
@@ -551,10 +547,9 @@ fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult
     let kernel = prim_ext_blob.and_then(|e| e.get("kernel"));
     out.push(match kernel.and_then(|v| v.as_str()) {
         Some(_) => pass(Clause::ExtKernelRequired),
-        None if kernel.is_some() => fail(
-            Clause::ExtKernelRequired,
-            "kernel present but not a string",
-        ),
+        None if kernel.is_some() => {
+            fail(Clause::ExtKernelRequired, "kernel present but not a string")
+        }
         None => fail(Clause::ExtKernelRequired, "kernel property missing"),
     });
 
@@ -565,10 +560,7 @@ fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult
             Clause::ExtColorSpaceRequired,
             "colorSpace present but not a string",
         ),
-        None => fail(
-            Clause::ExtColorSpaceRequired,
-            "colorSpace property missing",
-        ),
+        None => fail(Clause::ExtColorSpaceRequired, "colorSpace property missing"),
     });
 
     let projection = prim_ext_blob.and_then(|e| e.get("projection"));
@@ -731,7 +723,10 @@ fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult
             }
         }
         if checked == 0 {
-            skip(Clause::ShCoefAccessor, "no SH coefficient accessors declared")
+            skip(
+                Clause::ShCoefAccessor,
+                "no SH coefficient accessors declared",
+            )
         } else if problems.is_empty() {
             pass(Clause::ShCoefAccessor)
         } else {
@@ -899,7 +894,10 @@ fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult
 
     // Unknown KHR-namespaced attribute keys (the spec reserves the namespace).
     out.push(match attrs_obj {
-        None => skip(Clause::NoUnknownNamespacedAttributes, "no attributes object"),
+        None => skip(
+            Clause::NoUnknownNamespacedAttributes,
+            "no attributes object",
+        ),
         Some(map) => {
             let known = known_namespaced_attrs();
             let unknown: Vec<&String> = map
@@ -1102,12 +1100,8 @@ fn run_clauses(root: &serde_json::Value, bin: Option<&[u8]>) -> Vec<ClauseResult
                 if off + 12 <= bin_bytes.len() && len >= 12 =>
             {
                 let header = &bin_bytes[off..off + 12];
-                let count = u32::from_le_bytes([
-                    header[8],
-                    header[9],
-                    header[10],
-                    header[11],
-                ]) as usize;
+                let count =
+                    u32::from_le_bytes([header[8], header[9], header[10], header[11]]) as usize;
                 if count == want {
                     pass(Clause::SpzDecodedCount)
                 } else {
