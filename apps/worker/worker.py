@@ -42,7 +42,7 @@ import modal
 # Pin both the base image and the splatforge CLI revision so the worker is
 # byte-reproducible from one deploy to the next. Bump SPLATFORGE_REF when a new
 # CLI release lands.
-SPLATFORGE_REF = os.environ.get("SPLATFORGE_REF", "v0.1.1")
+SPLATFORGE_REF = os.environ.get("SPLATFORGE_REF", "main")
 SPLATFORGE_REPO = os.environ.get(
     "SPLATFORGE_REPO", "https://github.com/montabano1/SplatForge.git"
 )
