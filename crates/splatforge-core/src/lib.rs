@@ -18,8 +18,8 @@ pub use report::{
 
 /// Detect a supported splat file format from its filename extension.
 ///
-/// Returns one of `"ply"`, `"spz"`, `"gltf"`, `"glb"`, or `None` if the
-/// extension is unrecognized.
+/// Returns one of `"ply"`, `"spz"`, `"gltf"`, `"glb"`, `"usda"`, `"usdc"`,
+/// or `None` if the extension is unrecognized.
 pub fn format_from_extension(path: &std::path::Path) -> Option<&'static str> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
@@ -27,6 +27,8 @@ pub fn format_from_extension(path: &std::path::Path) -> Option<&'static str> {
         "spz" => Some("spz"),
         "gltf" => Some("gltf"),
         "glb" => Some("glb"),
+        "usda" => Some("usda"),
+        "usdc" => Some("usdc"),
         _ => None,
     }
 }
@@ -48,8 +50,16 @@ pub fn format_from_magic(bytes: &[u8]) -> Option<&'static str> {
         if bytes[0] == 0x47 && bytes[1] == 0x4E && bytes[2] == 0x53 && bytes[3] == 0x50 {
             return Some("spz");
         }
-        // glTF JSON heuristic
+        // USDC binary magic: "PXR-USDC" at offset 0.
+        if bytes.len() >= 8 && &bytes[..8] == b"PXR-USDC" {
+            return Some("usdc");
+        }
+        // USDA text starts with `#usda 1.0` (whitespace tolerant).
         let head = std::str::from_utf8(&bytes[..bytes.len().min(64)]).unwrap_or("");
+        if head.trim_start().starts_with("#usda") {
+            return Some("usda");
+        }
+        // glTF JSON heuristic
         if head.trim_start().starts_with('{') && head.contains("\"asset\"") {
             return Some("gltf");
         }

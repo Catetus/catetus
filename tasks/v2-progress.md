@@ -35,7 +35,7 @@
 | # | Workstream | Owner | Repo | Status |
 |---|---|---|---|---|
 | 1 | KHR_gaussian_splatting conformance test suite | agent | public | shipped — `crates/splatforge-khr-conformance` (23 clauses, 10 fixtures, CI green) |
-| 2 | USDC binary bit-exact against `usdcat` | agent | public | in flight |
+| 2 | USDC binary bit-exact against `usdcat` | agent | public | shipped — `crates/splatforge-usd` (version 0.0.1 writer + reader; 3/3 fixtures round-trip via Apple usdcat 0.25.2) |
 | 3 | Cesium 3D Tiles preset (`--preset geospatial`) | agent | public | in flight |
 | 4 | GitHub Action `splatforge/optimize-action` | agent | public | in flight |
 | 5 | WebGPU compute decode + GPU radix sort (queue #62) | agent | public | in flight |
