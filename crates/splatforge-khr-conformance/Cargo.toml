@@ -1,0 +1,30 @@
+[package]
+name = "splatforge-khr-conformance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Conformance test suite for the Khronos KHR_gaussian_splatting glTF extension."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "splatforge-khr-validate"
+path = "src/bin/validate.rs"
+
+[[bin]]
+name = "splatforge-khr-fixtures"
+path = "src/bin/fixtures.rs"
+
+[dependencies]
+splatforge-core = { workspace = true }
+splatforge-gltf = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
