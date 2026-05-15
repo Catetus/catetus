@@ -2204,6 +2204,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "splatforge-viewer-mobile"
+version = "0.1.0"
+dependencies = [
+ "splatforge-core",
+ "splatforge-gltf",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "sqlx"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

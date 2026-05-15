@@ -1,0 +1,4 @@
+module SplatforgeViewerC {
+    header "splatforge_viewer_mobile.h"
+    export *
+}
