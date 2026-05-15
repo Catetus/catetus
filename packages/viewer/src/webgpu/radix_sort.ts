@@ -2,17 +2,35 @@
 /**
  * GPU radix sort over u32 keys and u32 values.
  *
- * Wraps `radix_sort.wgsl`. The shader sorts 4 bits per pass; we run 8 passes
- * to cover a full 32-bit key, ping-ponging between two pairs of buffers.
+ * Wraps `radix_sort.wgsl` (histogram + scan + scatter) and, when the
+ * multi-block scan path is enabled, the chained 3-kernel exclusive prefix
+ * sum in `scan_multiblock.wgsl`.
  *
  * Public API:
  *   - `createRadixSort(device, capacity)` allocates buffers sized for up to
  *     `capacity` elements.
- *   - `sorter.encode(encoder, count)` records the 24 dispatch calls (3 per
- *     pass × 8 passes) into the given command encoder.
+ *   - `sorter.encode(encoder, count)` records the dispatch calls into the
+ *     given command encoder.
  *   - `sorter.keysA` / `sorter.valuesA` are the input buffers callers write
  *     into; after `encode`, the sorted output ends up in `keysA` / `valuesA`
  *     too (we make sure the final ping-pong lands on A).
+ *
+ * Two scan strategies live side-by-side:
+ *
+ *   1. **Single-WG scan** (legacy). The original `cs_scan` in
+ *      `radix_sort.wgsl` runs as one workgroup of 256 threads striding
+ *      through the entire `histograms` array (`num_wgs * RADIX` elements).
+ *      For 10 M splats that's ~625 K elements per pass × 8 passes — the
+ *      dominant cost in the sort.
+ *
+ *   2. **Multi-block chained scan** (default — `useMultiBlockScan: true`).
+ *      Three kernels per scan, parallelized over many workgroups in phases
+ *      (A) per-WG tile scan and (C) per-WG add-block-sums. Phase (B), the
+ *      block-sums scan, still runs in a single workgroup because the
+ *      block-sums array is tiny (≤ a few thousand entries even at 10 M
+ *      splats). This is the architecturally-correct change regardless of
+ *      the absolute fps target; the single-WG path is kept for A/B
+ *      comparison and as a fallback.
  *
  * Bind groups are created lazily per (numWgs) shape; the implementation
  * caches them since `numWgs` is a function of `count` and changes rarely.
@@ -21,8 +39,8 @@
 /**
  * `tsc` (the only bundler in this package) doesn't support `?raw` imports,
  * so the WGSL source for the decode/project and radix-sort pipelines is
- * embedded as TypeScript string constants in `shaders.ts`. The caller
- * passes the appropriate string into `createRadixSortPipelines`.
+ * embedded as TypeScript string constants in `shaders.generated.ts`. The
+ * caller passes the appropriate string into `createRadixSortPipelines`.
  */
 
 const WG_SIZE = 256;
@@ -35,15 +53,31 @@ export interface RadixSortPipelines {
   scan: GPUComputePipeline;
   scatter: GPUComputePipeline;
   bindGroupLayout: GPUBindGroupLayout;
+  /** Optional multi-block scan pipelines (chained 3-kernel scan). */
+  scanMb?: MultiBlockScanPipelines;
+}
+
+/** Multi-block exclusive prefix-sum pipelines (see `scan_multiblock.wgsl`). */
+export interface MultiBlockScanPipelines {
+  perWg: GPUComputePipeline;
+  blockSums: GPUComputePipeline;
+  addBlockSums: GPUComputePipeline;
+  bindGroupLayout: GPUBindGroupLayout;
 }
 
 /**
  * Compile the radix-sort compute pipelines from the WGSL source. Done once
  * per device.
+ *
+ * @param multiBlockScanWgsl optional WGSL for the 3-kernel chained scan. When
+ *   provided, the orchestration in `RadixSort.encode` will replace the
+ *   single-workgroup `cs_scan` with the multi-block path. Pass an empty
+ *   string to opt out (legacy behavior).
  */
 export function createRadixSortPipelines(
   device: GPUDevice,
   wgslSource: string,
+  multiBlockScanWgsl: string = '',
 ): RadixSortPipelines {
   const module = device.createShaderModule({ code: wgslSource });
   const bindGroupLayout = device.createBindGroupLayout({
@@ -59,12 +93,45 @@ export function createRadixSortPipelines(
   const layout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
   const mk = (entryPoint: string): GPUComputePipeline =>
     device.createComputePipeline({ layout, compute: { module, entryPoint } });
+
+  let scanMb: MultiBlockScanPipelines | undefined;
+  if (multiBlockScanWgsl.length > 0) {
+    const mbModule = device.createShaderModule({ code: multiBlockScanWgsl });
+    const mbBgl = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+      ],
+    });
+    const mbLayout = device.createPipelineLayout({ bindGroupLayouts: [mbBgl] });
+    const mbMk = (entryPoint: string): GPUComputePipeline =>
+      device.createComputePipeline({ layout: mbLayout, compute: { module: mbModule, entryPoint } });
+    scanMb = {
+      perWg: mbMk('cs_scan_per_wg'),
+      blockSums: mbMk('cs_scan_block_sums'),
+      addBlockSums: mbMk('cs_scan_add_block_sums'),
+      bindGroupLayout: mbBgl,
+    };
+  }
+
   return {
     histogram: mk('cs_histogram'),
     scan: mk('cs_scan'),
     scatter: mk('cs_scatter'),
     bindGroupLayout,
+    ...(scanMb ? { scanMb } : {}),
   };
+}
+
+/** Options for the radix sorter. */
+export interface RadixSortOptions {
+  /**
+   * If true (default), use the multi-block chained scan when available.
+   * When the supplied `RadixSortPipelines` was constructed without
+   * `multiBlockScanWgsl`, this flag is silently ignored.
+   */
+  useMultiBlockScan?: boolean;
 }
 
 /**
@@ -85,21 +152,34 @@ export class RadixSort {
   private readonly bindGroups: GPUBindGroup[] = [];
   private readonly pipes: RadixSortPipelines;
   private readonly maxWgs: number;
+  private readonly useMultiBlockScan: boolean;
 
-  constructor(device: GPUDevice, capacity: number, pipes: RadixSortPipelines) {
+  /** Multi-block scan state (only allocated when the scan is enabled). */
+  private readonly mbBlockSums?: GPUBuffer;
+  private readonly mbUniform?: GPUBuffer;
+  private readonly mbBindGroup?: GPUBindGroup;
+
+  constructor(
+    device: GPUDevice,
+    capacity: number,
+    pipes: RadixSortPipelines,
+    options: RadixSortOptions = {},
+  ) {
     this.device = device;
     this.capacity = capacity;
     this.pipes = pipes;
     this.maxWgs = Math.ceil(capacity / WG_SIZE);
+    this.useMultiBlockScan = (options.useMultiBlockScan ?? true) && pipes.scanMb !== undefined;
     const bufSize = Math.max(capacity, 1) * 4;
     const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
     this.keysA = device.createBuffer({ size: bufSize, usage });
     this.valuesA = device.createBuffer({ size: bufSize, usage });
     this.keysB = device.createBuffer({ size: bufSize, usage });
     this.valuesB = device.createBuffer({ size: bufSize, usage });
+    const histSize = Math.max(this.maxWgs * RADIX * 4, 64);
     this.histograms = device.createBuffer({
-      size: Math.max(this.maxWgs * RADIX * 4, 64),
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      size: histSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     // Pre-allocate 8 uniform buffers (one per pass) and matching bind groups.
     // The bind groups depend on which ping-pong direction each pass uses.
@@ -129,6 +209,30 @@ export class RadixSort {
         }),
       );
     }
+
+    // Multi-block scan scratch + bind group.
+    if (this.useMultiBlockScan && pipes.scanMb) {
+      // total histogram entries scanned per pass = maxWgs * RADIX.
+      // Number of scan-tile workgroups = ceil(total / WG_SIZE).
+      const maxTotal = this.maxWgs * RADIX;
+      const maxScanWgs = Math.max(Math.ceil(maxTotal / WG_SIZE), 1);
+      this.mbBlockSums = device.createBuffer({
+        size: maxScanWgs * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.mbUniform = device.createBuffer({
+        size: 16, // ScanUniforms: 4×u32
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      this.mbBindGroup = device.createBindGroup({
+        layout: pipes.scanMb.bindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.histograms } },
+          { binding: 1, resource: { buffer: this.mbBlockSums } },
+          { binding: 2, resource: { buffer: this.mbUniform } },
+        ],
+      });
+    }
   }
 
   /**
@@ -153,13 +257,40 @@ export class RadixSort {
       u[2] = numWgs;
       this.device.queue.writeBuffer(this.uniformBuffers[pass]!, 0, u.buffer);
     }
+
+    // Multi-block scan uniforms. `total` = numWgs * RADIX (the histogram
+    // length we want an exclusive prefix sum over). `num_scan_wgs` = number
+    // of scan-tile workgroups = ceil(total / WG_SIZE).
+    let numScanWgs = 0;
+    if (this.useMultiBlockScan) {
+      const total = numWgs * RADIX;
+      numScanWgs = Math.max(Math.ceil(total / WG_SIZE), 1);
+      const su = new Uint32Array(4);
+      su[0] = total;
+      su[1] = numScanWgs;
+      this.device.queue.writeBuffer(this.mbUniform!, 0, su.buffer);
+    }
+
     for (let pass = 0; pass < PASSES; pass++) {
       const pp = encoder.beginComputePass();
       pp.setBindGroup(0, this.bindGroups[pass]!);
       pp.setPipeline(this.pipes.histogram);
       pp.dispatchWorkgroups(numWgs);
-      pp.setPipeline(this.pipes.scan);
-      pp.dispatchWorkgroups(1);
+      if (this.useMultiBlockScan && this.pipes.scanMb) {
+        // Switch bind groups to the scan layout (separate layout).
+        pp.setBindGroup(0, this.mbBindGroup!);
+        pp.setPipeline(this.pipes.scanMb.perWg);
+        pp.dispatchWorkgroups(numScanWgs);
+        pp.setPipeline(this.pipes.scanMb.blockSums);
+        pp.dispatchWorkgroups(1);
+        pp.setPipeline(this.pipes.scanMb.addBlockSums);
+        pp.dispatchWorkgroups(numScanWgs);
+        // Restore radix bind group for scatter.
+        pp.setBindGroup(0, this.bindGroups[pass]!);
+      } else {
+        pp.setPipeline(this.pipes.scan);
+        pp.dispatchWorkgroups(1);
+      }
       pp.setPipeline(this.pipes.scatter);
       pp.dispatchWorkgroups(numWgs);
       pp.end();
@@ -173,9 +304,12 @@ export class RadixSort {
     this.valuesB.destroy();
     this.histograms.destroy();
     for (const u of this.uniformBuffers) u.destroy();
+    this.mbBlockSums?.destroy();
+    this.mbUniform?.destroy();
   }
 }
 
 /** Exported constants so other modules don't redeclare them. */
 export const RADIX_SORT_WG_SIZE = WG_SIZE;
 export const RADIX_SORT_PASSES = PASSES;
+export const RADIX_SORT_RADIX = RADIX;
