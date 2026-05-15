@@ -39,10 +39,12 @@ unsorted instance buffer  +  (keys[], indices[])
        │
        ▼  radix-sort (8 × 4-bit LSD passes)
        │   per pass:
-       │     cs_histogram                          [radix_sort.wgsl]
-       │     cs_scan_per_wg                        [scan_multiblock.wgsl] ← NEW
-       │     cs_scan_block_sums                    [scan_multiblock.wgsl] ← NEW
-       │     cs_scan_add_block_sums                [scan_multiblock.wgsl] ← NEW
+       │     cs_histogram          (or cs_histogram_subgroup ← NEW, 1.1)
+       │                                          [radix_sort.wgsl /
+       │                                           histogram_subgroup.wgsl]
+       │     cs_scan_per_wg                        [scan_multiblock.wgsl]
+       │     cs_scan_block_sums                    [scan_multiblock.wgsl]
+       │     cs_scan_add_block_sums                [scan_multiblock.wgsl]
        │     cs_scatter                            [radix_sort.wgsl]
        ▼
 sorted indices[]   (back-to-front order)
@@ -53,11 +55,14 @@ sorted indices[]   (back-to-front order)
 sorted instance buffer   →   existing vertex pipeline
 ```
 
-Total per-frame dispatches: **1 + 1 + 8 × 5 + 1 = 43** compute dispatches
-when the multi-block scan is enabled, vs the previous 1 + 1 + 8 × 3 + 1 =
-27. The five extra dispatches per pass are cheap: phases (a) and (c) of
-the scan parallelize across many workgroups instead of trickling through
-a single one.
+Total per-frame dispatches: **1 + 1 + 4 × 5 + 1 = 23** compute dispatches
+with 8-bit radix + multi-block scan. Previous shapes:
+  - 8 × 4-bit + multi-block scan: 1 + 1 + 8 × 5 + 1 = 43
+  - 8 × 4-bit + single-WG scan:   1 + 1 + 8 × 3 + 1 = 27
+The dispatch reduction comes from halving the radix-pass count (8 → 4)
+by widening the radix from 4-bit to 8-bit. The per-pass cost goes up
+slightly (histogram array is 16× larger) but stays parallelizable
+because of the multi-block scan that landed in the previous commit.
 
 ## Radix-sort algorithm choice: split-block vs prefix-sum
 
@@ -170,27 +175,34 @@ green.
 Run from `pnpm --filter @splatforge/viewer run bench`. Bench harness is
 in `bench/`. JSON output: `bench/results.json`.
 
-The previous numbers in this doc were measured before the multi-block
-scan landed and are kept in the "Before" column for the operator to
-compare. The "After" column is **PENDING — operator re-run on M-series
-host**. Run the one-liner below and overwrite the `PENDING` cells.
+The "Before" column was measured before the multi-block scan landed
+(legacy single-WG scan + 4-bit / 8-pass radix). The "After" column is
+**PENDING — operator re-run on 4090** because this commit cannot be
+benched in CI: the Darwin/CI shell has no real WebGPU adapter, and the
+operator's 4090 Tailscale host (`montespc`) was offline at write-time.
+Operator runs the script at `scripts/run-bench-on-4090.sh` once the
+host is reachable, then overwrites the `PENDING` cells.
 
 ```sh
+# CI / Darwin operator path (real WebGPU, e.g. M-series Mac):
 pnpm --filter @splatforge/viewer run bench
+
+# Tailscale path to the 4090 box:
+scripts/run-bench-on-4090.sh
 ```
 
-| Scale | Decode (one-shot) Before | Decode After | Frame (avg) Before | Frame After | FPS Before | FPS After |
-|-------|--------------------------|--------------|---------------------|-------------|------------|-----------|
-| 1 M   | 245.7 ms                 | PENDING      | 7.86 ms             | PENDING     | 127        | PENDING   |
-| 10 M  | 626.1 ms                 | PENDING      | 89.21 ms            | PENDING     | 11.2       | PENDING   |
+| Scale | Decode (one-shot) Before | Decode After                      | Frame (avg) Before | Frame After                       | FPS Before | FPS After                         |
+|-------|--------------------------|-----------------------------------|---------------------|-----------------------------------|------------|-----------------------------------|
+| 1 M   | 245.7 ms                 | PENDING — operator re-run on 4090 | 7.86 ms             | PENDING — operator re-run on 4090 | 127        | PENDING — operator re-run on 4090 |
+| 10 M  | 626.1 ms                 | PENDING — operator re-run on 4090 | 89.21 ms            | PENDING — operator re-run on 4090 | 11.2       | PENDING — operator re-run on 4090 |
 
 Per-stage estimated breakdown (Before column from the legacy single-WG
 scan; After column to be filled in by the operator):
 
-| Scale | Project Before | Sort Before | Gather Before | Project After | Sort After | Gather After |
-|-------|----------------|-------------|---------------|---------------|------------|--------------|
-| 1 M   | 1.57 ms        | 5.50 ms     | 0.79 ms       | PENDING       | PENDING    | PENDING      |
-| 10 M  | 17.8 ms        | 62.4 ms     | 8.92 ms       | PENDING       | PENDING    | PENDING      |
+| Scale | Project Before | Sort Before | Gather Before | Project After                     | Sort After                        | Gather After                      |
+|-------|----------------|-------------|---------------|-----------------------------------|-----------------------------------|-----------------------------------|
+| 1 M   | 1.57 ms        | 5.50 ms     | 0.79 ms       | PENDING — operator re-run on 4090 | PENDING — operator re-run on 4090 | PENDING — operator re-run on 4090 |
+| 10 M  | 17.8 ms        | 62.4 ms     | 8.92 ms       | PENDING — operator re-run on 4090 | PENDING — operator re-run on 4090 | PENDING — operator re-run on 4090 |
 
 > Numbers from `pnpm --filter @splatforge/viewer run bench` on the
 > operator's M-series host. Do **not** copy in numbers from any other
@@ -202,13 +214,16 @@ The honest framing for this change: it removes the single-WG scan as the
 top bottleneck in the sort. It does **not** by itself land 60 fps at
 10 M. Reaching that target needs follow-up work:
 
-1. **8-bit radix** instead of 4-bit. Halves the number of passes from 8
-   to 4. Needs 256-bin histograms (vs 16) which fits in shared memory
-   but increases the histogram scan size; the multi-block scan landed
-   here is the prerequisite that makes the larger scan tractable.
-2. **Subgroup-aware histogram** using `subgroupAdd` / ballot ops to
-   compute per-warp bin counts before writing one value per warp to
-   shared memory. WebGPU 1.1 subgroup feature.
+1. ~~**8-bit radix** instead of 4-bit.~~ **DONE** (this commit).
+   `RADIX = 256` / `PASSES = 4`. 1 KiB workgroup-shared histogram,
+   well under the 16 KiB cap. The multi-block scan from the previous
+   commit handles the 16× larger histogram-scan input.
+2. ~~**Subgroup-aware histogram**~~ **DONE** (this commit).
+   `histogram_subgroup.wgsl` with `enable subgroups;` and the
+   conservative "all-lanes-agree" coalesce (one atomicAdd per
+   subgroup when all live lanes share a bin; per-lane atomicAdd
+   otherwise). Feature-detected via `adapterSupportsSubgroups()`;
+   falls back to the atomic-add path on WebGPU 1.0 adapters.
 3. **Faster gather** — collapse `cs_gather` into a second `cs_project`
    pass that reads sorted indices and writes the final instance buffer
    in one go, eliminating the unsorted-instance staging buffer.
@@ -239,12 +254,17 @@ limit at device-creation time; mobile callers should query
 ## Files
 
 - `src/webgpu/decode.wgsl` — decode + project compute shaders.
-- `src/webgpu/radix_sort.wgsl` — 4-bit LSD radix sort
-  (histogram + legacy single-WG scan + scatter).
+- `src/webgpu/radix_sort.wgsl` — 8-bit LSD radix sort
+  (histogram + legacy single-WG scan + scatter; 4 passes).
 - `src/webgpu/scan_multiblock.wgsl` — 3-kernel chained exclusive prefix
   sum (NEW; replaces the single-WG scan).
-- `src/webgpu/radix_sort.ts` — TS orchestration of 8 passes. The
-  `useMultiBlockScan` flag (default `true`) selects the multi-block path.
+- `src/webgpu/radix_sort.ts` — TS orchestration of 4 passes. Flags:
+  `useMultiBlockScan` (default `true`) selects the multi-block scan;
+  `useSubgroupHistogram` (default `true`) selects the subgroup
+  histogram. Each silently falls back when the corresponding WGSL
+  module wasn't passed in (i.e. the device doesn't support it).
+- `src/webgpu/histogram_subgroup.wgsl` — subgroup-aware histogram
+  variant (NEW; behind WebGPU 1.1 `'subgroups'` feature).
 - `src/webgpu/index.ts` — `ComputeDecodePipeline` (the public surface).
 - `src/webgpu/shaders.generated.ts` — bundled WGSL strings; regenerated by
   `scripts/embed-wgsl.mjs` (runs on every build/test).

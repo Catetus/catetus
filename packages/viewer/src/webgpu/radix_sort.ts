@@ -2,9 +2,9 @@
 /**
  * GPU radix sort over u32 keys and u32 values.
  *
- * Wraps `radix_sort.wgsl` (histogram + scan + scatter) and, when the
- * multi-block scan path is enabled, the chained 3-kernel exclusive prefix
- * sum in `scan_multiblock.wgsl`.
+ * Wraps `radix_sort.wgsl` (histogram + scan + scatter), the multi-block
+ * chained scan in `scan_multiblock.wgsl`, and an optional subgroup-aware
+ * histogram kernel in `histogram_subgroup.wgsl`.
  *
  * Public API:
  *   - `createRadixSort(device, capacity)` allocates buffers sized for up to
@@ -15,22 +15,39 @@
  *     into; after `encode`, the sorted output ends up in `keysA` / `valuesA`
  *     too (we make sure the final ping-pong lands on A).
  *
- * Two scan strategies live side-by-side:
+ * Algorithm: classic LSD radix sort, **8-bit radix (256 bins) -> 4 passes**
+ * over a 32-bit key. The 4-bit / 16-bin / 8-pass variant lived here before;
+ * the 8-bit change halves the dispatch count for the sort and is the second
+ * lever (after the multi-block scan) on the path to 60 fps @ 10 M splats.
+ *
+ * Two scan strategies are supported:
  *
  *   1. **Single-WG scan** (legacy). The original `cs_scan` in
  *      `radix_sort.wgsl` runs as one workgroup of 256 threads striding
- *      through the entire `histograms` array (`num_wgs * RADIX` elements).
- *      For 10 M splats that's ~625 K elements per pass × 8 passes — the
- *      dominant cost in the sort.
+ *      through the entire `histograms` array. With 8-bit radix the
+ *      histogram has `num_wgs * 256` entries per pass — ~10 M u32s at
+ *      10 M splats — which is far too large for a single workgroup. This
+ *      path is retained for completeness only; production callers must
+ *      use the multi-block scan.
  *
  *   2. **Multi-block chained scan** (default — `useMultiBlockScan: true`).
  *      Three kernels per scan, parallelized over many workgroups in phases
  *      (A) per-WG tile scan and (C) per-WG add-block-sums. Phase (B), the
  *      block-sums scan, still runs in a single workgroup because the
- *      block-sums array is tiny (≤ a few thousand entries even at 10 M
- *      splats). This is the architecturally-correct change regardless of
- *      the absolute fps target; the single-WG path is kept for A/B
- *      comparison and as a fallback.
+ *      block-sums array is small (~40 K entries for 10 M splats x 256 bins).
+ *
+ * Two histogram kernels are supported:
+ *
+ *   1. **Atomic histogram** (mandatory). `cs_histogram` from
+ *      `radix_sort.wgsl`. Each lane does one workgroup-shared
+ *      `atomicAdd(&wg_hist[my_bin], 1u)`. Workgroup atomics are mandatory
+ *      in WebGPU 1.0 so this path always works.
+ *   2. **Subgroup-aware histogram** (optional, WebGPU 1.1 `'subgroups'`
+ *      feature). `cs_histogram_subgroup` from `histogram_subgroup.wgsl`.
+ *      When every live lane in a subgroup shares the same bin (very common
+ *      after the first pass on partially-sorted data), one atomicAdd of
+ *      `subgroup_size` replaces N. Falls back to per-lane atomicAdd on
+ *      mixed-bin subgroups.
  *
  * Bind groups are created lazily per (numWgs) shape; the implementation
  * caches them since `numWgs` is a function of `count` and changes rarely.
@@ -44,9 +61,9 @@
  */
 
 const WG_SIZE = 256;
-const RADIX = 16;
-const PASSES = 8;
-const BITS_PER_PASS = 4;
+const RADIX = 256;
+const PASSES = 4;
+const BITS_PER_PASS = 8;
 
 export interface RadixSortPipelines {
   histogram: GPUComputePipeline;
@@ -55,6 +72,12 @@ export interface RadixSortPipelines {
   bindGroupLayout: GPUBindGroupLayout;
   /** Optional multi-block scan pipelines (chained 3-kernel scan). */
   scanMb?: MultiBlockScanPipelines;
+  /**
+   * Optional subgroup-aware histogram kernel. When present, the encode path
+   * uses it instead of `histogram`. Created only when the caller passes
+   * `histogramSubgroupWgsl` AND has confirmed the device supports subgroups.
+   */
+  histogramSubgroup?: GPUComputePipeline;
 }
 
 /** Multi-block exclusive prefix-sum pipelines (see `scan_multiblock.wgsl`). */
@@ -66,6 +89,27 @@ export interface MultiBlockScanPipelines {
 }
 
 /**
+ * Feature-detect WebGPU subgroups. Subgroups is an optional feature; the
+ * adapter advertises it, and the device must be requested with it in
+ * `requiredFeatures` for the shader's `enable subgroups;` directive to
+ * compile.
+ *
+ * Callers who want the subgroup histogram should:
+ *   1. Check `adapterSupportsSubgroups(adapter)`.
+ *   2. Pass `requiredFeatures: ['subgroups']` to `adapter.requestDevice()`.
+ *   3. Pass `histogramSubgroupWgsl` into `createRadixSortPipelines`.
+ *
+ * Returns false (instead of throwing) if the adapter doesn't advertise the
+ * feature - the caller silently falls back to the atomic-add path.
+ */
+export function adapterSupportsSubgroups(adapter: GPUAdapter): boolean {
+  // `'subgroups'` is the spec-mandated feature name (WebGPU 1.1 / Dawn /
+  // wgpu). Cast through `unknown` because `GPUFeatureName` in @webgpu/types
+  // is a narrow string-literal union that doesn't yet include it.
+  return adapter.features.has('subgroups' as unknown as GPUFeatureName);
+}
+
+/**
  * Compile the radix-sort compute pipelines from the WGSL source. Done once
  * per device.
  *
@@ -73,11 +117,16 @@ export interface MultiBlockScanPipelines {
  *   provided, the orchestration in `RadixSort.encode` will replace the
  *   single-workgroup `cs_scan` with the multi-block path. Pass an empty
  *   string to opt out (legacy behavior).
+ * @param histogramSubgroupWgsl optional WGSL for the subgroup-aware
+ *   histogram kernel. Caller is responsible for ensuring the device was
+ *   created with `requiredFeatures: ['subgroups']`; otherwise the shader
+ *   module will fail to compile. Pass an empty string to disable.
  */
 export function createRadixSortPipelines(
   device: GPUDevice,
   wgslSource: string,
   multiBlockScanWgsl: string = '',
+  histogramSubgroupWgsl: string = '',
 ): RadixSortPipelines {
   const module = device.createShaderModule({ code: wgslSource });
   const bindGroupLayout = device.createBindGroupLayout({
@@ -115,12 +164,26 @@ export function createRadixSortPipelines(
     };
   }
 
+  // Optional subgroup histogram. Compiles the WGSL with `enable subgroups;`
+  // - the device MUST have been requested with the 'subgroups' feature or
+  // shader module creation will surface a validation error. The caller
+  // owns that decision; see `adapterSupportsSubgroups`.
+  let histogramSubgroup: GPUComputePipeline | undefined;
+  if (histogramSubgroupWgsl.length > 0) {
+    const sgModule = device.createShaderModule({ code: histogramSubgroupWgsl });
+    histogramSubgroup = device.createComputePipeline({
+      layout,
+      compute: { module: sgModule, entryPoint: 'cs_histogram_subgroup' },
+    });
+  }
+
   return {
     histogram: mk('cs_histogram'),
     scan: mk('cs_scan'),
     scatter: mk('cs_scatter'),
     bindGroupLayout,
     ...(scanMb ? { scanMb } : {}),
+    ...(histogramSubgroup ? { histogramSubgroup } : {}),
   };
 }
 
@@ -132,6 +195,13 @@ export interface RadixSortOptions {
    * `multiBlockScanWgsl`, this flag is silently ignored.
    */
   useMultiBlockScan?: boolean;
+  /**
+   * If true (default), use the subgroup-aware histogram kernel when
+   * compiled. When the supplied `RadixSortPipelines` was constructed
+   * without `histogramSubgroupWgsl` (or the device doesn't expose the
+   * feature), this flag is silently ignored.
+   */
+  useSubgroupHistogram?: boolean;
 }
 
 /**
@@ -153,6 +223,7 @@ export class RadixSort {
   private readonly pipes: RadixSortPipelines;
   private readonly maxWgs: number;
   private readonly useMultiBlockScan: boolean;
+  private readonly useSubgroupHistogram: boolean;
 
   /** Multi-block scan state (only allocated when the scan is enabled). */
   private readonly mbBlockSums?: GPUBuffer;
@@ -170,6 +241,8 @@ export class RadixSort {
     this.pipes = pipes;
     this.maxWgs = Math.ceil(capacity / WG_SIZE);
     this.useMultiBlockScan = (options.useMultiBlockScan ?? true) && pipes.scanMb !== undefined;
+    this.useSubgroupHistogram =
+      (options.useSubgroupHistogram ?? true) && pipes.histogramSubgroup !== undefined;
     const bufSize = Math.max(capacity, 1) * 4;
     const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
     this.keysA = device.createBuffer({ size: bufSize, usage });
@@ -181,11 +254,13 @@ export class RadixSort {
       size: histSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
-    // Pre-allocate 8 uniform buffers (one per pass) and matching bind groups.
-    // The bind groups depend on which ping-pong direction each pass uses.
+    // Pre-allocate PASSES uniform buffers (one per pass) and matching bind
+    // groups. The bind groups depend on which ping-pong direction each pass
+    // uses. PASSES is even (4) so the final ping-pong lands on the A
+    // buffers.
     for (let pass = 0; pass < PASSES; pass++) {
       const ub = device.createBuffer({
-        // 16-byte struct; some adapters require ≥32 B uniform bindings.
+        // 16-byte struct; some adapters require >= 32 B uniform bindings.
         size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
@@ -221,7 +296,7 @@ export class RadixSort {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
       this.mbUniform = device.createBuffer({
-        size: 16, // ScanUniforms: 4×u32
+        size: 16, // ScanUniforms: 4xu32
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       this.mbBindGroup = device.createBindGroup({
@@ -239,7 +314,7 @@ export class RadixSort {
    * Record dispatches for sorting `count` elements. After `encoder.finish()`
    * + `queue.submit()`, the sorted keys/values live in `keysA` / `valuesA`.
    *
-   * PASSES is even (8) so we always end on the A buffers.
+   * PASSES is even (4) so we always end on the A buffers.
    */
   encode(encoder: GPUCommandEncoder, count: number): void {
     if (count <= 1) return;
@@ -271,10 +346,16 @@ export class RadixSort {
       this.device.queue.writeBuffer(this.mbUniform!, 0, su.buffer);
     }
 
+    // Pick the histogram kernel once per encode. Bind-group layout is
+    // identical between the atomic and subgroup variants.
+    const histogramPipe = this.useSubgroupHistogram
+      ? this.pipes.histogramSubgroup!
+      : this.pipes.histogram;
+
     for (let pass = 0; pass < PASSES; pass++) {
       const pp = encoder.beginComputePass();
       pp.setBindGroup(0, this.bindGroups[pass]!);
-      pp.setPipeline(this.pipes.histogram);
+      pp.setPipeline(histogramPipe);
       pp.dispatchWorkgroups(numWgs);
       if (this.useMultiBlockScan && this.pipes.scanMb) {
         // Switch bind groups to the scan layout (separate layout).
@@ -313,3 +394,4 @@ export class RadixSort {
 export const RADIX_SORT_WG_SIZE = WG_SIZE;
 export const RADIX_SORT_PASSES = PASSES;
 export const RADIX_SORT_RADIX = RADIX;
+export const RADIX_SORT_BITS_PER_PASS = BITS_PER_PASS;

@@ -2,35 +2,55 @@
 //
 // WebGPU radix sort over u32 keys, carrying a u32 payload (the splat index).
 //
-// Algorithm: classic 4-bit (16-bin) LSD radix sort. Each 32-bit key is sorted
-// in 8 sequential passes. Each pass consists of three kernels:
+// Algorithm: classic 8-bit (256-bin) LSD radix sort. Each 32-bit key is sorted
+// in 4 sequential passes. Each pass consists of three kernels:
 //
 //   1. cs_histogram  — per-workgroup local histogram, written out to
-//                      `histograms[workgroup * 16 + bin]`. WG_SIZE = 256.
-//   2. cs_scan       — single-workgroup exclusive prefix sum over the entire
-//                      histogram array (length numWorkgroups * 16).
+//                      `histograms[bin * num_wgs + wgid]`. WG_SIZE = 256, so
+//                      each thread owns exactly one bin during init/writeout.
+//   2. cs_scan       — exclusive prefix sum over the entire histogram array
+//                      (length numWorkgroups * 256). At 10 M splats that's
+//                      ~10 M entries — far beyond the single-WG scan's
+//                      working set, so the multi-block chained scan in
+//                      `scan_multiblock.wgsl` is the only viable path here.
 //   3. cs_scatter    — read scanned offsets, scatter each (key, index) pair
 //                      into its bucket position.
 //
+// 8-bit (256-bin) vs the previous 4-bit (16-bin) layout:
+//   - Halves the number of passes (8 -> 4). At the per-pass dispatch
+//     granularity for 10 M splats, that's a near-2x reduction in radix-sort
+//     compute work (modulo the larger scan-input size).
+//   - Grows the per-pass histogram array 16x (numWgs * 16 -> numWgs * 256),
+//     i.e. ~625 K -> ~10 M u32s per pass at 10 M splats. The multi-block
+//     scan in `scan_multiblock.wgsl` (already chained, parallelized across
+//     all available workgroups) handles this size; the legacy single-WG
+//     `cs_scan` would not.
+//   - Workgroup-shared histogram (`wg_hist[RADIX]`) grows 16x to 1 KiB,
+//     well under the 16 KiB workgroup-shared cap on every WebGPU device.
+//   - `wg_offsets[RADIX]` likewise grows to 1 KiB.
+//
+// We deliberately avoid storage-buffer atomics: each workgroup writes its own
+// histogram slot, the scan runs across many workgroups (see
+// `scan_multiblock.wgsl`) using only workgroup-shared atomics in the
+// histogram kernel, and the scatter uses a per-workgroup local prefix scan
+// to compute intra-workgroup destination offsets without atomicAdd on
+// storage. Atomics on storage buffers are still optional in WebGPU 1.0 and
+// not on the mandatory feature set.
+//
 // Inspired by:
-//   - Wyman, "wgsl-radix-sort" (github.com/cwyman/wgsl-radix-sort) — overall
+//   - Wyman, "wgsl-radix-sort" (github.com/cwyman/wgsl-radix-sort) - overall
 //     three-pass split radix structure.
 //   - Merrill & Grimshaw 2010, "High Performance and Scalable Radix Sorting".
 //   - antimatter15 / splatviz GPU sort prototypes (multi-pass LSD on u32).
-//
-// We deliberately avoid storage-buffer atomics: each workgroup writes its own
-// histogram slot, the scan runs in a single workgroup using shared memory,
-// and the scatter uses a per-workgroup local prefix scan to compute intra-
-// workgroup destination offsets without atomicAdd. Atomics on storage buffers
-// are still optional in WebGPU 1.0 and not on the mandatory feature set.
 
 const WG_SIZE : u32 = 256u;
-const RADIX   : u32 = 16u;       // 4-bit radix → 16 bins per pass.
-const PASSES  : u32 = 8u;        // 32 bits / 4 bits
+const RADIX   : u32 = 256u;      // 8-bit radix -> 256 bins per pass.
+const RADIX_MASK : u32 = 0xffu;  // RADIX - 1
+const PASSES  : u32 = 4u;        // 32 bits / 8 bits
 
 struct Uniforms {
   count: u32,
-  bit_shift: u32,    // 0, 4, 8, ..., 28
+  bit_shift: u32,    // 0, 8, 16, 24
   num_wgs: u32,      // ceil(count / WG_SIZE)
   _pad: u32,
 };
@@ -42,7 +62,9 @@ struct Uniforms {
 @group(0) @binding(4) var<storage, read_write> histograms : array<u32>;
 @group(0) @binding(5) var<uniform>             u : Uniforms;
 
-// Workgroup-shared per-bin counters.
+// Workgroup-shared per-bin counters. With 8-bit radix, RADIX == WG_SIZE so
+// every thread initializes / reads exactly one bin during init/writeout —
+// no `if (lid.x < RADIX)` guard needed.
 var<workgroup> wg_hist : array<atomic<u32>, RADIX>;
 // Workgroup-shared offsets table used in the scatter pass.
 var<workgroup> wg_offsets : array<u32, RADIX>;
@@ -54,6 +76,9 @@ var<workgroup> scan_scratch : array<u32, WG_SIZE>;
 // thread atomically increments the bucket for its key. The atomics here are
 // *workgroup*-scoped — WebGPU mandates `atomic<u32>` in `var<workgroup>`.
 // (Storage-buffer atomics are NOT used anywhere.)
+//
+// With RADIX == WG_SIZE the init / writeout loop collapses to one statement
+// per thread.
 // ---------------------------------------------------------------------------
 @compute @workgroup_size(WG_SIZE)
 fn cs_histogram(
@@ -61,46 +86,36 @@ fn cs_histogram(
   @builtin(local_invocation_id)   lid : vec3<u32>,
   @builtin(workgroup_id)          wgid : vec3<u32>,
 ) {
-  if (lid.x < RADIX) {
-    atomicStore(&wg_hist[lid.x], 0u);
-  }
+  atomicStore(&wg_hist[lid.x], 0u);
   workgroupBarrier();
 
   let i = gid.x;
   if (i < u.count) {
     let k = keys_in[i];
-    let bin = (k >> u.bit_shift) & 0xfu;
+    let bin = (k >> u.bit_shift) & RADIX_MASK;
     atomicAdd(&wg_hist[bin], 1u);
   }
   workgroupBarrier();
 
-  // Thread 0..15 writes the workgroup's 16 bins to the global histogram
-  // table at slot [bin * num_wgs + wgid]. This bin-major layout means the
-  // global exclusive scan naturally places all of bin 0's workgroups first,
-  // then bin 1's, etc. — i.e. ascending sort order without an extra grouping
-  // pass after the scan.
-  if (lid.x < RADIX) {
-    let h = atomicLoad(&wg_hist[lid.x]);
-    histograms[lid.x * u.num_wgs + wgid.x] = h;
-  }
+  // Each thread writes one bin to the global histogram table at slot
+  // [bin * num_wgs + wgid]. This bin-major layout means the global exclusive
+  // scan naturally places all of bin 0's workgroups first, then bin 1's,
+  // etc. — i.e. ascending sort order without an extra grouping pass after
+  // the scan.
+  let h = atomicLoad(&wg_hist[lid.x]);
+  histograms[lid.x * u.num_wgs + wgid.x] = h;
 }
 
 // ---------------------------------------------------------------------------
-// Pass 2: exclusive prefix-sum over the entire histogram array. This shader
-// runs as a single workgroup (256 threads) and uses a Blelloch up-down sweep
-// in workgroup-shared memory. It assumes num_wgs * RADIX <= 4096
-// (i.e. up to 256 dispatched histogram workgroups = 65,536 elements per
-// pass — sufficient for 10M+ splats since the histogram pass uses
-// 256-key tiles ⇒ num_wgs = 10M/256 ≈ 39062 wgs, which exceeds 256).
-//
-// For large num_wgs (>256), we chunk the scan: each thread strides through
-// `num_wgs * RADIX / WG_SIZE` elements doing a serial accumulate first, then
-// performs a workgroup-wide scan over the per-thread totals, and finally a
-// per-thread serial add-back. Sequential adjacent-difference is fine because
-// the scan only needs to run *once* per radix pass.
-//
-// In practice the layout we use is: thread i owns elements
-// histograms[i], histograms[i + WG_SIZE], histograms[i + 2*WG_SIZE], ...
+// Pass 2 (legacy single-WG scan): exclusive prefix-sum over the entire
+// histogram array. This shader runs as a single workgroup (256 threads) and
+// strides through the entire `histograms` array. Retained for
+// non-multi-block-scan callers (e.g. older test setups); at 8-bit radix the
+// histogram is ~10 M u32s for 10 M splats, which is far too large for a
+// single workgroup to scan in any reasonable time. Real callers MUST use
+// `scan_multiblock.wgsl` — the orchestration in `radix_sort.ts` enables it
+// by default and treats the multi-block scan as a hard requirement when
+// RADIX == 256.
 // ---------------------------------------------------------------------------
 @compute @workgroup_size(WG_SIZE)
 fn cs_scan(@builtin(local_invocation_id) lid : vec3<u32>) {
@@ -126,7 +141,7 @@ fn cs_scan(@builtin(local_invocation_id) lid : vec3<u32>) {
     scan_scratch[lid.x] = scan_scratch[lid.x] + v;
     workgroupBarrier();
   }
-  // Convert inclusive → exclusive scan.
+  // Convert inclusive -> exclusive scan.
   let prefix_total = scan_scratch[lid.x];
   let my_block_exclusive = prefix_total - tsum;
   workgroupBarrier();
@@ -148,7 +163,7 @@ fn cs_scan(@builtin(local_invocation_id) lid : vec3<u32>) {
 // than persisting per-element bin assignments to a side buffer), then derives
 // each element's destination index as:
 //
-//   dst[i] = histograms[wgid * RADIX + bin_of(i)]   (global exclusive prefix)
+//   dst[i] = histograms[bin_of(i) * num_wgs + wgid]  (global exclusive prefix)
 //          + local_position_of(i, bin_of(i))
 //
 // We compute `local_position_of` by re-scanning bins inside the workgroup:
@@ -164,10 +179,9 @@ fn cs_scatter(
 ) {
   // Init per-bin local counters to 0. Read the global exclusive offset for
   // this (bin, workgroup) pair from the bin-major scanned histogram.
-  if (lid.x < RADIX) {
-    atomicStore(&wg_hist[lid.x], 0u);
-    wg_offsets[lid.x] = histograms[lid.x * u.num_wgs + wgid.x];
-  }
+  // RADIX == WG_SIZE so every thread does exactly one init/load.
+  atomicStore(&wg_hist[lid.x], 0u);
+  wg_offsets[lid.x] = histograms[lid.x * u.num_wgs + wgid.x];
   workgroupBarrier();
 
   let i = gid.x;
@@ -179,8 +193,8 @@ fn cs_scatter(
   if (i < u.count) {
     key = keys_in[i];
     val = values_in[i];
-    bin = (key >> u.bit_shift) & 0xfu;
-    // atomicAdd returns the old value → that's the rank of this element
+    bin = (key >> u.bit_shift) & RADIX_MASK;
+    // atomicAdd returns the old value -> that's the rank of this element
     // within its bin for this workgroup.
     local_rank = atomicAdd(&wg_hist[bin], 1u);
     live = true;
