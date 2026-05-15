@@ -402,11 +402,15 @@ export class ComputeDecodePipeline {
     }
 
     // -----------------------------------------------------------------
-    // Optional opacity-radius cull. Allocated only when requested so the
-    // existing tests + production renderer (which don't yet integrate the
-    // cull's survivor-count readback) stay byte-identical.
+    // Opacity-radius pre-sort cull. Defaults to ON because production
+    // orbit cameras (~0.7×bbox-diag, 60° FOV) cull 33–82% of splats and
+    // give a 2.8× fps speedup on bicycle / 1.2× on bonsai (re-validated
+    // 2026-05-15 via novel-2-renderer + R4-ADCA benches; see
+    // docs/perf/webgpu-10m-profile.md). The earlier "cull collapses on
+    // real captures" claim was a too-close-camera bench artifact.
+    // Callers can still opt out by passing useCull: false.
     // -----------------------------------------------------------------
-    this.useCull = init.useCull ?? false;
+    this.useCull = init.useCull ?? true;
     if (this.useCull) {
       const cullPipes = createCullPipelines(this.device);
       // For the cull path we write Instance records straight into the
