@@ -117,22 +117,69 @@ interface RawGltf {
     max?: number[];
   }>;
   meshes?: Array<{
-    primitives?: Array<{ extensions?: Record<string, unknown> }>;
+    primitives?: Array<{
+      mode?: number;
+      attributes?: Record<string, number>;
+      extensions?: Record<string, unknown>;
+    }>;
   }>;
   extensions?: Record<string, unknown>;
+}
+
+interface GsAttributes {
+  POSITION?: number;
+  _ROTATION?: number;
+  _SCALE?: number;
+  _OPACITY?: number;
+  _COLOR_DC?: number;
 }
 
 interface GsExt {
   splatCount?: number;
   shDegree?: number;
   bbox?: { min?: number[]; max?: number[] };
-  attributes?: {
-    POSITION?: number;
-    _ROTATION?: number;
-    _SCALE?: number;
-    _OPACITY?: number;
-    _COLOR_DC?: number;
-  };
+  attributes?: GsAttributes;
+}
+
+const GS_EXT_NAME = 'KHR_gaussian_splatting';
+const RC_KEYS = {
+  POSITION: `${GS_EXT_NAME}:POSITION`,
+  ROTATION: `${GS_EXT_NAME}:ROTATION`,
+  SCALE: `${GS_EXT_NAME}:SCALE`,
+  OPACITY: `${GS_EXT_NAME}:OPACITY`,
+  COLOR_DC: `${GS_EXT_NAME}:COLOR_DC`,
+};
+
+/**
+ * Pull a normalized attribute index table out of the first splat primitive
+ * supporting both KHR_gaussian_splatting RC (namespaced primitive-level
+ * attributes) and the legacy in-extension layout. Returns `undefined` when
+ * neither shape is present.
+ */
+function readPrimitiveAttributes(g: RawGltf): GsAttributes | undefined {
+  for (const mesh of g.meshes ?? []) {
+    for (const prim of mesh.primitives ?? []) {
+      const pa = prim.attributes;
+      if (pa && typeof pa === 'object') {
+        const rec = pa as Record<string, number>;
+        if (Object.keys(rec).some((k) => k.startsWith(`${GS_EXT_NAME}:`))) {
+          return {
+            POSITION: typeof rec[RC_KEYS.POSITION] === 'number' ? rec[RC_KEYS.POSITION] : undefined,
+            _ROTATION: typeof rec[RC_KEYS.ROTATION] === 'number' ? rec[RC_KEYS.ROTATION] : undefined,
+            _SCALE: typeof rec[RC_KEYS.SCALE] === 'number' ? rec[RC_KEYS.SCALE] : undefined,
+            _OPACITY: typeof rec[RC_KEYS.OPACITY] === 'number' ? rec[RC_KEYS.OPACITY] : undefined,
+            _COLOR_DC: typeof rec[RC_KEYS.COLOR_DC] === 'number' ? rec[RC_KEYS.COLOR_DC] : undefined,
+          };
+        }
+      }
+      const e = prim.extensions?.[GS_EXT_NAME];
+      if (e && typeof e === 'object' && !Array.isArray(e)) {
+        const legacy = (e as GsExt).attributes;
+        if (legacy && typeof legacy === 'object') return legacy;
+      }
+    }
+  }
+  return undefined;
 }
 
 function accessorSlice(g: RawGltf, idx: number | undefined):
@@ -170,22 +217,12 @@ export function manifestFromGlb(glb: DecodedGlb): { manifest: Manifest; bin: Uin
   }
   const g = raw as RawGltf;
   const sceneExt = (g.extensions?.['KHR_gaussian_splatting'] ?? {}) as GsExt;
-  let primExt: GsExt | undefined;
-  for (const mesh of g.meshes ?? []) {
-    for (const prim of mesh.primitives ?? []) {
-      const e = prim.extensions?.['KHR_gaussian_splatting'];
-      if (e && typeof e === 'object') {
-        primExt = e as GsExt;
-        break;
-      }
-    }
-    if (primExt) break;
-  }
-  if (!primExt?.attributes) {
+  // Auto-detect RC (namespaced primitive-level attributes) vs legacy
+  // (attributes nested in the per-primitive extension object).
+  const attrs = readPrimitiveAttributes(g);
+  if (!attrs) {
     throw new Error('glb_invalid: missing KHR_gaussian_splatting primitive attributes');
   }
-
-  const attrs = primExt.attributes;
   const pos = accessorSlice(g, attrs.POSITION);
   const rot = accessorSlice(g, attrs._ROTATION);
   const scl = accessorSlice(g, attrs._SCALE);
