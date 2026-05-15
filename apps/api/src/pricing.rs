@@ -137,6 +137,14 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // PSNR (26.3 dB). Same compute curve. Exposed for users wanting more
         // hi-fidelity headroom at the cost of ratio.
         "codec-gs-mixed-k5" => (19.0, 0.118),
+        // FCGS (Fast Feedforward 3DGS Compression, Chen et al. ICLR'25) —
+        // pre-trained feed-forward codec on Modal A100. No per-scene
+        // optimization, ~15-16× lossless on any 3DGS PLY in ~95 s. The
+        // wall-clock is dominated by the encode/decode roundtrip; per-MB
+        // cost is roughly flat because the network sees the full splat
+        // set regardless of file size on disk.
+        // Anchor: bicycle 855 MB → ~95 s end-to-end on A100.
+        "fcgs-instant" => (90.0, 0.005),
         // Unknown / future preset: assume web-mobile shape so the
         // preview doesn't 400 on a new preset before the operator
         // tunes a curve for it.
@@ -582,6 +590,33 @@ mod tests {
                 sz_mb
             );
         }
+    }
+
+    #[test]
+    fn fcgs_instant_has_dedicated_curve() {
+        // FCGS hosted preset MUST have its own compute curve — not the
+        // web-mobile fallback. Anchor: bicycle 855 MB → ~95 s on A100,
+        // so a 100 MB job should land near base (90s + 0.005*100 ≈ 91s).
+        // We assert (a) the entry is registered (does not collapse to
+        // the fallback curve) and (b) the curve is wall-clock-dominated
+        // (per-MB rate is tiny vs `web-mobile`'s 0.13 s/MB).
+        let bicycle = preview_job_cost(855 * 1024 * 1024, "fcgs-instant", 0);
+        let bonsai = preview_job_cost(100 * 1024 * 1024, "fcgs-instant", 0);
+        // The flat anchor means a 100MB and 855MB job differ by < 10 s.
+        let delta = bicycle
+            .estimated_compute_seconds
+            .saturating_sub(bonsai.estimated_compute_seconds);
+        assert!(
+            delta < 10,
+            "fcgs-instant should be wall-clock dominated, got Δ={delta}s between 100 MB and 855 MB"
+        );
+        // Sanity: cheaper than the codec-gs-stacked curve for the same
+        // job, because FCGS skips per-scene training entirely.
+        let stacked = preview_job_cost(855 * 1024 * 1024, "codec-gs-stacked", 0);
+        assert!(
+            bicycle.estimated_compute_seconds < stacked.estimated_compute_seconds,
+            "fcgs-instant should be cheaper than codec-gs-stacked on bicycle"
+        );
     }
 
     #[test]

@@ -64,8 +64,35 @@ The image build is the only expensive step:
 | Function       | Cost class | Purpose                                           |
 | -------------- | ---------- | ------------------------------------------------- |
 | `enqueue`      | 0.25 CPU   | FastAPI web endpoint; spawns `run_optimize`       |
-| `healthz`      | 0.25 CPU   | Liveness probe                                    |
+| `healthz`      | 0.25 CPU   | Liveness probe; reports `preset_dispatch_configured` |
 | `run_optimize` | 2 CPU      | Pulls blob, runs CLI, POSTs result to API webhook |
+
+## Preset dispatch (hosted-only encoders)
+
+A handful of presets (CodecGS mixed-CRF, FCGS) run on dedicated Modal
+apps because their encoders ship CUDA wheels or reference research code
+that doesn't belong in the public CLI image. The public worker proxies
+the `/enqueue` payload to those apps when configured, otherwise it
+returns a clear synchronous error so the API can surface the gap.
+
+| Preset                              | Env var                          |
+| ----------------------------------- | -------------------------------- |
+| `codec-gs-mixed`, `codec-gs-mixed-k5` | `SPLATFORGE_CODEC_GS_MIXED_URL` |
+| `fcgs-instant`                      | `SPLATFORGE_FCGS_URL`            |
+
+Each URL must point at a `fastapi_endpoint` whose `/enqueue` accepts the
+same payload shape this worker does (`job_id`, `preset`, `blob_url`,
+`filename`, `callback_url`) and POSTs the terminal `{status, output_url}`
+back to `callback_url`. Forwarding preserves `callback_url` so the
+remote app talks to the API directly — the public worker is never on
+the data path.
+
+Sanity check after deploy:
+
+```bash
+curl -s https://<workspace>--splatforge-worker-healthz.modal.run | jq .preset_dispatch_configured
+# { "codec-gs-mixed": true, "codec-gs-mixed-k5": true, "fcgs-instant": true }
+```
 
 ## Webhook contract
 

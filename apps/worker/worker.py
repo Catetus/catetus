@@ -47,6 +47,27 @@ SPLATFORGE_REPO = os.environ.get(
     "SPLATFORGE_REPO", "https://github.com/montabano1/SplatForge.git"
 )
 
+# Hosted-only presets that this worker does NOT run inside its own
+# container — the encoders (CodecGS mixed-CRF, FCGS) live in
+# private-repo Modal apps because they ship CUDA wheels and (for
+# CodecGS) reference research code we aren't open-sourcing yet. The
+# public worker proxies the enqueue payload to the relevant Modal
+# endpoint when set; otherwise the job errors with a clear message so
+# the API surfaces a known state instead of a generic timeout.
+#
+# Configuration: each URL points at a Modal `fastapi_endpoint` whose
+# payload contract MUST match this worker's `enqueue` (job_id, preset,
+# blob_url, filename, callback_url). The remote app is responsible for
+# downloading the input, encoding, uploading the bitstream, and POSTing
+# the terminal `{status, output_url}` back to `callback_url` — same shape
+# as `run_optimize` here so the API doesn't need preset-specific result
+# handling.
+PRESET_DISPATCH_URLS = {
+    "codec-gs-mixed": os.environ.get("SPLATFORGE_CODEC_GS_MIXED_URL"),
+    "codec-gs-mixed-k5": os.environ.get("SPLATFORGE_CODEC_GS_MIXED_URL"),
+    "fcgs-instant": os.environ.get("SPLATFORGE_FCGS_URL"),
+}
+
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("curl", "build-essential", "git", "pkg-config", "ca-certificates")
@@ -450,20 +471,96 @@ def enqueue(payload: dict) -> dict:
 
     Required keys: ``job_id``, ``preset``, ``blob_url``, ``callback_url``.
     ``filename`` is optional (defaults to ``input.bin`` if omitted).
+
+    For presets registered in :data:`PRESET_DISPATCH_URLS` whose URL is
+    configured at deploy time, the payload is forwarded synchronously to
+    the dedicated Modal app (CodecGS mixed-CRF or FCGS) and we return its
+    ack. Forwarding preserves the original ``callback_url`` so the
+    private app POSTs the terminal result straight to the API; the public
+    worker never sees the bytes.
     """
     required = ("job_id", "preset", "blob_url", "callback_url")
     missing = [k for k in required if k not in payload]
     if missing:
         return {"queued": False, "error": f"missing fields: {missing}"}
 
+    preset = str(payload["preset"])
+    if preset in PRESET_DISPATCH_URLS:
+        target = PRESET_DISPATCH_URLS[preset]
+        if not target:
+            # Surface configuration gap synchronously so the API marks
+            # the job Error with a clear message instead of waiting on
+            # a callback that will never arrive.
+            return {
+                "queued": False,
+                "error": (
+                    f"preset '{preset}' requires a dedicated Modal endpoint "
+                    "(SPLATFORGE_CODEC_GS_MIXED_URL or SPLATFORGE_FCGS_URL) "
+                    "but none is configured on this worker"
+                ),
+            }
+        return _forward_to_preset_app(target, payload)
+
     run_optimize.spawn(
         job_id=str(payload["job_id"]),
-        preset=str(payload["preset"]),
+        preset=preset,
         blob_url=str(payload["blob_url"]),
         filename=str(payload.get("filename") or "input.bin"),
         callback_url=str(payload["callback_url"]),
     )
     return {"queued": True, "error": None}
+
+
+def _forward_to_preset_app(target_url: str, payload: dict) -> dict:
+    """POST the enqueue payload to a preset-specific Modal app and
+    return its ack verbatim.
+
+    The downstream Modal app implements the same ``/enqueue`` contract
+    this worker does — it must accept ``{job_id, preset, blob_url,
+    filename, callback_url}`` and respond with ``{queued, error}``. By
+    forwarding the original ``callback_url`` we let the private encoder
+    app talk straight to the API for status updates, keeping the public
+    worker out of the data path entirely.
+
+    Failure modes (HTTP 5xx, JSON parse error, network timeout) are
+    folded into a ``{queued: False, error}`` so the API can mark the
+    job Error and bubble a useful message to the user.
+    """
+    import requests  # noqa: PLC0415
+
+    body = {
+        "job_id": str(payload["job_id"]),
+        "preset": str(payload["preset"]),
+        "blob_url": str(payload["blob_url"]),
+        "filename": str(payload.get("filename") or "input.bin"),
+        "callback_url": str(payload["callback_url"]),
+    }
+    try:
+        resp = requests.post(target_url, json=body, timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "queued": False,
+            "error": f"forward to preset app failed: {exc}",
+        }
+    if resp.status_code >= 300:
+        return {
+            "queued": False,
+            "error": f"preset app rejected enqueue ({resp.status_code}): {resp.text[:512]}",
+        }
+    try:
+        ack = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "queued": False,
+            "error": f"preset app returned non-JSON ack: {exc}",
+        }
+    # Defensive defaults: a misbehaving downstream that omits `queued`
+    # is treated as a successful queue (HTTP 2xx already gated us here)
+    # but errors are forwarded if present.
+    return {
+        "queued": bool(ack.get("queued", True)),
+        "error": ack.get("error"),
+    }
 
 
 @app.function(image=image, cpu=0.25)
@@ -473,4 +570,11 @@ def healthz() -> dict:
         "ok": True,
         "service": "splatforge-worker",
         "splatforge_ref": SPLATFORGE_REF,
+        # Surface which preset-specific Modal endpoints this deploy has
+        # been wired to. We never echo the URL (it's a secret webhook);
+        # just a bool per preset so operators can verify the deploy
+        # without `modal secret list`.
+        "preset_dispatch_configured": {
+            name: bool(url) for name, url in PRESET_DISPATCH_URLS.items()
+        },
     }
