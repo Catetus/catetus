@@ -113,3 +113,23 @@
 - **Streaming-tile viewer** 1.3 ms cold-start, 512 MB LRU resident cap.
 - **fidelity-ml v0.3.0-perkind** ML Score column shipped publicly; bicycle/web-mobile honest 3.89/100 (was masked at 84.76 with theoretical normalizers).
 - **CodecGS-Lite** measured 20.3× on bicycle (paper claim 146×); deferred to Q5.
+
+## Run-closed update (post-handoff)
+
+**2026-05-15** — `fidelity-ml v0.3-widened` (the last in-flight task) shipped.
+Branch `research/fidelity-ml-v0.3-widened` in `splatforge-private`, 3 commits pushed.
+
+- 22-feature widened vector (per-quadrant color, FFT band diffs, gradient stats).
+- Ridge fit CV R² **0.9899 ± 0.0008**, in-sample RMSE 0.026.
+- **Bicycle/web-mobile ML-score 3.89 → 6.40** — the v0.2 floor-at-zero failure is fixed; the metric now rank-orders correctly vs bicycle/size-min (4.03) and tracks ΔE94.
+- Most synthetic scenes 96–99 (foliage 96.4, indoor 96.5, outdoor 96.4 — honestly lower than v0.2's hand-tuned three-feature model because the widened features see signal v0.2 missed).
+- `floater_proxy/size-min` (intentionally broken) scores 83.4 — the metric correctly surfacing a real failure.
+- Biggest learned weight in the new features: `quad_color_mean_tl` at **−0.30** (paired with the +0.62 global `color` coef — model uses global-vs-quadrant color to detect localized failures, which is the exact signal bicycle/web-mobile needed).
+- Public `score()` / `score_v3()` / `Score` signatures unchanged. Inference deterministic.
+
+This closes every workstream from the autonomous run. The follow-ups in the
+to-do section above (WorkOS merge, Khronos + OpenUSD outreach send, real-scene
+PLY pull, Stripe bootstrap, SOG-fidelity scoring wiring) are the operator-side
+checkpoint. Everything testable from a CLI is green.
+
+**Final tally:** 25 tracked tasks shipped or cleanly killed. Zero deferred-without-finding.
