@@ -411,3 +411,173 @@ fn inspect_rejects_bogus_file() {
         .expect("run inspect");
     assert!(!out.status.success());
 }
+
+/// Build a slightly larger PLY (a 5×5×5 lattice = 125 splats) so the
+/// LODGE chunker has something to decimate across multiple levels.
+fn write_lattice_ply(path: &std::path::Path) {
+    let mut buf = Vec::new();
+    let header = concat!(
+        "ply\n",
+        "format binary_little_endian 1.0\n",
+        "element vertex 125\n",
+        "property float x\n",
+        "property float y\n",
+        "property float z\n",
+        "property float scale_0\n",
+        "property float scale_1\n",
+        "property float scale_2\n",
+        "property float rot_0\n",
+        "property float rot_1\n",
+        "property float rot_2\n",
+        "property float rot_3\n",
+        "property float opacity\n",
+        "property float f_dc_0\n",
+        "property float f_dc_1\n",
+        "property float f_dc_2\n",
+        "end_header\n",
+    );
+    buf.extend_from_slice(header.as_bytes());
+    for ix in 0..5u32 {
+        for iy in 0..5u32 {
+            for iz in 0..5u32 {
+                // Vary opacity / scale so the importance argmax has clear winners.
+                let op_logit = -1.0 + 0.05 * (ix as f32 + iy as f32 + iz as f32);
+                let sc_log = -3.0 + 0.02 * (ix as f32 + iy as f32);
+                let record = [
+                    ix as f32,
+                    iy as f32,
+                    iz as f32,
+                    sc_log,
+                    sc_log,
+                    sc_log,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    op_logit,
+                    0.1,
+                    0.2,
+                    0.3,
+                ];
+                for v in record {
+                    buf.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+        }
+    }
+    fs::write(path, buf).unwrap();
+}
+
+#[test]
+fn lodge_build_emits_manifest_and_chunks() {
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("lattice.ply");
+    write_lattice_ply(&ply);
+    let out_dir = dir.path().join("lattice.lodge");
+
+    let out = Command::cargo_bin("splatforge")
+        .unwrap()
+        .args([
+            "lodge",
+            "build",
+            "--input",
+            ply.to_str().unwrap(),
+            "--output",
+            out_dir.to_str().unwrap(),
+            "--levels",
+            "3",
+            "--target-top",
+            "8",
+            "--coarsen-ratio",
+            "2.0",
+            "--chunk-target-splats",
+            "64",
+        ])
+        .output()
+        .expect("run lodge build");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let manifest = out_dir.join("manifest.json");
+    assert!(manifest.exists(), "manifest.json must be emitted");
+    // Each level dir must exist with at least one chunk.
+    let json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    let levels = json["levels"].as_array().unwrap();
+    assert!(!levels.is_empty());
+    for lvl in levels {
+        let chunks = lvl["chunks"].as_array().unwrap();
+        assert!(!chunks.is_empty(), "every level needs at least one chunk");
+        for chunk in chunks {
+            let path = chunk["path"].as_str().unwrap();
+            let p = out_dir.join(path);
+            assert!(p.exists(), "missing chunk file: {}", p.display());
+        }
+    }
+}
+
+#[test]
+fn lodge_unpack_roundtrips_level0_splat_count() {
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("lattice.ply");
+    write_lattice_ply(&ply);
+    let out_dir = dir.path().join("lattice.lodge");
+    let roundtrip = dir.path().join("roundtrip.ply");
+
+    let build = Command::cargo_bin("splatforge")
+        .unwrap()
+        .args([
+            "lodge",
+            "build",
+            "--input",
+            ply.to_str().unwrap(),
+            "--output",
+            out_dir.to_str().unwrap(),
+            "--levels",
+            "2",
+            "--target-top",
+            "8",
+        ])
+        .output()
+        .expect("run lodge build");
+    assert!(
+        build.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let unpack = Command::cargo_bin("splatforge")
+        .unwrap()
+        .args([
+            "lodge",
+            "unpack",
+            "--input",
+            out_dir.to_str().unwrap(),
+            "--level",
+            "0",
+            "--output",
+            roundtrip.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run lodge unpack");
+    assert!(
+        unpack.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&unpack.stderr)
+    );
+
+    let analyze = Command::cargo_bin("splatforge")
+        .unwrap()
+        .args(["analyze", roundtrip.to_str().unwrap()])
+        .output()
+        .expect("run analyze");
+    assert!(analyze.status.success());
+    let stdout = String::from_utf8_lossy(&analyze.stdout);
+    // Lattice has 5*5*5 = 125 splats; level 0 reassembly must preserve.
+    assert!(
+        stdout.contains("\"splatCount\": 125"),
+        "level-0 round-trip lost splats: {stdout}"
+    );
+}

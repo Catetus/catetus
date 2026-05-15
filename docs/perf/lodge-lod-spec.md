@@ -606,3 +606,209 @@ LOD-pyramid coarsening ratio depends on the base PLY's training
 distribution — we can't predict it precisely without running it. Low
 risk on Phase C runtime — it's a small WGSL diff against infrastructure
 that already works.
+
+---
+
+## A.1 Phase A.1 BUILT — offline chunker (2026-05-15)
+
+`crates/splatforge-lodge/` + the `splatforge lodge build` CLI subcommand
+ship the **offline chunker** half of Phase A. This section documents the
+on-disk format the CLI emits, which the Phase A.2 viewer-side manifest
+loader will consume.
+
+### A.1.1 What the Phase-A.1 chunker does and does NOT do
+
+The chunker takes a trained 3DGS PLY and emits a `.lodge` directory
+containing a `manifest.json` and per-(level, chunk) PLY files. Within
+each LOD level, splats are decimated from the original set by
+**importance-weighted uniform 3D-grid binning**: per occupied cell, the
+splat with the highest `opacity * det(scale)^(2/3)` score survives, all
+others are dropped. This is the conservative "smooth-then-prune"
+approximation from LODGE §3.1 with the smoothing step skipped (no
+Σ inflation, no fine-tune). For Phase A.1 that's deliberate — we ship
+the *structure* (manifest schema + chunked layout) so the runtime team
+can start integrating, and the smoothing + fine-tune layer is a Phase
+A.2 follow-up (needs gsplat on a GPU).
+
+It does NOT yet:
+- Apply LODGE eq. 3 depth-aware 3D smoothing per level
+- Fine-tune each level for 1 000 iters
+- Run K-means over training-camera positions to set the spatial chunk
+  partition (we Morton-sort and slice at fixed splat-count chunks
+  instead — see §A.1.4)
+- Compute LODGE eq. 4 boundary-blend ramps at build time
+
+Those are deferred to Phase A.2 (camera-aware chunk K-means) and the
+ML-side fine-tune pass (Modal A100). The manifest schema below has the
+fields they will populate — they are emitted today with heuristic
+values, which the runtime can use as-is for a first integration.
+
+### A.1.2 On-disk layout
+
+```
+<scene>.lodge/
+  manifest.json
+  level_0/
+    chunk_0000.ply
+    chunk_0001.ply
+    ...
+  level_1/
+    chunk_0000.ply
+    ...
+  level_N/
+    chunk_0000.ply
+```
+
+Per-level chunk PLYs are plain Inria-flavored PLYs written by
+`splatforge-ply::write_ply`. Each chunk is independently loadable by
+any 3DGS toolchain that consumes PLYs; the LODGE-specific metadata
+lives entirely in `manifest.json`.
+
+### A.1.3 `manifest.json` schema (version 1)
+
+```jsonc
+{
+  // Schema version. Bump on breaking changes. Current = 1.
+  "version": 1,
+
+  // Source PLY filename, for provenance only. Readers do not open this.
+  "source": "bonsai_iter7000.ply",
+
+  // Splat count of level 0 (the original).
+  "original_splat_count": 1157141,
+
+  // Scene-wide AABB: [[min_x, min_y, min_z], [max_x, max_y, max_z]].
+  "bbox": [[-1.5, -0.2, -1.4], [1.6, 2.1, 1.5]],
+
+  // Pyramid levels, fine -> coarse. levels[0] is the original.
+  "levels": [
+    {
+      // Level index, 0-based. Level 0 is the original PLY contents.
+      "level": 0,
+
+      // Total splats at this level (= sum over chunks).
+      "splat_count": 1157141,
+
+      // Splat count relative to level 0. Always 1.0 for level 0.
+      "reduction": 1.0,
+
+      // Nominal camera-distance band edge for this level. Phase A.1
+      // emits a linear heuristic (level / (L-1)) * scene_diag * 1.5;
+      // Phase A.2's training-view greedy search replaces this with the
+      // LODGE eq. 5 values. Used by the runtime selector to pick which
+      // level a chunk is "active" at.
+      "depth_threshold": 0.0,
+
+      // Chunks, in Morton sweep order. Concatenating their splats in
+      // this order reproduces the level (set-equal to the source
+      // splats at level 0; lossy approximation at coarser levels).
+      "chunks": [
+        {
+          "index": 0,
+          "path": "level_0/chunk_0000.ply",
+          "splat_count": 96428,
+
+          // Chunk-local AABB.
+          "bbox": [[-1.5, -0.2, -1.4], [-0.1, 1.0, 0.2]],
+
+          // Splat-position centroid. Used by the Phase A.2 runtime to
+          // pick the two nearest chunks to the camera per frame
+          // (LODGE eq. 4 boundary blend).
+          "centroid": [-0.78, 0.41, -0.6],
+
+          // Bounding-sphere radius (max distance from centroid to any
+          // splat). The runtime expands the per-chunk active set by
+          // this distance when the camera is near the chunk edge.
+          "radius": 1.32,
+
+          // blake3 hex digest of the chunk PLY bytes. Lets streaming
+          // clients detect a stale/swapped chunk without re-fetching
+          // the whole manifest.
+          "blake3": "ab12...cd34"
+        },
+        // ...
+      ]
+    },
+    // level_1, level_2, ...
+  ]
+}
+```
+
+All fields are required (no defaults on the read side). The schema is
+small enough that a TypeScript type alias on the runtime side is a
+1:1 transcription of the JSON.
+
+### A.1.4 Spatial chunking algorithm
+
+Within each LOD level we:
+
+1. Compute a 48-bit 3D Morton code for each surviving splat over the
+   *scene-wide* (not per-level) bounding box. Using the scene-wide
+   bbox keeps chunk indices comparable across levels — a "north-east"
+   chunk at level 0 occupies the same spatial region as a "north-east"
+   chunk at level 2, so the runtime can pick level-N's chunk-K to
+   replace level-0's chunk-K when the camera recedes.
+2. Sort by Morton code, then slice into `ceil(splat_count /
+   chunk_target_splats)` evenly-sized contiguous ranges. Default
+   `chunk_target_splats = 100 000`.
+
+This is **not** LODGE's K-means-over-camera-positions approach. The
+spec calls out that Phase A.2 will re-cluster using training camera
+positions once those are available (the on-disk format is unchanged —
+the partition just gets recomputed). Phase A.1's Morton slicing gives
+roughly cubic spatial groupings that are good enough for an initial
+runtime integration and a VRAM-pressure measurement.
+
+### A.1.5 Decimation algorithm — importance-weighted grid argmax
+
+Inside `decimate_to` we iterate the grid resolution by halving /
+growing `cells_per_axis` until the survivor count lands within ±15 %
+of the target, capped at 12 iterations. The survivor-tracking
+"best-so-far" keeps the search stable for lattice-like inputs (where
+every grid resolution either over- or under-shoots due to the cubic
+cell-count step).
+
+This decimator is deterministic: the per-cell tiebreak is `(higher
+importance, lower index) wins`, so two builds of the same PLY produce
+byte-identical chunk PLYs (and identical blake3 digests in the
+manifest). That stability is important for the round-trip sanity gate
+and for caching across redeploys.
+
+### A.1.6 Round-trip sanity
+
+`splatforge lodge unpack -i <dir> --level 0 -o out.ply` reassembles
+level 0 by concatenating chunks in manifest order. **The reassembled
+PLY contains the same SET of splats as the input PLY** — every splat
+is preserved, in possibly different order (the chunker Morton-sorts
+within each chunk). Per-splat byte content (position, scale, rotation,
+opacity, SH coefficients) is unchanged at level 0. This gives a clean
+"binary-equality on the splat set" sanity check; the round-trip CLI
+test in `crates/splatforge-cli/tests/cli_smoke.rs::
+lodge_unpack_roundtrips_level0_splat_count` enforces it.
+
+For coarser levels (L1+), reassembly is lossy by design — splats are
+dropped, not modified. PSNR delta vs. the original is bounded by
+LODGE table 3's "+ prune only" row (~0.17 dB drop on SmallCity for a
+single coarsening step), with the additional caveat that we skip
+LODGE's smoothing + fine-tune so visible aliasing is possible at
+unusual camera distances. Phase A.2's fine-tune step recovers that
+margin.
+
+### A.1.7 CLI
+
+```bash
+# Build a 5-level pyramid (default opts: target_top=100_000,
+# chunk_target_splats=100_000, coarsen_ratio=2.0)
+splatforge lodge build -i scene.ply -o scene.lodge --levels 5
+
+# Print a summary of an existing pyramid
+splatforge lodge info -i scene.lodge
+
+# Reassemble one level back into a flat PLY
+splatforge lodge unpack -i scene.lodge --level 0 -o roundtrip.ply
+```
+
+Measured on `bonsai_iter7000.ply` (1.16 M splats, 287 MB input PLY,
+SH degree 3) running M3-Max release build: **1.9 s wall-time** to
+emit a 4-level pyramid (L0 1.16 M, L1 372 k, L2 190 k, L3 98 k) at
+430 MB total on disk (= L0 287 MB + coarser-copies overhead).
