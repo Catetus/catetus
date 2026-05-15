@@ -251,6 +251,19 @@ enum Command {
         #[command(subcommand)]
         cmd: ProgressiveCmd,
     },
+    /// Build / inspect / unpack a LODGE-style hierarchical LOD pyramid.
+    ///
+    /// `splatforge lodge build` is the offline chunker — it takes a
+    /// trained 3DGS PLY and emits a directory containing a
+    /// `manifest.json` plus per-level/per-chunk PLY files. The runtime
+    /// viewer (Phase A.2/A.3, see `docs/perf/lodge-lod-spec.md`) consumes
+    /// the manifest to stream only the LOD chunks visible to the current
+    /// camera, dropping per-frame VRAM pressure dramatically on
+    /// 10M-splat scenes.
+    Lodge {
+        #[command(subcommand)]
+        cmd: LodgeCmd,
+    },
     /// Validate an asset against a SplatForge-supported standard
     /// (KHR_gaussian_splatting today; OpenUSD when the USDC reader path
     /// is wired). Wraps `splatforge-khr-validate` for the glTF case.
@@ -302,6 +315,58 @@ enum ProgressiveCmd {
         /// Input `.mgs2` path.
         #[arg(long, short = 'i')]
         input: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum LodgeCmd {
+    /// Build a LODGE pyramid from a trained 3DGS PLY.
+    Build {
+        /// Input PLY.
+        #[arg(long, short = 'i')]
+        input: PathBuf,
+        /// Output directory. Will be created if missing. Contains the
+        /// emitted `manifest.json` plus `level_<l>/chunk_<c>.ply`
+        /// files.
+        #[arg(long, short = 'o')]
+        output: PathBuf,
+        /// Number of LOD levels (including level 0 = original).
+        #[arg(long, default_value_t = 6)]
+        levels: usize,
+        /// Target splat count at the coarsest level. The pyramid stops
+        /// shrinking once a level falls below this.
+        #[arg(long, default_value_t = 100_000)]
+        target_top: usize,
+        /// Geometric coarsening ratio between consecutive levels.
+        #[arg(long, default_value_t = 2.0)]
+        coarsen_ratio: f32,
+        /// Target splat count per spatial chunk. Each level is split
+        /// into ceil(level_count / chunk_target_splats) Morton-sorted
+        /// chunks.
+        #[arg(long, default_value_t = 100_000)]
+        chunk_target_splats: usize,
+    },
+    /// Reassemble one level of a LODGE pyramid back into a single PLY.
+    /// Useful for round-trip validation and for diagnostic exports.
+    Unpack {
+        /// Path to the LODGE output directory (contains `manifest.json`).
+        #[arg(long, short = 'i')]
+        input: PathBuf,
+        /// Level to extract (0 = finest = original).
+        #[arg(long, default_value_t = 0)]
+        level: u32,
+        /// Output PLY path.
+        #[arg(long, short = 'o')]
+        output: PathBuf,
+    },
+    /// Print a human-readable summary of a LODGE manifest.
+    Info {
+        /// Path to the LODGE output directory.
+        #[arg(long, short = 'i')]
+        input: PathBuf,
+        /// Emit the full manifest as JSON instead of a summary.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -447,6 +512,29 @@ fn dispatch(cli: Cli) -> Result<()> {
             } => cmd_progressive_decode(&input, &output, partial_bytes),
             ProgressiveCmd::Info { input } => cmd_progressive_info(&input),
         },
+        Command::Lodge { cmd } => match cmd {
+            LodgeCmd::Build {
+                input,
+                output,
+                levels,
+                target_top,
+                coarsen_ratio,
+                chunk_target_splats,
+            } => cmd_lodge_build(
+                &input,
+                &output,
+                levels,
+                target_top,
+                coarsen_ratio,
+                chunk_target_splats,
+            ),
+            LodgeCmd::Unpack {
+                input,
+                level,
+                output,
+            } => cmd_lodge_unpack(&input, level, &output),
+            LodgeCmd::Info { input, json } => cmd_lodge_info(&input, json),
+        },
     }
 }
 
@@ -515,6 +603,89 @@ fn cmd_progressive_info(input: &Path) -> Result<()> {
             "payload_len": h.payload_len,
         }))?
     );
+    Ok(())
+}
+
+fn cmd_lodge_build(
+    input: &Path,
+    output: &Path,
+    levels: usize,
+    target_top: usize,
+    coarsen_ratio: f32,
+    chunk_target_splats: usize,
+) -> Result<()> {
+    let opts = splatforge_lodge::BuildOpts {
+        levels,
+        target_top,
+        coarsen_ratio,
+        chunk_target_splats,
+    };
+    let t0 = std::time::Instant::now();
+    let manifest = splatforge_lodge::build_from_ply(input, output, &opts)
+        .with_context(|| format!("building LODGE from {}", input.display()))?;
+    let elapsed = t0.elapsed();
+    let bytes = splatforge_lodge::total_on_disk_bytes(output).unwrap_or(0);
+    println!(
+        "lodge build: {} ({} splats) -> {} ({} levels, {:.2} MiB on disk, {:.1}s)",
+        input.display(),
+        manifest.original_splat_count,
+        output.display(),
+        manifest.levels.len(),
+        bytes as f64 / (1024.0 * 1024.0),
+        elapsed.as_secs_f64(),
+    );
+    for lvl in &manifest.levels {
+        println!(
+            "  level {} : {:>9} splats ({:.4}× of L0), {} chunks, d_l={:.3}",
+            lvl.level,
+            lvl.splat_count,
+            lvl.reduction,
+            lvl.chunks.len(),
+            lvl.depth_threshold,
+        );
+    }
+    Ok(())
+}
+
+fn cmd_lodge_unpack(input: &Path, level: u32, output: &Path) -> Result<()> {
+    let n = splatforge_lodge::unpack_level_to_ply(input, level, output)
+        .with_context(|| format!("unpacking level {level} from {}", input.display()))?;
+    println!(
+        "lodge unpack: level {} ({} splats) -> {}",
+        level,
+        n,
+        output.display()
+    );
+    Ok(())
+}
+
+fn cmd_lodge_info(input: &Path, json: bool) -> Result<()> {
+    let manifest = splatforge_lodge::read_manifest(input)
+        .with_context(|| format!("reading manifest from {}", input.display()))?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&manifest)?);
+        return Ok(());
+    }
+    println!(
+        "source={} splats={} levels={} bbox=[{:?}..{:?}]",
+        manifest.source,
+        manifest.original_splat_count,
+        manifest.levels.len(),
+        manifest.bbox[0],
+        manifest.bbox[1],
+    );
+    for lvl in &manifest.levels {
+        let chunk_splats: usize = lvl.chunks.iter().map(|c| c.splat_count).sum();
+        println!(
+            "  level {} : {} splats ({:.4}× of L0), {} chunks ({} splats summed), d_l={:.3}",
+            lvl.level,
+            lvl.splat_count,
+            lvl.reduction,
+            lvl.chunks.len(),
+            chunk_splats,
+            lvl.depth_threshold,
+        );
+    }
     Ok(())
 }
 

@@ -20,6 +20,7 @@ splatforge-usd = { workspace = true }
 splatforge-optimize = { workspace = true }
 splatforge-bench = { workspace = true }
 splatforge-fidelity = { workspace = true }
+splatforge-lodge    = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
