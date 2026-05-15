@@ -112,15 +112,16 @@ let chromium;
   }
 }
 
+// On macOS Chromium ships a Metal-backed WebGPU implementation; on Linux we
+// fall back to SwiftShader if there's no Vulkan driver. The `--use-angle`
+// flag picks Metal where available.
+const platformArgs =
+  process.platform === 'darwin'
+    ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=metal']
+    : ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-vulkan=swiftshader'];
 const browser = await chromium.launch({
-  headless: true,
-  args: [
-    '--enable-unsafe-webgpu',
-    '--enable-features=Vulkan,UseSkiaRenderer',
-    '--use-vulkan=swiftshader',
-    '--ignore-gpu-blocklist',
-    '--no-sandbox',
-  ],
+  headless: process.env.BENCH_HEADED ? false : true,
+  args: [...platformArgs, '--ignore-gpu-blocklist', '--no-sandbox'],
 });
 let result;
 try {

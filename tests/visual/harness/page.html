@@ -48,6 +48,10 @@
   // SPEC-0062 (compute decode): toggle the WGSL compute-decode + GPU radix
   // sort path. Default off so existing visual baselines stay stable.
   const useComputeDecode = params.get('useComputeDecode') === '1';
+  // Streaming-tile mode (queue #51): `src` points at a tileset.json, the
+  // viewer drives StreamingTileset rather than the flat manifest path.
+  const mode = params.get('mode') || 'flat';
+  const cameraPathParam = params.get('cameraPath');
   const cameraBboxRaw = params.get('cameraBbox');
   let cameraBbox = undefined;
   if (cameraBboxRaw) {
@@ -78,11 +82,19 @@
     try {
       const mod = await import('/viewer/index.js');
       const { SplatForgeViewer } = mod;
+      // orbit-4 is supported as a custom camera path so the streaming
+      // visual spec can keep its golden count small (4 PNGs/test).
+      let cameraPath = 'orbit-8';
+      if (cameraPathParam === 'orbit-4') {
+        cameraPath = { type: 'custom', positions: [
+          [0, 0, 5], [5, 0, 0], [0, 0, -5], [-5, 0, 0],
+        ] };
+      }
       const viewer = new SplatForgeViewer({
         canvas,
         src,
         renderer,            // 'webgpu' or 'webgl2' — pinned by project
-        cameraPath: 'orbit-8',
+        cameraPath,
         deterministic: true,
         seed,
         ...(cameraBbox ? { cameraBbox } : {}),
@@ -104,15 +116,19 @@
       });
 
       viewer.on('complete', () => {
-        // The viewer is contractually 8 frames for `orbit-8`; trim/pad if a
-        // future camera path emits a different count.
-        sf.frames = sf.frames.slice(0, 8);
+        // Default trim to 8 frames (orbit-8). Streaming tests run orbit-4.
+        const max = cameraPathParam === 'orbit-4' ? 4 : 8;
+        sf.frames = sf.frames.slice(0, max);
         sf.ready = true;
         setStatus(`ready (${sf.frames.length} frames)`);
       });
 
-      setStatus(`loading ${src} (${renderer})`);
-      await viewer.load();
+      setStatus(`loading ${src} (${renderer}, mode=${mode})`);
+      if (mode === 'streaming') {
+        await viewer.loadTileset(src);
+      } else {
+        await viewer.load();
+      }
     } catch (err) {
       sf.error = { code: 'harness_exception', message: String(err && err.message || err) };
       setStatus(`error: harness_exception`);

@@ -173,3 +173,63 @@ export function fidelityFor(
 export function hasAnyRepack(scenes: SplatBenchScene[]): boolean {
   return scenes.some((s) => typeof s.repack?.psnrDeltaDb === "number");
 }
+
+/* ---------- third-party encoder comparison ---------- */
+
+/**
+ * Shape emitted by `benches/run-encoders.mjs` into
+ * `benches/reports/splatbench-v0.encoders.json` (synced into
+ * `apps/web/src/data/`).
+ */
+export interface EncoderRunOk {
+  ok: true;
+  version: string;
+  outputBytes: number;
+  wallSeconds: number;
+  wallMs: number;
+  ratio: number;
+}
+export interface EncoderRunFail {
+  ok: false;
+  wallMs: number;
+  stderr?: string;
+}
+export type EncoderRun = EncoderRunOk | EncoderRunFail;
+
+export interface EncoderReport {
+  schema: string;
+  generatedAt: string;
+  encoders: string[];
+  scenes: Array<{
+    scene: string;
+    inputBytes: number;
+    runs: Record<string, EncoderRun>;
+  }>;
+}
+
+import encoderReport from "../data/splatbench-v0.encoders.json" with { type: "json" };
+export const encoders: EncoderReport = encoderReport as EncoderReport;
+
+/** Lookup a third-party encoder's result for a scene, by canonical id. */
+export function encoderRunFor(
+  sceneId: string,
+  encoder: string,
+): EncoderRun | undefined {
+  const row = encoders.scenes.find((s) => s.scene === sceneId);
+  return row?.runs[encoder];
+}
+
+/**
+ * Median ratio for a given third-party encoder across the scenes it
+ * successfully encoded. `Number.NaN` if none ran.
+ */
+export function encoderMedianRatio(encoder: string): number {
+  const ratios = encoders.scenes
+    .map((s) => s.runs[encoder])
+    .filter((r): r is EncoderRunOk => !!r && r.ok)
+    .map((r) => r.ratio)
+    .sort((a, b) => a - b);
+  if (ratios.length === 0) return Number.NaN;
+  const m = ratios.length;
+  return m % 2 ? ratios[(m - 1) / 2] : (ratios[m / 2 - 1] + ratios[m / 2]) / 2;
+}

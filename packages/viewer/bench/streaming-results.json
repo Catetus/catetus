@@ -1,8 +1,8 @@
 {
-  "coldStartMs": 2.012,
+  "coldStartMs": 2.68,
   "frames": 60,
-  "totalMs": 5.434,
-  "fps": 11041.5,
+  "totalMs": 4.576,
+  "fps": 13111.29,
   "peakResidentBytes": 30476,
   "evictions": 0,
   "cacheHits": 3,
@@ -12,5 +12,5 @@
   "budgetBytes": 536870912,
   "pctOfBudget": 0.0057,
   "tilesProcessed": 3,
-  "timestamp": "2026-05-15T05:00:07.408Z"
+  "timestamp": "2026-05-15T05:02:28.319Z"
 }

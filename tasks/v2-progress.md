@@ -51,7 +51,7 @@
 - Splat-Δ revival with sparse anchors stride 32 (private).
 - Neural Color Field hybrid prototype (private).
 - Streaming-tile viewer adapter (public, queue #51).
-- CodecGS-Lite WebCodecs research (private).
+- ~~CodecGS-Lite WebCodecs research (private)~~ — **2026-05-15: prototyped → deferred back to Q5.** Measured 20.3× on bicycle (AV1) / 9.6× (HEVC), vs published 146×. 7× shortfall on headline scene. Realistic post-engineering ceiling ~30-60×, which is mid-2× over the current `size-min` SPZ (31.8× on bonsai), not the 4-5× the headline implied. Composition partner is queue #62 (WebGPU compute decode) — CodecGS-Lite needs #62 to be a streaming win. See `splatforge-private/docs/codecgs-lite-decision.md`.
 - KHR_gaussian_splatting community blog post draft.
 - OpenUSD WG outreach draft.
 
@@ -74,3 +74,5 @@ After every commit:
 - **2026-05-15:** NEVER write temp scripts to `/tmp` — triggers permission prompt, breaks autonomous runs. Use project-internal paths (`apps/<x>/scripts/`, `tasks/scripts/`) or Bash heredocs. Saved as feedback memory.
 - **2026-05-15:** **SwVQ × PostHAC is killed**, not redundant — architecturally incompatible. PostHAC's hash-grid hyperprior conditions on 3D position; SwVQ residuals are distance-from-centroid in attribute space, uncorrelated with position. Validated 2026-05-14 (private queue.md:1274). On sc-tile2 stacked is 1.26× vs PostHAC-alone 8.9×. **Implication:** SwVQ and PostHAC are alternative encoders for the same residual budget, not stackable layers. We ship the better one per scene, not both.
 - **2026-05-15:** Sub-agents may hit transient Write permission gates even when the parent session has full write access. Workaround: re-spawn with explicit "harness gate was transient — write freely" framing. Genuine permission scope is per-session, not per-agent.
+- **2026-05-15:** **CodecGS-Lite (queue #61) prototyped and deferred back to Q5.** Published 146× on bicycle is research-grade per-attribute-PSNR, not render-PSNR. Engineering distance from a one-shot still-image encode to the paper number is RDO bit allocation + DCT-entropy splat finetune + 10-bit channel routing + full PLAS; stacked optimistic recovery lands at ~30-60×, comparable to current `size-min` SPZ at 31.8× on bonsai. Decoder-side WebCodecs is feasible (~70ms decode per tile on Apple Silicon) but only composes with streaming tiles if queue #62 lands first. Carrot was misleading; do not headline 146× anywhere.
+- **2026-05-15:** ffmpeg 4.4 (Ubuntu 22.04 default) doesn't recognise `-still-picture 1` for libaom-av1 (added in ffmpeg ≥5.1). Use `-frames:v 1` to cap the keyframe; the resulting bitstream is a few bytes larger but functionally identical for our purposes.
