@@ -28,7 +28,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     </p>
   </div>
 
-  <div class="dropzone" data-uploader>
+  <div class="dropzone" data-uploader data-state="idle">
     <input
       type="file"
       id="splat-file-input"
@@ -37,42 +37,36 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       hidden
     />
 
-    <div class="dropzone-icon" aria-hidden="true">
-      <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-        <circle cx="28" cy="28" r="27" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.4"></circle>
-        <path d="M28 18v18M21 27l7-9 7 9" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>
-        <path d="M15 38v3a2 2 0 002 2h22a2 2 0 002-2v-3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
-      </svg>
-    </div>
-
-    <div class="dropzone-headline" data-uploader-headline>
-      Drop a splat or click to choose a file
-    </div>
-    <div class="dropzone-body" data-uploader-body>
-      Files stay local until you confirm. Supported formats below.
-    </div>
-
-    <label for="splat-file-input" class="btn btn-primary dropzone-cta">
-      <span aria-hidden="true">📎</span>&nbsp;Choose file
-    </label>
-
-    <div class="format-chips" aria-label="Supported input formats">
-      {supported.map((ext) => <span class="chip">{ext}</span>)}
-    </div>
-
-    <div class="job-status" data-job-status hidden>
-      <div class="job-status-row">
-        <span class="job-status-label" data-job-status-label>queued</span>
-        <span class="job-status-meta" data-job-status-meta></span>
+    <div class="region region-idle">
+      <div class="dropzone-icon" aria-hidden="true">
+        <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+          <circle cx="28" cy="28" r="27" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.4"></circle>
+          <path d="M28 18v18M21 27l7-9 7 9" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path d="M15 38v3a2 2 0 002 2h22a2 2 0 002-2v-3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+        </svg>
       </div>
+      <div class="dropzone-headline">Drop a splat or click to choose a file</div>
+      <div class="dropzone-body">Files stay local until you confirm. Supported formats below.</div>
+      <label for="splat-file-input" class="btn btn-primary dropzone-cta">
+        <span aria-hidden="true">📎</span>&nbsp;Choose file
+      </label>
+      <div class="format-chips" aria-label="Supported input formats">
+        {supported.map((ext) => <span class="chip">{ext}</span>)}
+      </div>
+    </div>
+
+    <div class="region region-progress">
+      <div class="progress-headline" data-progress-headline>Uploading</div>
+      <div class="progress-sub" data-progress-sub>preparing</div>
       <div class="job-progress" data-job-progress>
         <div class="job-progress-bar" data-job-progress-bar></div>
       </div>
-      <div class="job-status-cta" data-job-status-cta></div>
+      <div class="progress-filename" data-progress-filename></div>
     </div>
 
-    <div class="result-preview" data-result-preview hidden>
+    <div class="region region-result">
       <canvas data-result-canvas class="result-canvas"></canvas>
+      <div class="result-meta" data-result-meta>live preview · drag to orbit</div>
       <div class="result-actions">
         <a class="btn btn-primary" data-result-download download>
           <span aria-hidden="true">⬇</span>&nbsp;Download .glb
@@ -80,6 +74,17 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
         <button type="button" class="btn btn-secondary" data-result-reset>
           Optimize another
         </button>
+      </div>
+    </div>
+
+    <div class="region region-error">
+      <div class="error-headline">Something went wrong</div>
+      <div class="error-body" data-error-body></div>
+      <div class="error-actions">
+        <button type="button" class="btn btn-secondary" data-error-retry>Try again</button>
+        <a class="btn btn-secondary" href={partnerHref} target="_blank" rel="noreferrer noopener">
+          Apply as design partner →
+        </a>
       </div>
     </div>
   </div>
@@ -96,84 +101,61 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
 </section>
 
 <style>
-  .job-status {
-    margin-top: 1.25rem;
-    padding: 1rem 1.1rem;
-    border-radius: 0.75rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    text-align: left;
+  /* Region visibility is driven by data-state on the .dropzone. Only one
+     region renders at a time so the dropzone *transforms* through the flow
+     (idle -> progress -> result) instead of stacking panels. */
+  .region {
+    display: none;
+    width: 100%;
   }
-  .job-status-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 1rem;
-    margin-bottom: 0.55rem;
-  }
-  .job-status-label {
+  .dropzone[data-state="idle"] .region-idle { display: block; }
+  .dropzone[data-state="uploading"] .region-progress,
+  .dropzone[data-state="processing"] .region-progress { display: block; }
+  .dropzone[data-state="done"] .region-result { display: flex; flex-direction: column; gap: 0.85rem; }
+  .dropzone[data-state="error"] .region-error { display: block; }
+
+  /* Progress region */
+  .progress-headline {
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 1rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
   }
-  .job-status-meta {
-    font-size: 0.85rem;
-    opacity: 0.7;
+  .progress-sub {
+    font-size: 0.92rem;
+    opacity: 0.75;
+    margin-bottom: 0.9rem;
+  }
+  .progress-filename {
+    font-size: 0.82rem;
+    opacity: 0.55;
+    margin-top: 0.7rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    word-break: break-all;
   }
   .job-progress {
     height: 6px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.07);
     overflow: hidden;
-    margin-bottom: 0.85rem;
   }
   .job-progress-bar {
     height: 100%;
     width: 0%;
     background: linear-gradient(90deg, #6366f1, #8b5cf6);
-    transition: width 0.4s ease;
+    transition: width 0.3s ease;
   }
   .job-progress.indeterminate .job-progress-bar {
     width: 38%;
     animation: job-progress-slide 1.4s ease-in-out infinite;
   }
   @keyframes job-progress-slide {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(280%);
-    }
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(280%); }
   }
-  .job-status[data-state="done"] .job-progress-bar {
-    width: 100%;
-    background: linear-gradient(90deg, #10b981, #34d399);
-  }
-  .job-status[data-state="error"] .job-progress-bar {
-    width: 100%;
-    background: linear-gradient(90deg, #f43f5e, #fb7185);
-  }
-  .job-status-cta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.6rem;
-  }
-  .job-status-cta a {
-    text-decoration: none;
-  }
-  .job-status-error {
-    font-size: 0.85rem;
-    color: #fda4af;
-    margin-top: 0.5rem;
-  }
-  .result-preview {
-    margin-top: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
-    align-items: center;
-  }
+
+  /* Result region */
   .result-canvas {
     width: 100%;
     aspect-ratio: 16 / 10;
@@ -181,8 +163,34 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     display: block;
+    cursor: grab;
+  }
+  .result-canvas:active { cursor: grabbing; }
+  .result-meta {
+    font-size: 0.82rem;
+    opacity: 0.55;
+    text-align: center;
   }
   .result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+  }
+
+  /* Error region */
+  .error-headline {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 0.4rem;
+  }
+  .error-body {
+    font-size: 0.88rem;
+    color: #fda4af;
+    margin-bottom: 1rem;
+    word-break: break-word;
+  }
+  .error-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 0.6rem;
@@ -194,59 +202,35 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
   (function () {
     const zone = document.querySelector("[data-uploader]");
     const input = document.querySelector("[data-file-input]");
-    const headline = document.querySelector("[data-uploader-headline]");
-    const body = document.querySelector("[data-uploader-body]");
-    const status = document.querySelector("[data-job-status]");
-    const statusLabel = document.querySelector("[data-job-status-label]");
-    const statusMeta = document.querySelector("[data-job-status-meta]");
-    const progress = document.querySelector("[data-job-progress]");
-    const cta = document.querySelector("[data-job-status-cta]");
-    const preview = document.querySelector("[data-result-preview]");
-    const previewCanvas = document.querySelector("[data-result-canvas]");
+    const progressHeadline = document.querySelector("[data-progress-headline]");
+    const progressSub = document.querySelector("[data-progress-sub]");
+    const progressFilename = document.querySelector("[data-progress-filename]");
+    const progressTrack = document.querySelector("[data-job-progress]");
+    const progressBar = document.querySelector("[data-job-progress-bar]");
+    const resultCanvas = document.querySelector("[data-result-canvas]");
+    const resultMeta = document.querySelector("[data-result-meta]");
     const downloadLink = document.querySelector("[data-result-download]");
     const resetBtn = document.querySelector("[data-result-reset]");
+    const errorBody = document.querySelector("[data-error-body]");
+    const errorRetry = document.querySelector("[data-error-retry]");
+    if (!(zone instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
+
     let viewerHandle = null;
-    if (
-      !(zone instanceof HTMLElement) ||
-      !(input instanceof HTMLInputElement) ||
-      !(headline instanceof HTMLElement) ||
-      !(body instanceof HTMLElement) ||
-      !(status instanceof HTMLElement) ||
-      !(statusLabel instanceof HTMLElement) ||
-      !(statusMeta instanceof HTMLElement) ||
-      !(progress instanceof HTMLElement) ||
-      !(cta instanceof HTMLElement)
-    )
-      return;
 
-    const hot = function (e) {
-      e.preventDefault();
-      zone.classList.add("drag-hover");
-    };
-    const cool = function () {
-      zone.classList.remove("drag-hover");
-    };
-    zone.addEventListener("dragenter", hot);
-    zone.addEventListener("dragover", hot);
-    zone.addEventListener("dragleave", cool);
-
-    const bar = document.querySelector("[data-job-progress-bar]");
-    function setStatus(state, label, meta, percent) {
-      status.hidden = false;
-      status.dataset.state = state;
-      statusLabel.textContent = label;
-      statusMeta.textContent = meta || "";
-      progress.classList.remove("indeterminate");
-      if (typeof percent === "number" && bar instanceof HTMLElement) {
-        bar.style.width = Math.max(0, Math.min(100, percent)).toFixed(1) + "%";
-      } else if (state === "queued" || state === "running") {
-        progress.classList.add("indeterminate");
-      } else if (state === "done" || state === "error") {
-        if (bar instanceof HTMLElement) bar.style.width = "100%";
-      }
-      cta.innerHTML = "";
+    function setState(name) {
+      zone.dataset.state = name;
     }
-
+    function setProgress(headline, sub, percent) {
+      if (progressHeadline) progressHeadline.textContent = headline;
+      if (progressSub) progressSub.textContent = sub || "";
+      if (!(progressTrack instanceof HTMLElement) || !(progressBar instanceof HTMLElement)) return;
+      progressTrack.classList.remove("indeterminate");
+      if (typeof percent === "number") {
+        progressBar.style.width = Math.max(0, Math.min(100, percent)).toFixed(1) + "%";
+      } else {
+        progressTrack.classList.add("indeterminate");
+      }
+    }
     function formatBytes(n) {
       if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
       if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
@@ -255,26 +239,32 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     }
     function formatEta(seconds) {
       if (!isFinite(seconds) || seconds < 0) return "";
-      if (seconds < 60) return Math.ceil(seconds) + "s left";
+      if (seconds < 60) return "~" + Math.ceil(seconds) + "s left";
       const m = Math.floor(seconds / 60);
       const s = Math.ceil(seconds - m * 60);
-      return m + "m " + (s > 0 ? s + "s " : "") + "left";
+      return "~" + m + "m " + (s > 0 ? s + "s " : "") + "left";
     }
 
-    function fail(message) {
-      setStatus("error", "error", "");
-      const msg = document.createElement("div");
-      msg.className = "job-status-error";
-      msg.textContent = message;
-      cta.appendChild(msg);
-      const a = document.createElement("a");
-      a.href = partnerHref;
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.className = "btn btn-secondary";
-      a.textContent = "Apply as design partner →";
-      cta.appendChild(a);
+    function disposeViewer() {
+      if (viewerHandle && typeof viewerHandle.dispose === "function") {
+        try { viewerHandle.dispose(); } catch (_) {}
+      }
+      viewerHandle = null;
     }
+    function resetToIdle() {
+      disposeViewer();
+      setState("idle");
+      input.value = ""; // allow re-picking the same file
+    }
+
+    const hot = function (e) { e.preventDefault(); zone.classList.add("drag-hover"); };
+    const cool = function () { zone.classList.remove("drag-hover"); };
+    zone.addEventListener("dragenter", hot);
+    zone.addEventListener("dragover", hot);
+    zone.addEventListener("dragleave", cool);
+
+    if (resetBtn instanceof HTMLButtonElement) resetBtn.addEventListener("click", resetToIdle);
+    if (errorRetry instanceof HTMLButtonElement) errorRetry.addEventListener("click", resetToIdle);
 
     async function ping() {
       try {
@@ -282,16 +272,9 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
         if (!r.ok) return false;
         const j = await r.json();
         return j && j.ok === true;
-      } catch (_) {
-        return false;
-      }
+      } catch (_) { return false; }
     }
 
-    // R2 direct upload: ask our Vercel Function for a presigned PUT URL,
-    // stream the file body directly to Cloudflare R2 (no Vercel hop, no
-    // mixed-content block), then hand the resulting GET URL to the
-    // optimize API as `source_url`. This bypasses every payload-size
-    // bottleneck and avoids egress fees on downloads.
     async function requestUploadUrl(file) {
       const r = await fetch("/api/upload-url", {
         method: "POST",
@@ -304,7 +287,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       });
       if (!r.ok) {
         const text = await r.text();
-        throw new Error("POST /api/upload-url " + r.status + " — " + text);
+        throw new Error("could not get upload URL (" + r.status + ")");
       }
       return await r.json();
     }
@@ -319,10 +302,10 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
         };
         xhr.onload = function () {
           if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error("upload " + xhr.status + " — " + xhr.responseText));
+          else reject(new Error("upload failed (HTTP " + xhr.status + ")"));
         };
-        xhr.onerror = function () { reject(new Error("upload failed (network)")); };
-        xhr.onabort = function () { reject(new Error("upload aborted")); };
+        xhr.onerror = function () { reject(new Error("upload failed (network error)")); };
+        xhr.onabort = function () { reject(new Error("upload was cancelled")); };
         xhr.send(file);
       });
     }
@@ -331,71 +314,44 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       const r = await fetch(apiBase + "/v1/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          preset: "web-mobile",
-          source_url: sourceUrl,
-        }),
+        body: JSON.stringify({ preset: "web-mobile", source_url: sourceUrl }),
       });
-      if (!r.ok) {
-        const text = await r.text();
-        throw new Error("POST /v1/jobs " + r.status + " — " + text);
-      }
+      if (!r.ok) throw new Error("could not start job (" + r.status + ")");
       return await r.json();
     }
 
     async function pollJob(jobId) {
       const r = await fetch(apiBase + "/v1/jobs/" + jobId, { method: "GET" });
-      if (!r.ok) {
-        const text = await r.text();
-        throw new Error("GET /v1/jobs/" + jobId + " " + r.status + " — " + text);
-      }
+      if (!r.ok) throw new Error("could not check job status (" + r.status + ")");
       return await r.json();
     }
 
-    function renderJob(job) {
-      const s = job.status;
-      if (s === "awaiting-upload" || s === "uploading") {
-        setStatus("running", "processing", "preparing scene");
-      } else if (s === "queued") {
-        setStatus("running", "processing", "queued for optimize");
-      } else if (s === "running") {
-        setStatus("running", "processing", "optimizing");
-      } else if (s === "done") {
-        setStatus("done", "done", "ready to view", 100);
-        void showPreview(job);
-      } else if (s === "error") {
-        fail(job.error || "optimize failed");
-      }
-    }
-
-    async function showPreview(job) {
-      if (!(preview instanceof HTMLElement) || !(previewCanvas instanceof HTMLCanvasElement) || !(downloadLink instanceof HTMLAnchorElement)) {
-        return;
-      }
-      // Wire the download button (.glb is the single-file artifact users take elsewhere).
-      if (job.output_url) {
+    async function showResult(job) {
+      // Wire the download button to the .glb (single-file portable artifact).
+      if (downloadLink instanceof HTMLAnchorElement && job.output_url) {
         downloadLink.href = job.output_url;
-        const safeName = (job.filename || "optimized").replace(/\.[^.]*$/, "");
-        downloadLink.setAttribute("download", safeName + ".glb");
+        const stem = (job.filename || "optimized").replace(/\.[^.]*$/, "");
+        downloadLink.setAttribute("download", stem + ".glb");
       }
-      preview.hidden = false;
-      // Mount the splatforge viewer on the canvas using the preview manifest URL.
-      // The viewer streams chunks from the absolute buffer URIs baked into the manifest.
+      setState("done");
+      if (!(resultCanvas instanceof HTMLCanvasElement)) return;
+
+      // Size the canvas backing store to its rendered CSS size.
+      const rect = resultCanvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      resultCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      resultCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+
       if (!job.preview_url) {
-        statusMeta.textContent = "(preview not available — download to view)";
+        if (resultMeta) resultMeta.textContent = "preview not available — download to view";
         return;
       }
+      if (resultMeta) resultMeta.textContent = "loading preview…";
       try {
+        disposeViewer();
         const mod = await import(/* @vite-ignore */ "/viewer/index.js");
-        const rect = previewCanvas.getBoundingClientRect();
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        previewCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
-        previewCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
-        if (viewerHandle && typeof viewerHandle.dispose === "function") {
-          try { viewerHandle.dispose(); } catch (_) {}
-        }
         const v = new mod.SplatForgeViewer({
-          canvas: previewCanvas,
+          canvas: resultCanvas,
           src: job.preview_url,
           cameraPath: "orbit-8",
           budget: "web-mobile",
@@ -403,31 +359,33 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
           autoRotateSpeed: 7,
         });
         v.on("firstRender", function () {
-          statusMeta.textContent = "live preview";
+          if (resultMeta) resultMeta.textContent = "drag to orbit · scroll to zoom";
         });
         v.on("error", function (p) {
-          statusMeta.textContent = "preview failed (" + ((p && p.code) || "unknown") + ")";
+          if (resultMeta) resultMeta.textContent = "preview unavailable (" + ((p && p.code) || "unknown") + ")";
         });
         await v.load();
         viewerHandle = v;
       } catch (err) {
-        statusMeta.textContent = "preview failed: " + ((err && err.message) || err);
+        if (resultMeta) resultMeta.textContent = "preview failed: " + ((err && err.message) || err);
       }
     }
 
-    function resetUploader() {
-      if (viewerHandle && typeof viewerHandle.dispose === "function") {
-        try { viewerHandle.dispose(); } catch (_) {}
-        viewerHandle = null;
-      }
-      if (preview instanceof HTMLElement) preview.hidden = true;
-      if (status instanceof HTMLElement) status.hidden = true;
-      headline.textContent = "Drop a splat or click to choose a file";
-      body.textContent = "Files stay local until you confirm. Supported formats below.";
+    function fail(message) {
+      disposeViewer();
+      if (errorBody) errorBody.textContent = message;
+      setState("error");
     }
 
-    if (resetBtn instanceof HTMLButtonElement) {
-      resetBtn.addEventListener("click", resetUploader);
+    function renderProgress(job) {
+      const s = job.status;
+      if (s === "queued") {
+        setProgress("Processing", "queued for optimize", null);
+      } else if (s === "running") {
+        setProgress("Processing", "optimizing your scene…", null);
+      } else if (s === "awaiting-upload" || s === "uploading") {
+        setProgress("Processing", "preparing scene", null);
+      }
     }
 
     function waitFor(jobId) {
@@ -436,19 +394,13 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
         const tick = async function () {
           try {
             const job = await pollJob(jobId);
-            renderJob(job);
-            if (job.status === "done" || job.status === "error") {
-              resolve(job);
-              return;
-            }
-            if (Date.now() - started > 10 * 60 * 1000) {
-              reject(new Error("timed out waiting for job (10 min)"));
-              return;
-            }
+            if (job.status === "done") return resolve(job);
+            if (job.status === "error") return reject(new Error(job.error || "optimize failed"));
+            renderProgress(job);
+            if (Date.now() - started > 10 * 60 * 1000)
+              return reject(new Error("timed out after 10 minutes"));
             setTimeout(tick, 2000);
-          } catch (err) {
-            reject(err);
-          }
+          } catch (err) { reject(err); }
         };
         tick();
       });
@@ -457,56 +409,44 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     async function handleFile(file) {
       const supportedExts = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       const lower = file.name.toLowerCase();
-      const ok = supportedExts.some(function (ext) {
-        return lower.endsWith(ext);
-      });
-      if (!ok) {
-        headline.textContent = "Unsupported file type.";
-        body.innerHTML =
-          'Supported: <code>' +
-          supportedExts.join("</code>, <code>") +
-          "</code>. Choose a different file.";
+      if (!supportedExts.some(function (ext) { return lower.endsWith(ext); })) {
+        fail("Unsupported file type. Try one of: " + supportedExts.join(", "));
         return;
       }
-      headline.textContent = "Uploading " + file.name;
-      body.innerHTML = formatBytes(file.size);
-      setStatus("uploading", "uploading", "starting…", 0);
+      // Move into the progress region immediately.
+      if (progressFilename) progressFilename.textContent = file.name + " · " + formatBytes(file.size);
+      setProgress("Uploading", "starting…", 0);
+      setState("uploading");
 
       try {
         const reachable = await ping();
-        if (!reachable) throw new Error("the optimize service is unreachable");
+        if (!reachable) throw new Error("the optimize service is offline");
         const signed = await requestUploadUrl(file);
+
         const uploadStart = Date.now();
-        let lastEtaUpdate = 0;
+        let lastUpdate = 0;
         await uploadBytes(signed.uploadUrl, file, signed.contentType,
           function (loaded, total) {
             const now = Date.now();
+            if (now - lastUpdate < 150) return;
+            lastUpdate = now;
             const elapsed = Math.max(0.001, (now - uploadStart) / 1000);
             const bps = loaded / elapsed;
             const pct = total > 0 ? (loaded / total) * 100 : 0;
-            if (now - lastEtaUpdate < 200) return;
-            lastEtaUpdate = now;
             const remaining = total > 0 && bps > 0 ? (total - loaded) / bps : Infinity;
-            const meta =
-              pct.toFixed(0) + "%  ·  " +
+            const sub = pct.toFixed(0) + "%  ·  " +
               (bps / 1024 / 1024).toFixed(1) + " MB/s  ·  " +
               formatEta(remaining);
-            setStatus("uploading", "uploading", meta, pct);
+            setProgress("Uploading", sub, pct);
           });
-        setStatus("running", "processing", "starting optimize", 0);
+
+        setProgress("Processing", "starting optimize…", null);
+        setState("processing");
         const job = await createJob(signed.sourceUrl);
-        headline.textContent = "Optimizing " + file.name;
-        body.innerHTML = "Job " + job.id;
-        await waitFor(job.id);
+        if (progressFilename) progressFilename.textContent = file.name;
+        const finalJob = await waitFor(job.id);
+        await showResult(finalJob);
       } catch (err) {
-        headline.textContent = "Something went wrong.";
-        body.innerHTML = "The hosted API may be cold or the file too large.";
-        const apiStatus = document.querySelector("[data-api-status]");
-        const apiStatusLbl = document.querySelector("[data-api-status-label]");
-        if (apiStatus && apiStatusLbl) {
-          apiStatus.classList.add("offline");
-          apiStatusLbl.textContent = "offline";
-        }
         fail((err && err.message) ? err.message : String(err));
       }
     }
@@ -514,8 +454,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     zone.addEventListener("drop", function (e) {
       e.preventDefault();
       cool();
-      const file =
-        e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
       if (file) void handleFile(file);
     });
     input.addEventListener("change", function () {
