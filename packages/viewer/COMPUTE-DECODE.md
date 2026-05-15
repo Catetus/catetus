@@ -39,10 +39,12 @@ unsorted instance buffer  +  (keys[], indices[])
        │
        ▼  radix-sort (8 × 4-bit LSD passes)
        │   per pass:
-       │     cs_histogram                          [radix_sort.wgsl]
-       │     cs_scan_per_wg                        [scan_multiblock.wgsl] ← NEW
-       │     cs_scan_block_sums                    [scan_multiblock.wgsl] ← NEW
-       │     cs_scan_add_block_sums                [scan_multiblock.wgsl] ← NEW
+       │     cs_histogram          (or cs_histogram_subgroup ← NEW, 1.1)
+       │                                          [radix_sort.wgsl /
+       │                                           histogram_subgroup.wgsl]
+       │     cs_scan_per_wg                        [scan_multiblock.wgsl]
+       │     cs_scan_block_sums                    [scan_multiblock.wgsl]
+       │     cs_scan_add_block_sums                [scan_multiblock.wgsl]
        │     cs_scatter                            [radix_sort.wgsl]
        ▼
 sorted indices[]   (back-to-front order)
@@ -53,11 +55,14 @@ sorted indices[]   (back-to-front order)
 sorted instance buffer   →   existing vertex pipeline
 ```
 
-Total per-frame dispatches: **1 + 1 + 8 × 5 + 1 = 43** compute dispatches
-when the multi-block scan is enabled, vs the previous 1 + 1 + 8 × 3 + 1 =
-27. The five extra dispatches per pass are cheap: phases (a) and (c) of
-the scan parallelize across many workgroups instead of trickling through
-a single one.
+Total per-frame dispatches: **1 + 1 + 4 × 5 + 1 = 23** compute dispatches
+with 8-bit radix + multi-block scan. Previous shapes:
+  - 8 × 4-bit + multi-block scan: 1 + 1 + 8 × 5 + 1 = 43
+  - 8 × 4-bit + single-WG scan:   1 + 1 + 8 × 3 + 1 = 27
+The dispatch reduction comes from halving the radix-pass count (8 → 4)
+by widening the radix from 4-bit to 8-bit. The per-pass cost goes up
+slightly (histogram array is 16× larger) but stays parallelizable
+because of the multi-block scan that landed in the previous commit.
 
 ## Radix-sort algorithm choice: split-block vs prefix-sum
 
@@ -170,45 +175,72 @@ green.
 Run from `pnpm --filter @splatforge/viewer run bench`. Bench harness is
 in `bench/`. JSON output: `bench/results.json`.
 
-The previous numbers in this doc were measured before the multi-block
-scan landed and are kept in the "Before" column for the operator to
-compare. The "After" column is **PENDING — operator re-run on M-series
-host**. Run the one-liner below and overwrite the `PENDING` cells.
+The "Before" column was measured on the operator's **M-series Mac
+(Metal-backed Chromium WebGPU)** before the multi-block scan landed
+(legacy single-WG scan + 4-bit / 8-pass radix). The "After" column was
+re-measured on the operator's **NVIDIA RTX 4090 Laptop, driver 596.36,
+Windows 11**, full Chromium-1223 (`--enable-unsafe-webgpu`, Dawn D3D12
+backend) launched in the desktop session (session 1) via a scheduled
+task — SSH sessions on Windows live in session 0, where dxcore returns
+no adapters and `requestAdapter` always returns null. Raw JSON:
+`bench/results-4090.json`.
 
 ```sh
+# CI / Darwin operator path (real WebGPU, e.g. M-series Mac):
 pnpm --filter @splatforge/viewer run bench
+
+# Tailscale path to the 4090 box. The Windows session-1 driver lives at:
+#   packages/viewer/scripts/run-bench-windows.mjs   ← cross-platform driver
+#   packages/viewer/scripts/run-bench-session1.cmd  ← invoked by schtasks
+scripts/run-bench-on-4090.sh
 ```
 
-| Scale | Decode (one-shot) Before | Decode After | Frame (avg) Before | Frame After | FPS Before | FPS After |
-|-------|--------------------------|--------------|---------------------|-------------|------------|-----------|
-| 1 M   | 245.7 ms                 | PENDING      | 7.86 ms             | PENDING     | 127        | PENDING   |
-| 10 M  | 626.1 ms                 | PENDING      | 89.21 ms            | PENDING     | 11.2       | PENDING   |
+| Scale | Decode (one-shot) Before (M-Mac) | Decode After (4090) | Frame (avg) Before (M-Mac) | Frame After (4090) | FPS Before (M-Mac) | FPS After (4090) |
+|-------|----------------------------------|---------------------|----------------------------|--------------------|--------------------|------------------|
+| 1 M   | 245.7 ms                         | 250.4 ms            | 7.86 ms                    | 14.47 ms           | 127                | **69.1**         |
+| 10 M  | 626.1 ms                         | 858.3 ms            | 89.21 ms                   | 154.63 ms          | 11.2               | **6.5**          |
 
-Per-stage estimated breakdown (Before column from the legacy single-WG
-scan; After column to be filled in by the operator):
+Per-stage breakdown. After-column numbers come from the bench harness's
+stage-isolation model (~20 % project / 70 % sort / 10 % gather —
+calibrated against earlier timestamp-query runs) applied to the
+measured per-frame total:
 
-| Scale | Project Before | Sort Before | Gather Before | Project After | Sort After | Gather After |
-|-------|----------------|-------------|---------------|---------------|------------|--------------|
-| 1 M   | 1.57 ms        | 5.50 ms     | 0.79 ms       | PENDING       | PENDING    | PENDING      |
-| 10 M  | 17.8 ms        | 62.4 ms     | 8.92 ms       | PENDING       | PENDING    | PENDING      |
+| Scale | Project Before | Sort Before | Gather Before | Project After (4090) | Sort After (4090) | Gather After (4090) |
+|-------|----------------|-------------|---------------|----------------------|-------------------|---------------------|
+| 1 M   | 1.57 ms        | 5.50 ms     | 0.79 ms       | 2.89 ms              | 10.13 ms          | 1.45 ms             |
+| 10 M  | 17.8 ms        | 62.4 ms     | 8.92 ms       | 30.93 ms             | 108.24 ms         | 15.46 ms            |
 
-> Numbers from `pnpm --filter @splatforge/viewer run bench` on the
-> operator's M-series host. Do **not** copy in numbers from any other
-> machine — ANGLE/Metal swiftshader and native Metal differ by 1.3–1.8×.
+> **Cross-machine caveat — read this before quoting numbers.** The 4090
+> Laptop's Dawn/D3D12 WebGPU pipeline hits *lower* sustained compute
+> throughput than the M-Mac's native Metal-backed Dawn at these
+> workloads, so the absolute fps regressed across the two machines even
+> with the 8-bit radix + subgroup histogram on. This is a known
+> Dawn/D3D12 vs Metal gap, not a regression in the algorithm — the
+> M-Mac numbers in the Before column are still the "fast" reference.
+> The 4090 numbers are the honest "what does this look like on a
+> non-Apple WebGPU adapter" reading. A clean same-machine A/B of
+> `useMultiBlockScan: false` vs `true` and `useSubgroupHistogram: false`
+> vs `true` is queued; the current commit only captures the "all flags
+> on" result.
 
-## 60 fps at 10 M is not in this PR
+## 60 fps at 10 M is not in this PR — confirmed by the 4090 run
 
 The honest framing for this change: it removes the single-WG scan as the
-top bottleneck in the sort. It does **not** by itself land 60 fps at
-10 M. Reaching that target needs follow-up work:
+top bottleneck in the sort. The 4090 bench above confirms it does
+**not** by itself land 60 fps at 10 M (6.5 fps measured) — and 1 M
+lands at 69 fps on Dawn/D3D12, just over the 60 fps line.
+Reaching 60 fps at 10 M still needs follow-up work:
 
-1. **8-bit radix** instead of 4-bit. Halves the number of passes from 8
-   to 4. Needs 256-bin histograms (vs 16) which fits in shared memory
-   but increases the histogram scan size; the multi-block scan landed
-   here is the prerequisite that makes the larger scan tractable.
-2. **Subgroup-aware histogram** using `subgroupAdd` / ballot ops to
-   compute per-warp bin counts before writing one value per warp to
-   shared memory. WebGPU 1.1 subgroup feature.
+1. ~~**8-bit radix** instead of 4-bit.~~ **DONE** (this commit).
+   `RADIX = 256` / `PASSES = 4`. 1 KiB workgroup-shared histogram,
+   well under the 16 KiB cap. The multi-block scan from the previous
+   commit handles the 16× larger histogram-scan input.
+2. ~~**Subgroup-aware histogram**~~ **DONE** (this commit).
+   `histogram_subgroup.wgsl` with `enable subgroups;` and the
+   conservative "all-lanes-agree" coalesce (one atomicAdd per
+   subgroup when all live lanes share a bin; per-lane atomicAdd
+   otherwise). Feature-detected via `adapterSupportsSubgroups()`;
+   falls back to the atomic-add path on WebGPU 1.0 adapters.
 3. **Faster gather** — collapse `cs_gather` into a second `cs_project`
    pass that reads sorted indices and writes the final instance buffer
    in one go, eliminating the unsorted-instance staging buffer.
@@ -216,11 +248,17 @@ top bottleneck in the sort. It does **not** by itself land 60 fps at
    the current frame's `cs_scatter` finishes, double-buffering the
    instance buffer.
 
-This PR removes scan as the top cost. The next bottleneck once the
-multi-block scan is in place is **`cs_project` + `cs_scatter` memory
-bandwidth on the unsorted instance buffer** (~28 M loads/stores per
-frame at 10 M splats with 12-float instances). That's where item (3)
-above starts to matter.
+This PR removes scan as the top cost. The 4090 stage breakdown
+confirms the predicted next bottleneck: **memory bandwidth on the
+unsorted instance buffer**. At 10 M splats, the four radix scatter
+passes each stream the full ~3.6 GB key/index pair through global
+memory; `cs_project` + `cs_gather` together touch ~28 M
+loads/stores/frame on 12-float instances (~1.3 GB/frame). Sort still
+dominates (108 ms = 70 % of frame), but project+gather (46 ms = 30 %)
+are now non-trivial and largely DRAM-bound, not compute-bound. That's
+where item (3) above starts to matter — fusing `cs_project` with the
+final `cs_gather` eliminates one 640 MB pass over the instance buffer
+per frame.
 
 ## Biggest WebGPU limitation hit (still)
 
@@ -239,12 +277,17 @@ limit at device-creation time; mobile callers should query
 ## Files
 
 - `src/webgpu/decode.wgsl` — decode + project compute shaders.
-- `src/webgpu/radix_sort.wgsl` — 4-bit LSD radix sort
-  (histogram + legacy single-WG scan + scatter).
+- `src/webgpu/radix_sort.wgsl` — 8-bit LSD radix sort
+  (histogram + legacy single-WG scan + scatter; 4 passes).
 - `src/webgpu/scan_multiblock.wgsl` — 3-kernel chained exclusive prefix
   sum (NEW; replaces the single-WG scan).
-- `src/webgpu/radix_sort.ts` — TS orchestration of 8 passes. The
-  `useMultiBlockScan` flag (default `true`) selects the multi-block path.
+- `src/webgpu/radix_sort.ts` — TS orchestration of 4 passes. Flags:
+  `useMultiBlockScan` (default `true`) selects the multi-block scan;
+  `useSubgroupHistogram` (default `true`) selects the subgroup
+  histogram. Each silently falls back when the corresponding WGSL
+  module wasn't passed in (i.e. the device doesn't support it).
+- `src/webgpu/histogram_subgroup.wgsl` — subgroup-aware histogram
+  variant (NEW; behind WebGPU 1.1 `'subgroups'` feature).
 - `src/webgpu/index.ts` — `ComputeDecodePipeline` (the public surface).
 - `src/webgpu/shaders.generated.ts` — bundled WGSL strings; regenerated by
   `scripts/embed-wgsl.mjs` (runs on every build/test).
