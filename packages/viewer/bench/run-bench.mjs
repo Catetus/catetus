@@ -15,7 +15,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -87,15 +87,29 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(PORT, r));
 console.error(`bench: serving on http://127.0.0.1:${PORT}/`);
 
-// 3. Headless Chromium with WebGPU.
+// 3. Headless Chromium with WebGPU. playwright-core may live under the
+// visual-tests workspace rather than the viewer package; we search both.
 let chromium;
-try {
-  ({ chromium } = await import('playwright-core'));
-} catch (err) {
-  console.error('bench: playwright-core unavailable — install via pnpm i -w playwright-core');
-  console.error(err.message);
-  server.close();
-  process.exit(2);
+{
+  const visualPwt = resolve(root, '..', '..', 'tests', 'visual', 'node_modules', 'playwright-core', 'index.js');
+  const candidates = ['playwright-core', pathToFileURL(visualPwt).href];
+  const errs = [];
+  for (const c of candidates) {
+    try {
+      const mod = await import(c);
+      chromium = mod.chromium ?? mod.default?.chromium;
+      if (chromium) break;
+      errs.push(`${c}: imported but .chromium missing`);
+    } catch (err) {
+      errs.push(`${c}: ${err.message}`);
+    }
+  }
+  if (!chromium) {
+    console.error('bench: playwright-core unavailable. Tried:');
+    for (const e of errs) console.error('  ' + e);
+    server.close();
+    process.exit(2);
+  }
 }
 
 const browser = await chromium.launch({
