@@ -1,0 +1,283 @@
+---
+import Base from "../layouts/Base.astro";
+
+const title = "SplatForge — Import from Luma / Polycam / Scaniverse";
+const description =
+  "Paste a share URL from Luma, Polycam, or Scaniverse and SplatForge ingests the capture directly. No download-then-upload round trip.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import" aria-current="page">Import</a>
+      <a href="/#try">Try it</a>
+    </div>
+  </nav>
+
+  <main class="page">
+    <h1>Import from a capture app</h1>
+    <p class="lede">
+      Paste a share URL from Luma, Polycam, or Scaniverse. We resolve it to
+      the direct splat asset and run the same optimize pipeline as
+      <code>/v1/jobs</code> — no manual download / re-upload. You'll get a
+      <code>job_id</code> back; poll <code>/v1/jobs/&lt;id&gt;</code> for
+      progress.
+    </p>
+
+    <section class="provider-grid">
+      <!-- Luma -->
+      <form class="provider-card" data-provider="luma">
+        <header>
+          <h2>Luma</h2>
+          <span class="badge">Gaussian splats</span>
+        </header>
+        <label>
+          <span>Share URL</span>
+          <input
+            type="url"
+            name="share_url"
+            placeholder="https://lumalabs.ai/capture/&lt;id&gt;"
+            required
+            pattern="https://(www\.)?lumalabs\.ai/(capture|embed)/.+"
+          />
+        </label>
+        <button type="submit">Import from Luma</button>
+        <p class="hint">Only <em>complete</em> captures import. Still-processing scans return 415 with a hint.</p>
+      </form>
+
+      <!-- Polycam -->
+      <form class="provider-card" data-provider="polycam">
+        <header>
+          <h2>Polycam</h2>
+          <span class="badge">PLY export required</span>
+        </header>
+        <label>
+          <span>Share URL</span>
+          <input
+            type="url"
+            name="share_url"
+            placeholder="https://poly.cam/capture/&lt;id&gt;"
+            required
+            pattern="https://(www\.)?(poly\.cam|polycam\.com)/capture/.+"
+          />
+        </label>
+        <button type="submit">Import from Polycam</button>
+        <p class="hint">If the capture isn't exported as PLY in the Polycam app yet, you'll get a 415 telling you to export first.</p>
+      </form>
+
+      <!-- Scaniverse -->
+      <form class="provider-card" data-provider="scaniverse">
+        <header>
+          <h2>Scaniverse</h2>
+          <span class="badge">USDZ → PLY only</span>
+        </header>
+        <label>
+          <span>Share URL</span>
+          <input
+            type="url"
+            name="share_url"
+            placeholder="https://scaniverse.com/scan/&lt;id&gt;"
+            required
+            pattern="https://(www\.)?scaniverse\.com/scan/.+"
+          />
+        </label>
+        <button type="submit">Import from Scaniverse</button>
+        <p class="hint">Scaniverse USDZ-without-PLY captures aren't supported yet — convert to PLY in the desktop app and re-share.</p>
+      </form>
+    </section>
+
+    <section class="result" id="result" hidden>
+      <h2>Result</h2>
+      <pre id="result-body"></pre>
+    </section>
+
+    <section class="api-doc">
+      <h2>API</h2>
+      <p>
+        Each endpoint is a plain <code>POST</code> to
+        <code>https://api.splatforge.dev/v1/import/&lt;provider&gt;</code>
+        with the same bearer auth as <code>/v1/jobs</code>. 10 requests/min/key.
+      </p>
+      <pre><code set:html={`curl -X POST https://api.splatforge.dev/v1/import/luma \\
+  -H "Authorization: Bearer $SPLATFORGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"share_url": "https://lumalabs.ai/capture/abc-123"}'
+
+# response
+{
+  "job_id": "0e2a…",
+  "source_url": "https://cdn-luma.com/scenes/abc-123/scene.ply",
+  "provider": "luma"
+}`} /></pre>
+      <p><a href="/docs/api/import">Full reference →</a></p>
+    </section>
+  </main>
+
+  <script is:inline>
+    // Resolve API base URL — same convention TryIt.astro uses. Falls back
+    // to the production droplet when the env var isn't injected.
+    const API_BASE =
+      window.__SPLATFORGE_API_BASE__ ||
+      // Lets you point at a local API by setting localStorage on dev:
+      localStorage.getItem("splatforge.apiBase") ||
+      "https://api.splatforge.dev";
+
+    function showResult(payload, ok) {
+      const sec = document.getElementById("result");
+      const body = document.getElementById("result-body");
+      sec.hidden = false;
+      sec.dataset.state = ok ? "ok" : "error";
+      body.textContent = JSON.stringify(payload, null, 2);
+      sec.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    document.querySelectorAll("form.provider-card").forEach((form) => {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const provider = form.dataset.provider;
+        const data = new FormData(form);
+        const share_url = data.get("share_url");
+        const apiKey =
+          localStorage.getItem("splatforge.apiKey") ||
+          prompt("Paste your SplatForge API key (sf_live_… or sf_test_…):");
+        if (!apiKey) return;
+        localStorage.setItem("splatforge.apiKey", apiKey);
+
+        const btn = form.querySelector("button");
+        const original = btn.textContent;
+        btn.textContent = "Importing…";
+        btn.disabled = true;
+        try {
+          const res = await fetch(`${API_BASE}/v1/import/${provider}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({ share_url }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          showResult(payload, res.ok);
+        } catch (err) {
+          showResult({ error: String(err) }, false);
+        } finally {
+          btn.textContent = original;
+          btn.disabled = false;
+        }
+      });
+    });
+  </script>
+
+  <style>
+    .page {
+      max-width: 64rem;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 6rem;
+    }
+    .page h1 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      margin-bottom: 0.75rem;
+    }
+    .lede {
+      color: var(--c-muted, #7a8190);
+      font-size: 1.1rem;
+      max-width: 48rem;
+      margin-bottom: 2.5rem;
+    }
+    .provider-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 3rem;
+    }
+    .provider-card {
+      border: 1px solid var(--c-line, rgba(255, 255, 255, 0.1));
+      border-radius: 12px;
+      padding: 1.25rem 1.25rem 1.5rem;
+      background: var(--c-card, rgba(255, 255, 255, 0.02));
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .provider-card header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .provider-card h2 {
+      font-size: 1.15rem;
+      margin: 0;
+    }
+    .provider-card .badge {
+      font-size: 0.75rem;
+      color: var(--c-muted, #7a8190);
+      border: 1px solid var(--c-line, rgba(255, 255, 255, 0.1));
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+    }
+    .provider-card label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      color: var(--c-muted, #7a8190);
+    }
+    .provider-card input {
+      font: inherit;
+      padding: 0.55rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--c-line, rgba(255, 255, 255, 0.15));
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--c-fg, #fff);
+    }
+    .provider-card input:invalid:not(:placeholder-shown) {
+      border-color: #ff6b6b;
+    }
+    .provider-card button {
+      font: inherit;
+      font-weight: 600;
+      padding: 0.7rem 1rem;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: var(--c-accent, #4f8cff);
+      color: #fff;
+      cursor: pointer;
+    }
+    .provider-card button:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
+    .provider-card .hint {
+      font-size: 0.8rem;
+      color: var(--c-muted, #7a8190);
+      margin: 0;
+    }
+    .result {
+      border: 1px solid var(--c-line, rgba(255, 255, 255, 0.1));
+      border-radius: 12px;
+      padding: 1rem 1.25rem 1.5rem;
+      margin-bottom: 3rem;
+    }
+    .result[data-state="error"] {
+      border-color: #ff6b6b;
+    }
+    .result pre {
+      overflow-x: auto;
+      font-size: 0.85rem;
+    }
+    .api-doc pre {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 1rem;
+      border-radius: 10px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+    }
+  </style>
+</Base>

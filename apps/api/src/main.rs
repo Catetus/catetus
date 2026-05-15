@@ -1484,6 +1484,30 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
+/* ---------- ratings (stub — full impl lives on the ratings agent branch) ---------- */
+
+/// Placeholder for the ratings endpoints referenced by the open router.
+/// The full ratings agent ships the SHA-256(IP||UA)-keyed rate-limit
+/// implementation; this stub keeps the bin compilable on `main` until
+/// that branch merges. Returns 503 so callers don't think they got an
+/// empty success.
+async fn post_rating(
+    State(_state): State<AppState>,
+    _headers: HeaderMap,
+    _body: Bytes,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::ServiceUnavailable(
+        "ratings ingestion not yet wired into this build".to_string(),
+    ))
+}
+
+async fn ratings_summary(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<RatingSummaryRow>>, ApiError> {
+    let rows = state.jobs.summarize_ratings().await?;
+    Ok(Json(rows))
+}
+
 /* ---------- capture-tool imports ---------- */
 
 /// Shared body for the three `/v1/import/*` handlers. The handlers are
