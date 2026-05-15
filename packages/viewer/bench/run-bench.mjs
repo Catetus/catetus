@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
 //
-// Bench driver. Compiles `bench/compute-decode.bench.ts`, starts a tiny
-// static server, launches a headless Chromium via playwright-core with
-// WebGPU enabled, navigates to the bench page, polls `window.__bench`, and
+// Bench driver. Compiles `bench/compute-decode.bench.ts` (+ real-scene.bench.ts),
+// starts a tiny static server, launches a headless Chromium via playwright-core
+// with WebGPU enabled, navigates to the bench page, polls `window.__bench`, and
 // prints the JSON to stdout.
+//
+// If SF_BENCH_PLY_DIR is set, ALSO runs real-scene.html on the discovered
+// scene set and merges the result under `realScene` in results.json.
 //
 // Run: `pnpm --filter @splatforge/viewer run bench`
 //
@@ -13,7 +16,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -23,7 +26,6 @@ const distBench = join(root, 'dist-bench');
 
 await mkdir(distBench, { recursive: true });
 
-// 1. Compile bench TS → dist-bench/*.js via tsc.
 const tscBin = join(root, 'node_modules', '.bin', 'tsc');
 const tscCfg = {
   compilerOptions: {
@@ -53,7 +55,23 @@ if (tscRes.status !== 0) {
   process.exit(tscRes.status ?? 1);
 }
 
-// 2. Tiny static server.
+// Discover real-scene scenes.
+const sceneDir = process.env.SF_BENCH_PLY_DIR ?? '';
+let sceneList = [];
+if (sceneDir) {
+  try {
+    const entries = await readdir(sceneDir);
+    const bins = entries.filter((e) => e.endsWith('.bin'));
+    for (const b of bins) {
+      const base = b.slice(0, -4);
+      if (entries.includes(`${base}.meta.json`)) sceneList.push(base);
+    }
+    console.error(`bench: found ${sceneList.length} real scene(s) in ${sceneDir}`);
+  } catch (err) {
+    console.error(`bench: SF_BENCH_PLY_DIR unreadable: ${err.message}`);
+  }
+}
+
 const PORT = Number(process.env.BENCH_PORT ?? 4318);
 const MIME = {
   '.html': 'text/html',
@@ -67,7 +85,15 @@ const server = createServer(async (req, res) => {
     let p = decodeURIComponent((req.url ?? '/').split('?')[0]);
     if (p === '/' || p === '') p = '/index.html';
     let abs;
-    if (p.startsWith('/dist-bench/')) {
+    if (p === '/scenes/index.json') {
+      const data = Buffer.from(JSON.stringify(sceneList));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(data); return;
+    }
+    if (p.startsWith('/scenes/')) {
+      if (!sceneDir) { res.writeHead(404); res.end('SF_BENCH_PLY_DIR not set'); return; }
+      abs = join(sceneDir, p.slice('/scenes/'.length));
+    } else if (p.startsWith('/dist-bench/')) {
       abs = join(root, p);
     } else {
       abs = join(here, p);
@@ -87,8 +113,6 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(PORT, r));
 console.error(`bench: serving on http://127.0.0.1:${PORT}/`);
 
-// 3. Headless Chromium with WebGPU. playwright-core may live under the
-// visual-tests workspace rather than the viewer package; we search both.
 let chromium;
 {
   const visualPwt = resolve(root, '..', '..', 'tests', 'visual', 'node_modules', 'playwright-core', 'index.js');
@@ -112,9 +136,6 @@ let chromium;
   }
 }
 
-// On macOS Chromium ships a Metal-backed WebGPU implementation; on Linux we
-// fall back to SwiftShader if there's no Vulkan driver. The `--use-angle`
-// flag picks Metal where available.
 const platformArgs =
   process.platform === 'darwin'
     ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=metal']
@@ -123,17 +144,32 @@ const browser = await chromium.launch({
   headless: process.env.BENCH_HEADED ? false : true,
   args: [...platformArgs, '--ignore-gpu-blocklist', '--no-sandbox'],
 });
-let result;
+const skipSynth = process.env.SF_SKIP_SYNTH === '1';
+let result = {};
 try {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   page.on('console', (msg) => process.stderr.write(`[page] ${msg.text()}\n`));
-  await page.goto(`http://127.0.0.1:${PORT}/index.html`);
-  result = await page.waitForFunction(
-    () => /** @type {any} */ (globalThis).__bench && (globalThis.__bench.results || globalThis.__bench.error),
-    null,
-    { timeout: 480_000 },
-  ).then((h) => h.jsonValue());
+  if (!skipSynth) {
+    await page.goto(`http://127.0.0.1:${PORT}/index.html`);
+    const synth = await page.waitForFunction(
+      () => /** @type {any} */ (globalThis).__bench && (globalThis.__bench.results || globalThis.__bench.error),
+      null,
+      { timeout: 480_000 },
+    ).then((h) => h.jsonValue());
+    Object.assign(result, synth);
+  }
+  if (sceneList.length > 0) {
+    const page2 = await ctx.newPage();
+    page2.on('console', (msg) => process.stderr.write(`[page-real] ${msg.text()}\n`));
+    await page2.goto(`http://127.0.0.1:${PORT}/real-scene.html`);
+    const real = await page2.waitForFunction(
+      () => /** @type {any} */ (globalThis).__benchRealScene && (globalThis.__benchRealScene.results || globalThis.__benchRealScene.error),
+      null,
+      { timeout: 900_000 },
+    ).then((h) => h.jsonValue());
+    result.realScene = real;
+  }
 } finally {
   await browser.close();
   server.close();
