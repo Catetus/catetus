@@ -4,7 +4,11 @@
 // drop zone IS the section, not a button inside it. Secondary affordances
 // (apply as design partner, view docs) live BELOW the upload card so they
 // don't compete with the upload action.
-const apiBase = import.meta.env.PUBLIC_API_BASE ?? "http://splatforge-api.fly.dev:8080";
+// Same-origin proxy. Vercel rewrites /api/* to the actual HTTP backend
+// (see apps/web/vercel.json). This avoids the browser's mixed-content
+// block when the page is served over HTTPS but the backend is HTTP.
+// Override via PUBLIC_API_BASE for local dev (e.g. http://127.0.0.1:8080).
+const apiBase = import.meta.env.PUBLIC_API_BASE ?? "/api";
 const partnerHref =
   "https://github.com/montabano1/SplatForge/issues/new?title=design-partner-interest&body=Hi%20%E2%80%94%20I%27d%20like%20to%20run%20a%20splat%20through%20SplatForge";
 const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
