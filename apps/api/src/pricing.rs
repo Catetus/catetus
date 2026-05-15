@@ -102,6 +102,20 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // (A2.1 deferred). Per-MB cost is tiny because no GPU.
         "mgs-balanced" => (1.0, 0.012),
         "mgs-aggressive" => (1.5, 0.018),
+        // CodecGS — feature-plane projection + standard video codec
+        // (HEVC at CRF 28). A4 spike 2026-05-15 reproduced the Lee et al.
+        // ICCV 2025 (arXiv:2501.03399) result: 26.2× compression on
+        // bonsai at attribute-RMSE 0.155 — DOMINATES MesonGS++ at the
+        // same scene (18.5× / 0.212). Browser-native hardware HEVC
+        // decode = zero runtime cost on the client. CPU encode is 8 s
+        // (ffmpeg HEVC), bounded by codec throughput.
+        // Anchor: bonsai 287 MB → ~8 s encode at CRF 28.
+        "codec-gs" => (4.0, 0.028),
+        // CodecGS at AV1 CRF 38 — maximum-compression variant. 144.9×
+        // on bonsai (matches paper's 146× claim) at attribute-RMSE 0.455
+        // (markedly worse quality; render-PSNR validation pending). Use
+        // when bandwidth is the absolute constraint.
+        "codec-gs-extreme" => (4.0, 0.012),
         // Unknown / future preset: assume web-mobile shape so the
         // preview doesn't 400 on a new preset before the operator
         // tunes a curve for it.
