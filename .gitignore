@@ -79,3 +79,9 @@ __pycache__/
 # Local progress + ad-hoc screenshots from autonomous runs.
 tasks/screenshots/
 .tmp/
+
+# Viewer bench build outputs.
+packages/viewer/dist-bench/
+
+# Per-task todo dumps from agents — not durable docs.
+tasks/todo.md

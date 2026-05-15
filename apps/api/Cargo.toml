@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 description = "Hosted optimize API for SplatForge — Axum endpoint that hands jobs off to the Modal worker."
 
+[lib]
+name = "splatforge_api"
+path = "src/lib.rs"
+
 [[bin]]
 name = "splatforge-api"
 path = "src/main.rs"
@@ -56,3 +60,13 @@ sqlx = { version = "0.8", default-features = false, features = [
     "macros",
     "migrate",
 ] }
+
+# Stripe webhook signature verification — HMAC-SHA256 against the raw body.
+# We deliberately avoid `async-stripe`: its Meter Events surface lags the
+# Stripe API (the modern 2024+ usage-based pattern) and pulls in a large
+# dep graph for what is, at this layer, two form-encoded POSTs.
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+subtle = "2.5"
+

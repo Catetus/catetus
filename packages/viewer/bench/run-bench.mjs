@@ -41,7 +41,7 @@ const tscCfg = {
     isolatedModules: true,
   },
   include: ['bench/**/*.ts', 'src/**/*.ts'],
-  exclude: ['src/__tests__/**/*', 'node_modules', 'dist'],
+  exclude: ['src/__tests__/**/*', 'src/streaming/**/*', 'node_modules', 'dist'],
 };
 await writeFile(join(root, 'tsconfig.bench.json'), JSON.stringify(tscCfg, null, 2));
 const tscRes = spawnSync(tscBin, ['-p', join(root, 'tsconfig.bench.json')], {
@@ -131,7 +131,7 @@ try {
   result = await page.waitForFunction(
     () => /** @type {any} */ (globalThis).__bench && (globalThis.__bench.results || globalThis.__bench.error),
     null,
-    { timeout: 180_000 },
+    { timeout: 480_000 },
   ).then((h) => h.jsonValue());
 } finally {
   await browser.close();

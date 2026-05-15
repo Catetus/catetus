@@ -30,6 +30,11 @@ SPLAT_TRANSFORM_VERSION="${SPLAT_TRANSFORM_VERSION:-latest}"
 output_file="$OUTPUT_DIR/output.sog"
 log_file="$OUTPUT_DIR/.log"
 
+# Remove any prior run's artifact before re-running; splat-transform errors
+# out on existing outputs unless -w is passed (we want the explicit-delete
+# semantic so we never silently overwrite something the caller cared about).
+rm -f "$output_file" "$log_file"
+
 start=$(date +%s.%N)
 if ! npx --yes "@playcanvas/splat-transform@${SPLAT_TRANSFORM_VERSION}" \
         "$INPUT_PLY" --morton-order "$output_file" \

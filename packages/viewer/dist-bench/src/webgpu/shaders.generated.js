@@ -491,7 +491,7 @@ fn cs_scatter(
   var key: u32 = 0u;
   var val: u32 = 0u;
   var local_rank: u32 = 0u;
-  var active: bool = false;
+  var live: bool = false;
   if (i < u.count) {
     key = keys_in[i];
     val = values_in[i];
@@ -499,11 +499,11 @@ fn cs_scatter(
     // atomicAdd returns the old value → that's the rank of this element
     // within its bin for this workgroup.
     local_rank = atomicAdd(&wg_hist[bin], 1u);
-    active = true;
+    live = true;
   }
   workgroupBarrier();
 
-  if (active) {
+  if (live) {
     let dst = wg_offsets[bin] + local_rank;
     keys_out[dst]   = key;
     values_out[dst] = val;
