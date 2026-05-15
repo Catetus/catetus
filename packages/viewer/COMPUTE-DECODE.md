@@ -170,6 +170,83 @@ splats per pass). The mirror is byte-for-byte deliberate so any
 algorithmic divergence in the WGSL forces a TS change to keep the test
 green.
 
+## Fused project + gather (Bet-2 v3.2)
+
+The non-fused path emits per-instance vertex records into an `instUnsorted`
+scratch buffer (64 B/splat → **640 MB at 10 M splats**), then a separate
+`cs_gather` kernel reorders those records into the vertex buffer using the
+radix-sort output. That intermediate read+write is pure DRAM bandwidth and
+dominates the gather pass.
+
+The fused path eliminates the intermediate entirely:
+
+```
+splats  ── cs_keygen ──▶  keys[], indices[]
+                              │
+                              ▼  radix sort (8 × 3 dispatches)
+                              │
+splats  ── cs_project_gather(splats, sorted_indices) ──▶ instanceBuffer[]
+                                                          (direct, in sort order)
+```
+
+- `cs_keygen` (in `cs_project_gather.wgsl`) only computes view-space depth
+  → sort key + identity index. No covariance, no clip-space.
+- `cs_project_gather` reads `splat_idx = indices[i]`, projects splat `splat_idx`,
+  and writes the resulting `Instance` directly to `instanceBuffer[i]`. Same
+  math as `cs_project`, just gated through the sorted-order indirection.
+
+Wins at 10 M splats:
+
+- `instUnsorted` (640 MB) is never allocated, written, or read.
+- One full 640 MB write (cs_project → scratch) is eliminated.
+- One full 640 MB read (cs_gather ← scratch) is eliminated.
+- Projection math runs **once** (in cs_project_gather), not twice.
+
+Feature flag: `new ComputeDecodePipeline({ ..., useFusedProject: true })`.
+**Default ON.** Set `false` to fall back to the original cs_project +
+cs_gather path; both paths share the same radix sort, so the fallback is
+fully self-consistent.
+
+### Parity invariant
+
+`packages/viewer/src/__tests__/webgpu/fused_project_gather.test.ts` pins
+byte-stable equivalence between the two paths:
+
+1. **Static**: the projection math body in `decode.wgsl::cs_project` and
+   `cs_project_gather.wgsl::cs_project_gather` is asserted byte-equal after
+   stripping the binding-namespace prefix. Catches drift at unit-test time.
+2. **Behavioural**: a pure-TS reference implementation of both pipelines is
+   run over identical synthetic scenes (256 and 4096 splats) under a fixed
+   camera, and the resulting `Float32Array` instance buffers must be
+   bit-identical when reinterpreted as `Uint8Array`. Catches algorithmic
+   drift (e.g. accidentally folding two `+`s into a fused-multiply-add that
+   changes IEEE-754 ordering).
+
+### Predicted perf
+
+| Scale | Path     | Frame (ms) | Sort | Project | Gather/Fused | DRAM saved |
+|-------|----------|------------|------|---------|--------------|------------|
+| 1 M   | separate | **PENDING** | PENDING | PENDING | PENDING      | —          |
+| 1 M   | fused    | **PENDING** | PENDING | PENDING | PENDING      | 128 MB     |
+| 10 M  | separate | **PENDING** | PENDING | PENDING | PENDING      | —          |
+| 10 M  | fused    | **PENDING** | PENDING | PENDING | PENDING      | **1.28 GB**|
+
+Modeled lower bound at 10 M (assuming gather is fully bandwidth-bound at
+~500 GB/s effective on the 4090, and 60–70 % of the gather cost comes from
+the unsorted-scratch read):
+
+- Non-fused gather (10 M): ~8.92 ms.
+- Fused project_gather (10 M): project work (~17.8 ms in legacy) + writing
+  640 MB of vertex output (~1.3 ms at 500 GB/s) ≈ **19 ms total**, vs
+  legacy's 17.8 + 8.92 = **26.7 ms**.
+- Net frame savings at 10 M: **~7–8 ms** (cuts ~10 % of the 89 ms frame
+  budget; bench will confirm).
+
+Numbers above are marked **PENDING** because the 4090 is currently owned
+by the perceptual-oracle distillation experiment; operator should re-run
+`bench/4090-clean-single-tenant` after that workload clears and update
+the table inline.
+
 ## Bench results
 
 Run from `pnpm --filter @splatforge/viewer run bench`. Bench harness is
@@ -276,19 +353,14 @@ limit at device-creation time; mobile callers should query
 
 ## Files
 
-- `src/webgpu/decode.wgsl` — decode + project compute shaders.
-- `src/webgpu/radix_sort.wgsl` — 8-bit LSD radix sort
-  (histogram + legacy single-WG scan + scatter; 4 passes).
-- `src/webgpu/scan_multiblock.wgsl` — 3-kernel chained exclusive prefix
-  sum (NEW; replaces the single-WG scan).
-- `src/webgpu/radix_sort.ts` — TS orchestration of 4 passes. Flags:
-  `useMultiBlockScan` (default `true`) selects the multi-block scan;
-  `useSubgroupHistogram` (default `true`) selects the subgroup
-  histogram. Each silently falls back when the corresponding WGSL
-  module wasn't passed in (i.e. the device doesn't support it).
-- `src/webgpu/histogram_subgroup.wgsl` — subgroup-aware histogram
-  variant (NEW; behind WebGPU 1.1 `'subgroups'` feature).
+- `src/webgpu/decode.wgsl` — decode + project compute shaders (legacy /
+  fallback path).
+- `src/webgpu/cs_project_gather.wgsl` — fused depth-keygen + sorted-order
+  project_gather kernels (default path).
+- `src/webgpu/radix_sort.wgsl` — 4-bit LSD radix sort.
+- `src/webgpu/radix_sort.ts` — TS orchestration of 8 passes.
 - `src/webgpu/index.ts` — `ComputeDecodePipeline` (the public surface).
+  Selects fused vs legacy via `useFusedProject` (default `true`).
 - `src/webgpu/shaders.generated.ts` — bundled WGSL strings; regenerated by
   `scripts/embed-wgsl.mjs` (runs on every build/test).
 - `src/__tests__/webgpu/scan_multiblock.test.ts` — unit tests for the
@@ -298,3 +370,5 @@ limit at device-creation time; mobile callers should query
 - `bench/results.json` — last-run output.
 - `tests/visual/tests/compute-decode.spec.ts` — visual regression vs CPU
   path.
+- `src/__tests__/webgpu/fused_project_gather.test.ts` — fused-vs-legacy
+  byte-stable parity test (static + behavioural).
