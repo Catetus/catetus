@@ -41,6 +41,7 @@
 
 import { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL } from './shaders.generated.js';
 import { createRadixSortPipelines, RadixSort, type RadixSortPipelines } from './radix_sort.js';
+import { createCullPipelines, CullPipeline } from './cull.js';
 import type { ChunkDescriptor, SoaAttributeLayout } from '../manifest.js';
 
 /** Floats per per-instance render record. Mirrors `FLOATS_PER_INSTANCE` in webgpu.ts. */
@@ -255,6 +256,13 @@ export interface ComputeDecodePipelineInit {
    * parity test).
    */
   useFusedProject?: boolean;
+  /**
+   * Enable opacity-radius pre-sort cull. When true, `encodeWithCull` runs
+   * the cull/compact stages before keygen so the radix sort + gather only
+   * see the survivors. Default: false (cull pipeline is allocated lazily
+   * but inactive). The bench harness opts in explicitly.
+   */
+  useCull?: boolean;
 }
 
 /**
@@ -292,6 +300,10 @@ export class ComputeDecodePipeline {
   /** Bind groups for the fused path (keygen + project_gather). */
   private readonly keygenBindGroup: GPUBindGroup | null;
   private readonly projectGatherBindGroup: GPUBindGroup | null;
+  /** Optional opacity-radius pre-sort cull. Allocated when useCull=true. */
+  readonly cull: CullPipeline | null;
+  /** True when useCull was requested at construction. */
+  readonly useCull: boolean;
   private readonly chunks: DecodedChunk[] = [];
   /** Splats already decoded (offset into `splatsBuffer`). */
   private decodedSplats = 0;
@@ -387,6 +399,36 @@ export class ComputeDecodePipeline {
           { binding: 3, resource: { buffer: this.projectUniforms } },
         ],
       });
+    }
+
+    // -----------------------------------------------------------------
+    // Optional opacity-radius cull. Allocated only when requested so the
+    // existing tests + production renderer (which don't yet integrate the
+    // cull's survivor-count readback) stay byte-identical.
+    // -----------------------------------------------------------------
+    this.useCull = init.useCull ?? false;
+    if (this.useCull) {
+      const cullPipes = createCullPipelines(this.device);
+      // For the cull path we write Instance records straight into the
+      // unsorted scratch buffer (non-fused only — fused-path integration
+      // is a follow-up because the fused path skips the scratch buffer
+      // entirely). Bench harness uses the non-fused path by default per
+      // commit 354cd8e.
+      if (this.useFusedProject) {
+        throw new Error('useCull is only supported on the non-fused project path');
+      }
+      this.cull = new CullPipeline({
+        device: this.device,
+        capacity: this.capacity,
+        pipes: cullPipes,
+        splatsBuffer: this.splatsBuffer,
+        keysBuffer: this.sorter.keysA,
+        valuesBuffer: this.sorter.valuesA,
+        instBuffer: this.instUnsorted!,
+        projectUniforms: this.projectUniforms,
+      });
+    } else {
+      this.cull = null;
     }
   }
 
@@ -548,6 +590,211 @@ export class ComputeDecodePipeline {
   }
 
   /**
+   * Cull-enabled production encode. Runs:
+   *   1. cs_cull + scan + cs_compact + cs_project_cmpct  (writes keysA /
+   *      valuesA / instUnsorted at the first `survivors` slots).
+   *   2. Radix sort over `survivors`.
+   *   3. cs_gather over `survivors`.
+   *
+   * Requires the cull's survivor count to have been refreshed via
+   * `cull.readSurvivorCount()` after a prior `encodeWithCull` was
+   * submitted. On the very first frame, the count is 0 and the sort /
+   * gather are skipped — the caller is expected to do a warm-up
+   * submit + readback before the timed loop begins.
+   *
+   * `tau` is the opacity floor (default 1/255). The bench overrides it
+   * if 1/255 prunes too many splats on the synthetic scene.
+   */
+  async encodeWithCull(
+    encoder: GPUCommandEncoder,
+    view: Float32Array,
+    viewProj: Float32Array,
+    focal: [number, number],
+    viewport: [number, number],
+    tau: number = 1 / 255,
+  ): Promise<void> {
+    if (!this.cull) throw new Error('encodeWithCull requires useCull=true');
+    const count = this.decodedSplats;
+    if (count === 0) return;
+
+    // Pack project uniforms — same packing as encode(), but the `splat_count`
+    // slot will be overwritten by the host to `survivors` for cs_project_cmpct.
+    const ab = new ArrayBuffer(160);
+    const f32 = new Float32Array(ab);
+    const i32 = new Int32Array(ab);
+    f32.set(view, 0);
+    f32.set(viewProj, 16);
+    f32[32] = viewport[0]; f32[33] = viewport[1];
+    f32[34] = focal[0];    f32[35] = focal[1];
+    i32[36] = this.cull.cachedSurvivors > 0 ? this.cull.cachedSurvivors : count;
+    this.device.queue.writeBuffer(this.projectUniforms, 0, ab);
+
+    // 1. Cull + compact + project (project only fires if cachedSurvivors > 0).
+    this.cull.encode(encoder, view, viewProj, focal, viewport, count, tau);
+
+    // 2. Radix sort + gather over survivors. On the very first frame,
+    //    cachedSurvivors is 0; we skip these and let the readback populate
+    //    the count for the next frame.
+    const survivors = this.cull.cachedSurvivors;
+    if (survivors > 0) {
+      this.sorter.encode(encoder, survivors);
+      const u = new Uint32Array(8);
+      u[0] = survivors;
+      this.device.queue.writeBuffer(this.gatherUniforms!, 0, u.buffer);
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(this.pipes.gather);
+      pass.setBindGroup(0, this.gatherBindGroup!);
+      pass.dispatchWorkgroups(Math.ceil(survivors / 256));
+      pass.end();
+    }
+  }
+
+  /**
+   * Timestamp-instrumented variant of `encodeWithCull`. Writes 8 timestamps:
+   *   [0..1) cull+scan+compact   (combined; cull internals not drilled)
+   *   [2..3) project_cmpct
+   *   [4..5) sort_full
+   *   [6..7) gather
+   * Returns the number of timestamps written. Requires `timestamp-query`.
+   */
+  encodeWithCullTimed(
+    encoder: GPUCommandEncoder,
+    view: Float32Array,
+    viewProj: Float32Array,
+    focal: [number, number],
+    viewport: [number, number],
+    querySet: GPUQuerySet,
+    baseIndex: number,
+    tau: number = 1 / 255,
+  ): number {
+    if (!this.cull) throw new Error('encodeWithCullTimed requires useCull=true');
+    const count = this.decodedSplats;
+    if (count === 0) return 0;
+
+    const ab = new ArrayBuffer(160);
+    const f32 = new Float32Array(ab);
+    const i32 = new Int32Array(ab);
+    f32.set(view, 0);
+    f32.set(viewProj, 16);
+    f32[32] = viewport[0]; f32[33] = viewport[1];
+    f32[34] = focal[0];    f32[35] = focal[1];
+    i32[36] = this.cull.cachedSurvivors > 0 ? this.cull.cachedSurvivors : count;
+    this.device.queue.writeBuffer(this.projectUniforms, 0, ab);
+
+    // Re-pack the cull's own uniforms.
+    const cull = this.cull;
+    {
+      const cb = new ArrayBuffer(cull.cullUniforms.size);
+      const cf = new Float32Array(cb);
+      const cu = new Uint32Array(cb);
+      cf.set(view, 0);
+      cf.set(viewProj, 16);
+      cf[32] = viewport[0]; cf[33] = viewport[1];
+      cf[34] = focal[0];    cf[35] = focal[1];
+      cu[36] = count;
+      cf[37] = tau;
+      this.device.queue.writeBuffer(cull.cullUniforms, 0, cb);
+    }
+    const numScanWgs = Math.ceil(count / 256);
+    {
+      const u = new Uint32Array(8);
+      u[0] = count;
+      u[1] = numScanWgs;
+      this.device.queue.writeBuffer(cull.scanUniforms, 0, u.buffer);
+    }
+    {
+      const u = new Uint32Array(8);
+      u[0] = count;
+      this.device.queue.writeBuffer(cull.compactUniforms, 0, u.buffer);
+    }
+    const wgs = Math.ceil(count / 256);
+
+    // Window 1: cull + scan + compact.
+    {
+      const pass = encoder.beginComputePass({
+        timestampWrites: {
+          querySet,
+          beginningOfPassWriteIndex: baseIndex + 0,
+          endOfPassWriteIndex: baseIndex + 1,
+        },
+      });
+      pass.setPipeline(cull.pipes.cull);
+      pass.setBindGroup(0, (cull as unknown as { cullBindGroup: GPUBindGroup }).cullBindGroup);
+      pass.dispatchWorkgroups(wgs);
+      pass.setPipeline(cull.pipes.scanPerWg);
+      pass.setBindGroup(0, (cull as unknown as { scanBindGroup: GPUBindGroup }).scanBindGroup);
+      pass.dispatchWorkgroups(numScanWgs);
+      pass.setPipeline(cull.pipes.scanBlockSums);
+      pass.dispatchWorkgroups(1);
+      pass.setPipeline(cull.pipes.scanAddBlockSums);
+      pass.dispatchWorkgroups(numScanWgs);
+      pass.setPipeline(cull.pipes.compact);
+      pass.setBindGroup(0, (cull as unknown as { compactBindGroup: GPUBindGroup }).compactBindGroup);
+      pass.dispatchWorkgroups(wgs);
+      pass.end();
+    }
+
+    // Copy the tail readback (after compact's pass closed).
+    const tailOff = (count - 1) * 4;
+    encoder.copyBufferToBuffer(cull.prefixBuffer, tailOff, cull.readbackTail, 0, 4);
+    encoder.copyBufferToBuffer(cull.flagBuffer,   tailOff, cull.readbackTail, 4, 4);
+
+    const survivors = cull.cachedSurvivors;
+    if (survivors === 0) {
+      // No survivors yet — skip the downstream stages but emit zero-width
+      // timestamp windows so the resolveQuerySet copy stays valid.
+      for (let k = 2; k < 8; k += 2) {
+        const p = encoder.beginComputePass({
+          timestampWrites: {
+            querySet,
+            beginningOfPassWriteIndex: baseIndex + k,
+            endOfPassWriteIndex: baseIndex + k + 1,
+          },
+        });
+        p.end();
+      }
+      return 8;
+    }
+
+    // Window 2: project_cmpct.
+    {
+      const pass = encoder.beginComputePass({
+        timestampWrites: {
+          querySet,
+          beginningOfPassWriteIndex: baseIndex + 2,
+          endOfPassWriteIndex: baseIndex + 3,
+        },
+      });
+      pass.setPipeline(cull.pipes.projectCmpct);
+      pass.setBindGroup(0, (cull as unknown as { projectCmpctBindGroup: GPUBindGroup }).projectCmpctBindGroup);
+      pass.dispatchWorkgroups(Math.ceil(survivors / 256));
+      pass.end();
+    }
+
+    // Window 3: sort_full.
+    this.sorter.encodeTimed(encoder, survivors, querySet, baseIndex + 4);
+
+    // Window 4: gather.
+    {
+      const u = new Uint32Array(8);
+      u[0] = survivors;
+      this.device.queue.writeBuffer(this.gatherUniforms!, 0, u.buffer);
+      const pass = encoder.beginComputePass({
+        timestampWrites: {
+          querySet,
+          beginningOfPassWriteIndex: baseIndex + 6,
+          endOfPassWriteIndex: baseIndex + 7,
+        },
+      });
+      pass.setPipeline(this.pipes.gather);
+      pass.setBindGroup(0, this.gatherBindGroup!);
+      pass.dispatchWorkgroups(Math.ceil(survivors / 256));
+      pass.end();
+    }
+    return 8;
+  }
+
+    /**
    * Bench-only variant of `encode` that writes timestamps around each top-
    * level compute pass. Returns the number of timestamps written, so the
    * caller knows how to slice the resolve buffer.
@@ -755,8 +1002,10 @@ export class ComputeDecodePipeline {
     this.projectUniforms.destroy();
     this.gatherUniforms?.destroy();
     this.sorter.destroy();
+    this.cull?.destroy();
   }
 }
 
 export { createRadixSortPipelines, RadixSort } from './radix_sort.js';
-export { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL } from './shaders.generated.js';
+export { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL, CULL_WGSL } from './shaders.generated.js';
+export { CullPipeline, createCullPipelines } from './cull.js';
