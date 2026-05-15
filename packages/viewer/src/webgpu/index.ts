@@ -539,6 +539,115 @@ export class ComputeDecodePipeline {
     }
   }
 
+  /**
+   * Bench-only variant of `encode` that writes timestamps around each top-
+   * level compute pass. Returns the number of timestamps written, so the
+   * caller knows how to slice the resolve buffer.
+   *
+   * Layout, fused path (the only path we ship by default):
+   *   [0..1) keygen          [1..2) sort_full          [2..3) project_gather
+   * Non-fused fallback:
+   *   [0..1) project_unsorted [1..2) sort_full         [2..3) gather
+   *
+   * Requires the `timestamp-query` feature on the device. The bench owns
+   * the GPUQuerySet so we keep the dependency one-way (production code does
+   * not import any timestamp plumbing).
+   */
+  encodeTimed(
+    encoder: GPUCommandEncoder,
+    view: Float32Array,
+    viewProj: Float32Array,
+    focal: [number, number],
+    viewport: [number, number],
+    querySet: GPUQuerySet,
+    baseIndex: number,
+  ): number {
+    const count = this.decodedSplats;
+    if (count === 0) return 0;
+
+    const ab = new ArrayBuffer(160);
+    const f32 = new Float32Array(ab);
+    const i32 = new Int32Array(ab);
+    f32.set(view, 0);
+    f32.set(viewProj, 16);
+    f32[32] = viewport[0]; f32[33] = viewport[1];
+    f32[34] = focal[0];    f32[35] = focal[1];
+    i32[36] = count;
+    this.device.queue.writeBuffer(this.projectUniforms, 0, ab);
+
+    const wgs = Math.ceil(count / 256);
+
+    if (this.useFusedProject) {
+      // keygen
+      {
+        const pass = encoder.beginComputePass({
+          timestampWrites: {
+            querySet,
+            beginningOfPassWriteIndex: baseIndex + 0,
+            endOfPassWriteIndex: baseIndex + 1,
+          },
+        });
+        pass.setPipeline(this.pipes.keygen!);
+        pass.setBindGroup(0, this.keygenBindGroup!);
+        pass.dispatchWorkgroups(wgs);
+        pass.end();
+      }
+      // sort_full — radix sort orchestrates its own 4 passes; we wrap the
+      // *whole* sort in one timestamp window. Drilling into histogram/scan/
+      // scatter requires `timestamp-query-inside-passes`, which we'll add
+      // in a follow-up if sort_full proves to dominate frame time.
+      this.sorter.encodeTimed(encoder, count, querySet, baseIndex + 2);
+      // project_gather
+      {
+        const pass = encoder.beginComputePass({
+          timestampWrites: {
+            querySet,
+            beginningOfPassWriteIndex: baseIndex + 4,
+            endOfPassWriteIndex: baseIndex + 5,
+          },
+        });
+        pass.setPipeline(this.pipes.projectGather!);
+        pass.setBindGroup(0, this.projectGatherBindGroup!);
+        pass.dispatchWorkgroups(wgs);
+        pass.end();
+      }
+      return 6;
+    }
+
+    // Non-fused (legacy) path.
+    {
+      const pass = encoder.beginComputePass({
+        timestampWrites: {
+          querySet,
+          beginningOfPassWriteIndex: baseIndex + 0,
+          endOfPassWriteIndex: baseIndex + 1,
+        },
+      });
+      pass.setPipeline(this.pipes.project);
+      pass.setBindGroup(0, this.projectBindGroup!);
+      pass.dispatchWorkgroups(wgs);
+      pass.end();
+    }
+    this.sorter.encodeTimed(encoder, count, querySet, baseIndex + 2);
+    {
+      const u = new Uint32Array(8);
+      u[0] = count;
+      this.device.queue.writeBuffer(this.gatherUniforms!, 0, u.buffer);
+      const pass = encoder.beginComputePass({
+        timestampWrites: {
+          querySet,
+          beginningOfPassWriteIndex: baseIndex + 4,
+          endOfPassWriteIndex: baseIndex + 5,
+        },
+      });
+      pass.setPipeline(this.pipes.gather);
+      pass.setBindGroup(0, this.gatherBindGroup!);
+      pass.dispatchWorkgroups(wgs);
+      pass.end();
+    }
+    return 6;
+  }
+
   /** Tear down. Idempotent. */
   destroy(): void {
     for (const c of this.chunks) {
