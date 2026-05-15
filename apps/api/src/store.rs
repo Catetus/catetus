@@ -124,12 +124,6 @@ pub struct Job {
     pub error: Option<String>,
 }
 
-/// SQLite-backed job store.
-#[derive(Clone)]
-pub struct JobStore {
-    pool: SqlitePool,
-}
-
 /// One row of the per-pair rating summary returned by
 /// `JobStore::summarize_ratings`. Surfaced verbatim through
 /// `GET /v1/ratings/summary` so the v0.4 training pipeline can pull
@@ -143,6 +137,12 @@ pub struct RatingSummaryRow {
     pub right_wins: i64,
     pub ties: i64,
     pub total: i64,
+}
+
+/// SQLite-backed job store.
+#[derive(Clone)]
+pub struct JobStore {
+    pool: SqlitePool,
 }
 
 /// One row of the `team_signups` ledger. Returned by
@@ -568,6 +568,7 @@ impl JobStore {
             .await?;
         rows.into_iter().map(row_to_job).collect()
     }
+
 }
 
 fn row_to_job(row: sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {

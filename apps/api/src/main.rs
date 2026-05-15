@@ -42,8 +42,10 @@ use splatforge_api::checkout::{
     RevealRequest, StripeCheckoutClient,
 };
 use splatforge_api::modal_client::{self, ModalClient};
+use splatforge_api::ratings::{
+    respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR,
+};
 use splatforge_api::store::{self, Job, JobStatus, JobStore, RatingSummaryRow, Tier};
-use sha2::{Digest, Sha256};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
@@ -1457,6 +1459,88 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
+/* ---------- ratings (fidelity-ml v0.4 collection) ---------- */
+//
+// Validation, hashing, and the rate-limit constant all live in
+// `splatforge_api::ratings` so the integration tests under
+// `tests/ratings.rs` can exercise them without spinning up the full
+// Axum app. The handlers below are thin glue: parse JSON, call the
+// pure helpers, hit the store, return JSON.
+
+#[derive(Debug, Deserialize)]
+pub struct PostRatingRequest {
+    pub scene_id: String,
+    pub left_preset: String,
+    pub right_preset: String,
+    pub winner: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PostRatingResponse {
+    pub id: i64,
+    /// Ratings remaining in this respondent's rolling-hour window after
+    /// this submission. The page surfaces this so a heavy rater knows
+    /// they're approaching the cap (and can plausibly suspect rate
+    /// limiting if their next POSTs start 429-ing).
+    pub remaining: i64,
+}
+
+#[instrument(skip(state, headers, req), fields(scene = %req.scene_id))]
+async fn post_rating(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<PostRatingRequest>,
+) -> Result<Json<PostRatingResponse>, ApiError> {
+    validate_rating(&req.scene_id, &req.left_preset, &req.right_preset, &req.winner)
+        .map_err(ApiError::BadRequest)?;
+
+    let respondent = respondent_hash(&headers);
+
+    // Cheap rate-limit gate: count rows from this hash in the trailing
+    // hour. SQLite + indexed column + a small table — this scales to
+    // millions of rows before the count starts to hurt.
+    let recent = state
+        .jobs
+        .count_recent_ratings(&respondent, chrono::Duration::hours(1))
+        .await?;
+    if recent >= RATING_RATE_LIMIT_PER_HOUR {
+        return Err(ApiError::TooManyRequests(format!(
+            "respondent has submitted {recent} ratings in the last hour; cap is {RATING_RATE_LIMIT_PER_HOUR}"
+        )));
+    }
+
+    let id = state
+        .jobs
+        .insert_rating(
+            &req.scene_id,
+            &req.left_preset,
+            &req.right_preset,
+            &req.winner,
+            &respondent,
+        )
+        .await?;
+    let remaining = (RATING_RATE_LIMIT_PER_HOUR - recent - 1).max(0);
+    Ok(Json(PostRatingResponse { id, remaining }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct RatingsSummaryResponse {
+    pub pairs: Vec<RatingSummaryRow>,
+    pub total_ratings: i64,
+}
+
+#[instrument(skip(state))]
+async fn ratings_summary(
+    State(state): State<AppState>,
+) -> Result<Json<RatingsSummaryResponse>, ApiError> {
+    let pairs = state.jobs.summarize_ratings().await?;
+    let total: i64 = pairs.iter().map(|r| r.total).sum();
+    Ok(Json(RatingsSummaryResponse {
+        pairs,
+        total_ratings: total,
+    }))
+}
+
 /* ---------- errors ---------- */
 
 #[derive(Debug, thiserror::Error)]
@@ -1481,6 +1565,8 @@ pub enum ApiError {
     Forbidden,
     #[error("bad gateway: stripe: {0}")]
     Stripe(String),
+    #[error("too many requests: {0}")]
+    TooManyRequests(String),
 }
 
 impl From<checkout::CheckoutError> for ApiError {
@@ -1515,6 +1601,7 @@ impl IntoResponse for ApiError {
             ApiError::Internal(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
+            ApiError::TooManyRequests(_) => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }
