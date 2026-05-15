@@ -30,6 +30,19 @@ tiny_http = "0.12"
 # v0.13.x is API-stable, no system zstd required.
 zstd = { version = "0.13", default-features = false }
 
+
+# License verification + on-prem `serve` command. The CLI never holds
+# the signing key — it only verifies signatures against the embedded
+# public key.
+splatforge-license = { workspace = true }
+# Talking to the SplatForge API for `license refresh` and the
+# `/heartbeat` ping from `serve`. blocking variant keeps the CLI
+# free of a tokio runtime in the optimize path.
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], default-features = false }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { workspace = true }
+dirs = "5"
+
 [dev-dependencies]
 assert_cmd = "2"
 tempfile = "3"
