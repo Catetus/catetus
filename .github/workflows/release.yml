@@ -1,0 +1,258 @@
+name: release
+
+# Triggers:
+#   - Tag push `v*` -> full release: build all targets, sign if secrets present,
+#     create a GitHub Release, upload archives + SHASUMS256.txt manifest.
+#   - PR with `[smoke-release]` in any commit message OR with a `smoke-release`
+#     label -> smoke build only: builds the matrix without releasing. Catches
+#     workflow breakage before tagging.
+#   - Manual workflow_dispatch -> useful for dry-runs.
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      smoke:
+        description: "Smoke build only (don't publish a release)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # needed to create releases on tag push
+
+env:
+  # Keep these in sync with [workspace.metadata.dist] in root Cargo.toml.
+  BIN_LIST: "splatforge splatforge-khr-validate splatforge-usd-validate"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      run:     ${{ steps.decide.outputs.run }}
+      publish: ${{ steps.decide.outputs.publish }}
+      tag:     ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+          event="${{ github.event_name }}"
+          ref="${{ github.ref }}"
+          run=false
+          publish=false
+          tag=""
+
+          if [[ "$event" == "push" && "$ref" == refs/tags/v* ]]; then
+            run=true
+            publish=true
+            tag="${ref#refs/tags/}"
+          elif [[ "$event" == "workflow_dispatch" ]]; then
+            run=true
+            publish=false
+          elif [[ "$event" == "pull_request" ]]; then
+            msg=$(git log -1 --pretty=%B || echo "")
+            if echo "$msg" | grep -qF '[smoke-release]'; then
+              run=true
+            fi
+            for label in $(jq -r '.pull_request.labels[]?.name // empty' \
+                "$GITHUB_EVENT_PATH"); do
+              if [[ "$label" == "smoke-release" ]]; then run=true; fi
+            done
+          fi
+
+          echo "run=$run"         >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "decision: run=$run publish=$publish tag='$tag'"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-13
+            archive: tar.gz
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    name: build (${{ matrix.target }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: install cross
+        if: matrix.cross
+        shell: bash
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross \
+            --rev v0.2.5 --locked || \
+            cargo install cross --version "^0.2"
+
+      - name: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Explicit -p/--bin pairs avoid building the internal *-fixtures bins.
+          BUILD="cargo"
+          if [[ "${{ matrix.cross }}" == "true" ]]; then BUILD="cross"; fi
+          $BUILD build --release --target "${{ matrix.target }}" \
+            -p splatforge-cli              --bin splatforge \
+            -p splatforge-khr-conformance  --bin splatforge-khr-validate \
+            -p splatforge-usd-conformance  --bin splatforge-usd-validate
+
+      - name: macos codesign
+        if: runner.os == 'macOS' && env.APPLE_P12_BASE64 != ''
+        env:
+          APPLE_P12_BASE64:   ${{ secrets.APPLE_P12_BASE64 }}
+          APPLE_P12_PASSWORD: ${{ secrets.APPLE_P12_PASSWORD }}
+          APPLE_IDENTITY:     ${{ secrets.APPLE_IDENTITY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN=splatforge-build.keychain
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          echo "$APPLE_P12_BASE64" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 -k "$KEYCHAIN" \
+            -P "$APPLE_P12_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "" "$KEYCHAIN"
+          for bin in splatforge splatforge-khr-validate splatforge-usd-validate; do
+            codesign --force --timestamp --options runtime \
+              --sign "$APPLE_IDENTITY" \
+              "target/${{ matrix.target }}/release/$bin"
+          done
+          rm -f /tmp/cert.p12
+
+      - name: windows codesign
+        if: runner.os == 'Windows' && env.WIN_PFX_BASE64 != ''
+        env:
+          WIN_PFX_BASE64:   ${{ secrets.WIN_PFX_BASE64 }}
+          WIN_PFX_PASSWORD: ${{ secrets.WIN_PFX_PASSWORD }}
+        shell: pwsh
+        run: |
+          $bytes = [Convert]::FromBase64String($env:WIN_PFX_BASE64)
+          [IO.File]::WriteAllBytes("cert.pfx", $bytes)
+          $signtool = (Get-ChildItem `
+            "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" `
+            -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $signtool) { throw "signtool.exe not found" }
+          foreach ($name in @("splatforge","splatforge-khr-validate","splatforge-usd-validate")) {
+            & $signtool sign /f cert.pfx /p $env:WIN_PFX_PASSWORD /fd SHA256 `
+              /tr http://timestamp.digicert.com /td SHA256 `
+              "target/${{ matrix.target }}/release/$name.exe"
+          }
+          Remove-Item cert.pfx
+
+      - name: package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.plan.outputs.tag }}"
+          if [[ -z "$tag" ]]; then tag="v0.0.0-smoke"; fi
+          stem="splatforge-${tag}-${{ matrix.target }}"
+          stage="$RUNNER_TEMP/$stem"
+          mkdir -p "$stage"
+          suffix=""
+          if [[ "${{ matrix.target }}" == *windows* ]]; then suffix=".exe"; fi
+          for bin in splatforge splatforge-khr-validate splatforge-usd-validate; do
+            cp "target/${{ matrix.target }}/release/${bin}${suffix}" "$stage/"
+          done
+          cp LICENSE README.md CHANGELOG.md "$stage/" || true
+
+          mkdir -p dist-out
+          if [[ "${{ matrix.archive }}" == "zip" ]]; then
+            ( cd "$RUNNER_TEMP" && 7z a -tzip "$stem.zip" "$stem" >/dev/null )
+            cp "$RUNNER_TEMP/$stem.zip" "dist-out/$stem.zip"
+            archive="dist-out/$stem.zip"
+          else
+            ( cd "$RUNNER_TEMP" && tar czf "$stem.tar.gz" "$stem" )
+            cp "$RUNNER_TEMP/$stem.tar.gz" "dist-out/$stem.tar.gz"
+            archive="dist-out/$stem.tar.gz"
+          fi
+
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$archive" | awk '{print $1}' > "${archive}.sha256"
+          else
+            shasum -a 256 "$archive" | awk '{print $1}' > "${archive}.sha256"
+          fi
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(cat ${archive}.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: smoke run
+        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          ./target/${{ matrix.target }}/release/splatforge --version || true
+          ./target/${{ matrix.target }}/release/splatforge analyze \
+            fixtures/tiny/basic_binary.ply > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            dist-out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [plan, build]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: collect & manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find artifacts -mindepth 2 -maxdepth 2 -type f -exec cp {} release/ \;
+          ( cd release && \
+            sha256sum *.tar.gz *.zip 2>/dev/null > SHASUMS256.txt || true )
+          ls -la release/
+
+      - name: github release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.plan.outputs.tag }}
+          name: ${{ needs.plan.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(needs.plan.outputs.tag, '-') }}
+          generate_release_notes: true
+          files: |
+            release/*.tar.gz
+            release/*.zip
+            release/*.sha256
+            release/SHASUMS256.txt
