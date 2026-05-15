@@ -1,6 +1,6 @@
 {
   "schema": "splatforge.splatbench.encoders/0.1",
-  "generatedAt": "2026-05-15T11:34:26.383Z",
+  "generatedAt": "2026-05-15T12:09:35.819Z",
   "encoders": [
     "splat-transform"
   ],
@@ -198,6 +198,20 @@
           "wallSeconds": 5.554,
           "wallMs": 5586,
           "ratio": 5.39
+        }
+      }
+    },
+    {
+      "scene": "stump_mipnerf360_iter7k",
+      "inputBytes": 944270460,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 51312100,
+          "wallSeconds": 928.689,
+          "wallMs": 928689,
+          "ratio": 18.4
         }
       }
     }
