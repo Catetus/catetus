@@ -19,6 +19,10 @@ use thiserror::Error;
 pub const SPZ_MAGIC: u32 = 0x5053_4e47;
 /// SPZ wire version.
 pub const SPZ_VERSION: u32 = 2;
+/// Header `flags` bit 0: an SwVQ extension chunk follows the header (and
+/// precedes the zlib payload). Public readers skip the chunk; private
+/// readers in `splatforge-advanced::swvq` consume it.
+pub const SPZ_FLAG_SWVQ_EXT: u8 = 0x01;
 
 /// SPZ I/O errors.
 #[derive(Debug, Error)]
@@ -63,8 +67,23 @@ pub fn read_spz_bytes(bytes: &[u8]) -> Result<SplatScene, SpzError> {
     let splat_count = cur.read_u32::<LittleEndian>()? as usize;
     let sh_degree = cur.read_u8()?;
     let fractional_bits = cur.read_u8()?;
-    let _flags = cur.read_u8()?;
+    let flags = cur.read_u8()?;
     let _reserved = cur.read_u8()?;
+
+    // Optional SwVQ extension chunk: u32 payload_len (LE), then payload_len
+    // bytes that the public reader ignores. Private readers parse the
+    // chunk via `splatforge_advanced::swvq::deserialize_codebook`.
+    if flags & SPZ_FLAG_SWVQ_EXT != 0 {
+        let payload_len = cur.read_u32::<LittleEndian>()? as u64;
+        let new_pos = cur
+            .position()
+            .checked_add(payload_len)
+            .ok_or(SpzError::Truncated)?;
+        if (new_pos as usize) > bytes.len() {
+            return Err(SpzError::Truncated);
+        }
+        cur.set_position(new_pos);
+    }
 
     let pos = cur.position() as usize;
     let compressed = &bytes[pos..];
