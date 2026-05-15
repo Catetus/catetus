@@ -914,12 +914,21 @@ fn cmd_spec_check(input: &Path, spec: Option<&str>, json: bool) -> Result<()> {
             Ok(())
         }
         "openusd_particle_field" => {
-            anyhow::bail!(
-                "OpenUSD conformance validator is not yet packaged as a sibling \
-                 binary. Use `splatforge convert --to usda <file>` to inspect the \
-                 schema mapping; full validator lands when splatforge-usd's reader \
-                 path matures past SPEC-GAPS.md."
-            );
+            // Mirrors the KHR branch: the validator binary lives in the
+            // workspace as `splatforge-usd-validate` and ships alongside
+            // this CLI under the same Cargo bin dir. For local dev,
+            // `SPLATFORGE_USD_VALIDATE` overrides the lookup path.
+            let validator = std::env::var("SPLATFORGE_USD_VALIDATE")
+                .unwrap_or_else(|_| "splatforge-usd-validate".to_string());
+            let mut args: Vec<String> = vec![input.display().to_string()];
+            if json {
+                args.push("--json".into());
+            }
+            let status = Cmd::new(&validator).args(&args).status()?;
+            if !status.success() {
+                anyhow::bail!("{validator} returned non-zero ({status})");
+            }
+            Ok(())
         }
         other => anyhow::bail!("unknown spec: {other}"),
     }

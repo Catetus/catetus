@@ -7,6 +7,7 @@ members = [
     "crates/splatforge-posthac",
     "crates/splatforge-gltf",
     "crates/splatforge-khr-conformance",
+    "crates/splatforge-usd-conformance",
     "crates/splatforge-optimize",
     "crates/splatforge-bench",
     "crates/splatforge-cli",
@@ -29,6 +30,7 @@ splatforge-spz       = { path = "crates/splatforge-spz" }
 splatforge-posthac   = { path = "crates/splatforge-posthac" }
 splatforge-gltf      = { path = "crates/splatforge-gltf" }
 splatforge-khr-conformance = { path = "crates/splatforge-khr-conformance" }
+splatforge-usd-conformance = { path = "crates/splatforge-usd-conformance" }
 splatforge-optimize  = { path = "crates/splatforge-optimize" }
 splatforge-bench     = { path = "crates/splatforge-bench" }
 splatforge-usd       = { path = "crates/splatforge-usd" }

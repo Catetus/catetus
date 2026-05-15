@@ -37,8 +37,13 @@ use uuid::Uuid;
 // crate is a thin wrapper that wires the handlers; no per-module
 // re-instantiation happens here.
 use splatforge_api::billing::{self, BillingClient, KeyCustomerMap};
+use splatforge_api::checkout::{
+    self, CheckoutConfig, CheckoutError, CreateSessionRequest, PendingClaimTokens, PendingKeyCache,
+    RevealRequest, StripeCheckoutClient,
+};
 use splatforge_api::modal_client::{self, ModalClient};
-use splatforge_api::store::{self, Job, JobStatus, JobStore, Tier};
+use splatforge_api::store::{self, Job, JobStatus, JobStore, RatingSummaryRow, Tier};
+use sha2::{Digest, Sha256};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
@@ -76,6 +81,27 @@ pub struct AppState {
     /// HMAC secret for verifying `/v1/stripe/webhook` signatures.
     /// `None` disables the webhook handler entirely (returns 503).
     pub stripe_webhook_secret: Option<Arc<String>>,
+    /// Self-serve Team-tier signup config + Stripe client. The client
+    /// is `None` when `STRIPE_SECRET_KEY` is unset (dev / CI); the
+    /// `/v1/checkout/create-session` route returns 503 in that case
+    /// and the welcome page renders a stub.
+    pub checkout_config: Arc<CheckoutConfig>,
+    pub checkout_client: Option<Arc<StripeCheckoutClient>>,
+    /// In-memory plaintext-key cache populated by the webhook
+    /// (`provision_from_session`) and drained exactly once by
+    /// `/v1/checkout/reveal`. Plaintexts NEVER hit disk and NEVER hit
+    /// the log pipeline.
+    pub pending_keys: Arc<PendingKeyCache>,
+    /// In-memory map of session id -> claim_token, populated by
+    /// `/v1/checkout/create-session` and consumed by the webhook.
+    /// See checkout.rs::provision_from_session for the failover
+    /// semantics on a process restart between the two halves.
+    pub pending_claim_tokens: Arc<PendingClaimTokens>,
+    /// HMAC secret for the dedicated `/v1/checkout/webhook` route.
+    /// May be the same as `stripe_webhook_secret` (one Stripe webhook
+    /// endpoint configured for both event categories) or different
+    /// (separate endpoint per event category). Operator decision.
+    pub checkout_webhook_secret: Option<Arc<String>>,
 }
 
 #[tokio::main]
@@ -181,6 +207,48 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Self-serve Team-tier signup. Public site URL is used to build
+    // the success_url Stripe redirects to after payment; default to
+    // splatforge.dev which is where pricing.astro / welcome.astro
+    // ship.
+    let public_site_url = std::env::var("SPLATFORGE_PUBLIC_SITE_URL")
+        .unwrap_or_else(|_| "https://splatforge.dev".to_string());
+    let checkout_config = CheckoutConfig::from_env(public_site_url);
+    let checkout_client = checkout_config
+        .stripe_secret
+        .as_deref()
+        .filter(|s| !s.starts_with("sk_live_") || checkout_config.live_mode)
+        .map(|secret| {
+            Arc::new(StripeCheckoutClient::new(
+                secret.to_string(),
+                checkout_config.stripe_base_url.clone(),
+            ))
+        });
+    if checkout_client.is_none() {
+        warn!(
+            "checkout: Stripe not configured (or sk_live_ key without STRIPE_LIVE_MODE=true). \
+             /v1/checkout/create-session will return 503 and /pricing's Team CTA will fall back \
+             to the mailto: enterprise path."
+        );
+    } else {
+        match checkout_config.team_price_id.as_deref() {
+            Some(p) => info!(team_price_id = p, live_mode = checkout_config.live_mode, "checkout enabled"),
+            None => warn!(
+                "STRIPE_TEAM_PRICE_ID is unset — /v1/checkout/create-session will return 503. \
+                 Create the $99/seat/mo recurring price in the Stripe dashboard and set this env var."
+            ),
+        }
+    }
+    // Reuse the same webhook secret for the checkout endpoint by
+    // default; allow a distinct STRIPE_CHECKOUT_WEBHOOK_SECRET when
+    // the operator wants a per-event-category endpoint config (which
+    // Stripe supports natively).
+    let checkout_webhook_secret = std::env::var("STRIPE_CHECKOUT_WEBHOOK_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(Arc::new)
+        .or_else(|| stripe_webhook_secret.clone());
+
     let state = AppState {
         jobs,
         modal: Arc::new(ModalClient::new(modal_url, modal_repack_url)),
@@ -192,7 +260,32 @@ async fn main() -> anyhow::Result<()> {
         billing: Arc::new(billing),
         key_customers: Arc::new(key_customers),
         stripe_webhook_secret,
+        checkout_config: Arc::new(checkout_config),
+        checkout_client,
+        pending_keys: Arc::new(PendingKeyCache::new()),
+        pending_claim_tokens: Arc::new(PendingClaimTokens::new()),
+        checkout_webhook_secret,
     };
+
+    // Background sweep: drop any pending plaintext / claim_token entry
+    // older than PENDING_KEY_TTL (10 min). Without this, a buyer who
+    // never lands on /welcome would leave their plaintext sitting in
+    // RAM until process restart. The sweep is fire-and-forget; cancel
+    // is implicit on shutdown.
+    {
+        let pk = state.pending_keys.clone();
+        let pt = state.pending_claim_tokens.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(60));
+            // Skip the first immediate tick — nothing to sweep at boot.
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                pk.sweep_expired().await;
+                pt.sweep_expired().await;
+            }
+        });
+    }
 
     // Three routers:
     //   - `open`  — always public (healthz, worker callback). The worker
@@ -210,6 +303,22 @@ async fn main() -> anyhow::Result<()> {
         // signature gate (`STRIPE_WEBHOOK_SECRET`), not a bearer token.
         // 1 MB is well over the largest event payload Stripe sends.
         .route("/v1/stripe/webhook", post(stripe_webhook))
+        // Self-serve Team-tier signup. All three routes are "open"
+        // because they each have their own gate:
+        //   - create-session: no auth needed (anyone can pay)
+        //   - checkout/webhook: HMAC-SHA256 against the raw body
+        //   - reveal: claim_token in the URL query (entropy match)
+        .route("/v1/checkout/create-session", post(create_session_route))
+        .route("/v1/checkout/webhook", post(checkout_webhook))
+        .route("/v1/checkout/reveal", post(reveal_route))
+        // fidelity-ml v0.4 — human pairwise rating collection. No bearer
+        // token: anyone visiting splatforge.com/rate can submit. The
+        // post_rating handler computes a SHA-256(IP || "|" || UA) hash
+        // from request headers (never persisted in plaintext) and uses
+        // it for a 100-ratings/hour cap so a single browser tab can't
+        // flood the corpus.
+        .route("/v1/ratings", post(post_rating))
+        .route("/v1/ratings/summary", get(ratings_summary))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
 
     let paid_layer =
@@ -1204,6 +1313,136 @@ async fn stripe_webhook(
     Ok(Json(serde_json::json!({ "received": true })))
 }
 
+/* ---------- self-serve Team-tier signup ---------- */
+
+/// `POST /v1/checkout/create-session`
+///
+/// Body: `{ "email": "alice@acme.com", "nonce"?: "…" }`. Returns
+/// `{ "url": "https://checkout.stripe.com/c/pay/…", "session_id": "cs_test_…" }`.
+/// The frontend redirects the browser to `url` immediately. Stripe
+/// hosts the payment UI; on success it redirects to
+/// `<public_site_url>/welcome?session_id=<cs_…>&token=<claim_token>`.
+///
+/// Returns 503 when Stripe isn't configured (dev / CI). The frontend
+/// surfaces this as "self-serve unavailable, contact sales" — falls
+/// back to the Enterprise mailto: gracefully.
+#[instrument(skip(state, req), fields(email = %req.email))]
+async fn create_session_route(
+    State(state): State<AppState>,
+    Json(req): Json<CreateSessionRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(client) = state.checkout_client.as_ref() else {
+        return Err(ApiError::ServiceUnavailable(
+            "self-serve checkout not configured on this deployment".to_string(),
+        ));
+    };
+    let resp = checkout::create_session_and_register(
+        state.checkout_config.as_ref(),
+        client.as_ref(),
+        state.pending_claim_tokens.as_ref(),
+        req,
+    )
+    .await?;
+    Ok(Json(serde_json::json!({
+        "url": resp.url,
+        "session_id": resp.session_id,
+    })))
+}
+
+/// `POST /v1/checkout/webhook` — Stripe `checkout.session.completed`.
+///
+/// Verifies the `Stripe-Signature` header against the raw body (same
+/// HMAC-SHA256 path the billing webhook uses) and provisions a fresh
+/// `sf_live_…` key on a verified `checkout.session.completed`. All
+/// other event types are ack'd with 200 so Stripe stops retrying.
+///
+/// IDEMPOTENCY: `provision_from_session` uses `INSERT … ON CONFLICT
+/// DO NOTHING` against `team_signups.stripe_session_id`. A retry that
+/// lands a second time after a transport error sees the row already
+/// present, returns `Ok(())`, and we 200 back — no second key minted.
+#[instrument(skip(state, body))]
+async fn checkout_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(secret) = state.checkout_webhook_secret.as_ref() else {
+        return Err(ApiError::Unauthorized(
+            "checkout webhook secret not configured".to_string(),
+        ));
+    };
+    let sig = headers.get("stripe-signature").and_then(|v| v.to_str().ok());
+    let now = chrono::Utc::now().timestamp();
+    let event = billing::verify_webhook(
+        &body,
+        sig,
+        secret.as_str(),
+        now,
+        billing::WEBHOOK_DEFAULT_TOLERANCE_SECS,
+    )
+    .map_err(|e| ApiError::Unauthorized(format!("checkout webhook signature: {e}")))?;
+
+    let event_type = event
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(unknown)");
+    let event_id = event
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no-id)");
+
+    match event_type {
+        "checkout.session.completed" => {
+            // The load-bearing path. Errors here roll up to ApiError
+            // and we return non-2xx so Stripe retries — except for
+            // BadRequest (malformed event) which is fatal and we
+            // 400 to break the retry loop.
+            checkout::provision_from_session(
+                state.jobs.as_ref(),
+                state.pending_keys.as_ref(),
+                state.pending_claim_tokens.as_ref(),
+                &event,
+            )
+            .await?;
+            info!(%event_id, "checkout.session.completed provisioned");
+        }
+        other => {
+            info!(%event_id, event_type = other, "checkout webhook: ignored");
+        }
+    }
+    Ok(Json(serde_json::json!({ "received": true })))
+}
+
+/// `POST /v1/checkout/reveal` — one-time plaintext-key fetch for the
+/// welcome page.
+///
+/// Body: `{ "session_id": "cs_…", "token": "<claim_token>" }`.
+/// Response: `{ "api_key": "sf_live_…", "key_prefix": "sf_live_XXXX",
+///              "authorization_header": "Bearer sf_live_…", "email": "…" }`.
+///
+/// EXACTLY-ONCE INVARIANT: see `checkout::reveal_key`. Three gates:
+/// constant-time claim_token compare, atomic
+/// `mark_team_signup_revealed`, and the in-memory cache `take`. The
+/// second call returns 410 Gone.
+#[instrument(skip(state, req))]
+async fn reveal_route(
+    State(state): State<AppState>,
+    Json(req): Json<RevealRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let resp = checkout::reveal_key(
+        state.jobs.as_ref(),
+        state.pending_keys.as_ref(),
+        req,
+    )
+    .await?;
+    Ok(Json(serde_json::json!({
+        "api_key": resp.api_key,
+        "key_prefix": resp.key_prefix,
+        "email": resp.email,
+        "authorization_header": resp.authorization_header,
+    })))
+}
+
 /// Strip path separators + control chars so the blob key stays inside the
 /// `jobs/<uuid>/` prefix and can't be used to escape into other tenants.
 fn sanitize_filename(name: &str) -> String {
@@ -1234,6 +1473,31 @@ pub enum ApiError {
     Modal(#[from] modal_client::ModalError),
     #[error("internal: {0}")]
     Internal(#[from] store::StoreError),
+    #[error("service unavailable: {0}")]
+    ServiceUnavailable(String),
+    #[error("gone")]
+    Gone,
+    #[error("forbidden")]
+    Forbidden,
+    #[error("bad gateway: stripe: {0}")]
+    Stripe(String),
+}
+
+impl From<checkout::CheckoutError> for ApiError {
+    fn from(e: CheckoutError) -> Self {
+        match e {
+            CheckoutError::NotConfigured | CheckoutError::PriceNotConfigured => {
+                ApiError::ServiceUnavailable(e.to_string())
+            }
+            CheckoutError::BadRequest(msg) => ApiError::BadRequest(msg),
+            CheckoutError::NotFound => ApiError::NotFound,
+            CheckoutError::Gone => ApiError::Gone,
+            CheckoutError::Forbidden => ApiError::Forbidden,
+            CheckoutError::Stripe { status: _, body } => ApiError::Stripe(body),
+            CheckoutError::Transport(s) | CheckoutError::BadResponse(s) => ApiError::Stripe(s),
+            CheckoutError::Store(s) => ApiError::Internal(s),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -1242,7 +1506,10 @@ impl IntoResponse for ApiError {
             ApiError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ApiError::Unauthorized(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
-            ApiError::Storage(_) | ApiError::Modal(_) => {
+            ApiError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
+            ApiError::Gone => (StatusCode::GONE, self.to_string()),
+            ApiError::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
+            ApiError::Storage(_) | ApiError::Modal(_) | ApiError::Stripe(_) => {
                 (StatusCode::BAD_GATEWAY, self.to_string())
             }
             ApiError::Internal(_) => {
