@@ -47,6 +47,10 @@ use splatforge_api::ratelimit::{self, Decision, Limiter, Limits, RouteClass};
 use splatforge_api::ratings::{
     respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR,
 };
+use splatforge_api::routes::import::{
+    self as import_route, CaptureResolver, HttpCaptureResolver, ImportError, ImportRateLimiter,
+    ImportRequest, ImportResponse, Provider,
+};
 use splatforge_api::store::{self, AuditEvent, DynJobStore, Job, JobStatus, RatingSummaryRow, Tier};
 
 /// Top-level app state shared with every handler.
@@ -121,6 +125,10 @@ pub struct AppState {
     /// Pro on-prem license issuer. `None` disables the `/v1/license/*`
     /// endpoints (dev / OSS-only deploys). See `license::LicenseIssuer`.
     pub license_issuer: Option<Arc<splatforge_api::license::LicenseIssuer>>,
+    /// Capture-tool import resolver.
+    pub capture_resolver: Arc<dyn CaptureResolver>,
+    /// In-memory rate limiter for the three `/v1/import/*` endpoints.
+    pub import_limiter: Arc<ImportRateLimiter>,
 }
 
 
@@ -318,6 +326,8 @@ async fn main() -> anyhow::Result<()> {
         limiter: Arc::new(Limiter::new(rate_limits)),
         admin_api_keys: Arc::new(admin_api_keys),
         license_issuer: license_issuer.map(Arc::new),
+        capture_resolver: Arc::new(HttpCaptureResolver::from_env()),
+        import_limiter: Arc::new(ImportRateLimiter::default_production()),
     };
 
     // Background sweep: drop any pending plaintext / claim_token entry
@@ -400,6 +410,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/jobs", post(create_job))
         .route("/v1/jobs/batch", post(create_jobs_batch))
         .route("/v1/jobs/:id", get(get_job))
+        // Capture-tool imports. Same bearer auth as `/v1/jobs` (so the
+        // import surface is paid-customer-only); rate-limited at
+        // 10/min/key inside the handler via `state.import_limiter`. The
+        // body cap is tiny — the request only carries a share URL.
+        .route("/v1/import/luma", post(import_luma))
+        .route("/v1/import/polycam", post(import_polycam))
+        .route("/v1/import/scaniverse", post(import_scaniverse))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
         // Order matters: layers apply outermost-first. Auth must run
         // before the rate-limit layer so the limiter has a verified key
@@ -1846,6 +1863,127 @@ async fn ratings_summary(
     }))
 }
 
+/* ---------- capture-tool imports ---------- */
+
+/// Shared body for the three `/v1/import/*` handlers. The handlers are
+/// trivial wrappers that pick a `Provider` and delegate; keeping the
+/// orchestration in one function makes it easier to reason about the
+/// rate-limit + resolver + Job-build sequence (and easier to keep the
+/// integration test honest — `tests/import.rs` exercises the same path
+/// with a wiremock-backed resolver).
+#[instrument(skip(state, headers, req), fields(provider = provider.as_str()))]
+async fn do_import(
+    state: AppState,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    provider: Provider,
+    req: ImportRequest,
+) -> Result<Json<ImportResponse>, ApiError> {
+    // Rate-limit key — prefer the authenticated bearer (already validated
+    // by `require_api_key`), fall back to the raw header for the
+    // auth-disabled dev mode. Using the API key keeps the bucket scoped
+    // to one customer; falling back to the raw header value keeps dev
+    // mode usable without inventing a "no-auth" key.
+    let rate_key = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim_start_matches("Bearer ").trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "anonymous".to_string());
+
+    let resolved = import_route::run_import(
+        &state.capture_resolver,
+        state.import_limiter.as_ref(),
+        &rate_key,
+        provider,
+        &req.share_url,
+    )
+    .await?;
+
+    // Defense in depth: the per-provider resolver already validated the
+    // returned host against its allowlist, but `validate_source_url`
+    // additionally blocks the private-IP-literal class for any future
+    // provider we add that forgets the allowlist.
+    validate_source_url(&resolved.source_url)?;
+
+    let id = Uuid::new_v4();
+    let filename = sanitize_filename(&resolved.filename);
+    let blob_key = format!("jobs/{id}/{filename}");
+    let customer_id = resolve_customer(&state, &extensions);
+    let job = Job {
+        id,
+        // Same default preset as the proxy-upload flow used to land on.
+        // Operators tweak this per deploy via the SDK; for now web-mobile
+        // is the universally-supported one.
+        preset: "web-mobile".to_string(),
+        filename,
+        size_bytes: 0,
+        label: req.label.or_else(|| Some(format!("{}:{}", provider.as_str(), resolved.capture_id))),
+        status: JobStatus::Queued,
+        blob_key,
+        blob_url: Some(resolved.source_url.clone()),
+        source_url: Some(resolved.source_url.clone()),
+        upload_size_bytes: None,
+        output_url: None,
+        preview_url: None,
+        phase: None,
+        percent: None,
+        webhook_url: None,
+        batch_id: None,
+        tier: Tier::Free,
+        customer_id,
+        created_at: Utc::now(),
+        error: None,
+    };
+    state.jobs.insert(&job).await?;
+    if let Err(e) = enqueue_url_job(&state, &job).await {
+        // Bubble the worker enqueue failure as 502 — same shape as a
+        // `/v1/jobs` URL-mode failure. The job row stays in `Queued`
+        // until a retry; the operator can re-run via the worker's
+        // resume path.
+        warn!(job_id = %job.id, error = %e, "capture import enqueue failed");
+        return Err(e);
+    }
+    info!(
+        job_id = %job.id,
+        provider = provider.as_str(),
+        capture_id = resolved.capture_id,
+        "capture imported"
+    );
+    Ok(Json(ImportResponse {
+        job_id: job.id,
+        source_url: resolved.source_url,
+        provider: provider.as_str(),
+    }))
+}
+
+async fn import_luma(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    Json(req): Json<ImportRequest>,
+) -> Result<Json<ImportResponse>, ApiError> {
+    do_import(state, headers, extensions, Provider::Luma, req).await
+}
+
+async fn import_polycam(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    Json(req): Json<ImportRequest>,
+) -> Result<Json<ImportResponse>, ApiError> {
+    do_import(state, headers, extensions, Provider::Polycam, req).await
+}
+
+async fn import_scaniverse(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    Json(req): Json<ImportRequest>,
+) -> Result<Json<ImportResponse>, ApiError> {
+    do_import(state, headers, extensions, Provider::Scaniverse, req).await
+}
+
 /* ---------- errors ---------- */
 
 #[derive(Debug, thiserror::Error)]
@@ -1872,6 +2010,19 @@ pub enum ApiError {
     Stripe(String),
     #[error("too many requests: {0}")]
     TooManyRequests(String),
+    /// 415 — surfaced by the `/v1/import/*` routes when the provider says
+    /// "yes, this capture exists, but it's not in a format we can ingest"
+    /// (still-processing Luma capture, Scaniverse USDZ without PLY, …).
+    #[error("unsupported media: {0}")]
+    Unsupported(String),
+    /// 429 — burnt through the per-key import rate budget.
+    #[error("rate limited: {0}")]
+    RateLimited(String),
+    /// 502 — wraps a non-Stripe upstream provider failure (Luma/Polycam/
+    /// Scaniverse timed out, returned 5xx, etc.). Distinct from `Stripe`
+    /// so the IntoResponse arm can read the same way.
+    #[error("bad gateway: {0}")]
+    BadGateway(String),
 }
 
 impl From<checkout::CheckoutError> for ApiError {
@@ -1891,6 +2042,20 @@ impl From<checkout::CheckoutError> for ApiError {
     }
 }
 
+impl From<ImportError> for ApiError {
+    fn from(e: ImportError) -> Self {
+        let msg = e.to_string();
+        match e {
+            ImportError::InvalidShareUrl { .. } | ImportError::UnsafeAssetUrl { .. } => {
+                ApiError::BadRequest(msg)
+            }
+            ImportError::Unsupported { .. } => ApiError::Unsupported(msg),
+            ImportError::UpstreamFailed { .. } => ApiError::BadGateway(msg),
+            ImportError::RateLimited { .. } => ApiError::RateLimited(msg),
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, msg) = match &self {
@@ -1900,9 +2065,12 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             ApiError::Gone => (StatusCode::GONE, self.to_string()),
             ApiError::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
-            ApiError::Storage(_) | ApiError::Modal(_) | ApiError::Stripe(_) => {
-                (StatusCode::BAD_GATEWAY, self.to_string())
-            }
+            ApiError::Storage(_)
+            | ApiError::Modal(_)
+            | ApiError::Stripe(_)
+            | ApiError::BadGateway(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            ApiError::Unsupported(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, self.to_string()),
+            ApiError::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             ApiError::Internal(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }

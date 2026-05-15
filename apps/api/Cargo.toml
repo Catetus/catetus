@@ -92,17 +92,7 @@ subtle = "2.5"
 rand = "0.8"
 
 [dev-dependencies]
-# testcontainers spins up a real Postgres in Docker for the trait-level
-# integration tests. The Postgres impl can't be tested against an
-# in-memory backend the way SQLite can — Postgres-flavored SQL (the
-# COALESCE(SUM(…))::BIGINT cast in `summarize_ratings`, the BIGSERIAL
-# vs AUTOINCREMENT split, the DOUBLE PRECISION binding) has no
-# in-process simulator that matches the real wire protocol.
-#
-# Tests gracefully skip when Docker isn't available — see
-# `tests/store_trait.rs::skip_if_no_docker`. CI MUST run with Docker
-# available; the operator instructions in `STORE-BACKENDS.md` call
-# this out.
 testcontainers = "0.20"
 testcontainers-modules = { version = "0.8", features = ["postgres"] }
 tokio = { version = "1.40", features = ["full"] }
+wiremock = "0.6"
