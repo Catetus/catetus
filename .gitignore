@@ -85,3 +85,7 @@ packages/viewer/dist-bench/
 
 # Per-task todo dumps from agents — not durable docs.
 tasks/todo.md
+
+# splatforge-api default local sqlite path — runtime-created.
+/data/
+apps/api/data/
