@@ -24,6 +24,9 @@ const fused = readFileSync(join(wgpu, 'cs_project_gather.wgsl'), 'utf8');
 const scan = readFileSync(join(wgpu, 'scan_multiblock.wgsl'), 'utf8');
 const histo = readFileSync(join(wgpu, 'histogram_subgroup.wgsl'), 'utf8');
 const cull = readFileSync(join(wgpu, 'cs_cull.wgsl'), 'utf8');
+const wsrClear = readFileSync(join(wgpu, 'cs_wsr_clear.wgsl'), 'utf8');
+const wsrAccum = readFileSync(join(wgpu, 'cs_wsr_accumulate.wgsl'), 'utf8');
+const wsrResolve = readFileSync(join(wgpu, 'cs_wsr_resolve.wgsl'), 'utf8');
 
 const escape = (s) => '`' + s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${') + '`';
 
@@ -41,6 +44,12 @@ export const SCAN_MULTIBLOCK_WGSL: string = ${escape(scan)};
 export const HISTOGRAM_SUBGROUP_WGSL: string = ${escape(histo)};
 
 export const CULL_WGSL: string = ${escape(cull)};
+
+export const WSR_CLEAR_WGSL: string = ${escape(wsrClear)};
+
+export const WSR_ACCUMULATE_WGSL: string = ${escape(wsrAccum)};
+
+export const WSR_RESOLVE_WGSL: string = ${escape(wsrResolve)};
 `;
 
 writeFileSync(join(wgpu, 'shaders.generated.ts'), out);
