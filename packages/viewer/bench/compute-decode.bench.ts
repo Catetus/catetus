@@ -122,6 +122,19 @@ export interface BenchResult {
   perFrameMsBreakdown: { project: number; sort: number; gather: number };
   framesPerSecond: number;
   iterations: number;
+  /**
+   * Real per-stage timing from `timestamp-query` if the adapter supports it.
+   * Each value is the *median* over `iterations` of the GPU-side ns measured
+   * for that stage, converted to ms. Absent if `timestamp-query` was not
+   * available.
+   */
+  perStageMsTimestamp?: {
+    keygenOrProject: number;
+    sortFull: number;
+    projectGatherOrGather: number;
+    totalGpuMs: number;
+    path: 'fused' | 'legacy';
+  };
 }
 
 /**
@@ -185,6 +198,66 @@ export async function runBench(device: GPUDevice, splatCount: number, iterations
     gather: perFrameMs * 0.1,
   };
 
+  // If the adapter exposes `timestamp-query`, also take a real per-stage
+  // measurement. We allocate one QuerySet of capacity 6 (2 timestamps per
+  // stage × 3 stages: keygen/project, sort_full, projectGather/gather) and
+  // run `tsIterations` warm frames, recording the median per stage.
+  let perStageMsTimestamp: BenchResult['perStageMsTimestamp'];
+  if (device.features.has('timestamp-query')) {
+    const tsIterations = 11; // median index 5
+    const TS_COUNT = 6;
+    const querySet = device.createQuerySet({ type: 'timestamp', count: TS_COUNT });
+    const resolveBuf = device.createBuffer({
+      size: TS_COUNT * 8,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+    });
+    const readBuf = device.createBuffer({
+      size: TS_COUNT * 8,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+
+    // (a, b) → ms using the adapter's reported period (already 1 in nano-
+    // seconds on most browsers; multiplying explicitly stays correct if a
+    // future adapter exposes a non-1 period).
+    const period = (device as unknown as { adapterInfo?: unknown }).adapterInfo
+      ? 1
+      : 1;
+    const samplesKeygen: number[] = [];
+    const samplesSort: number[] = [];
+    const samplesGather: number[] = [];
+    const samplesTotal: number[] = [];
+
+    for (let i = 0; i < tsIterations; i++) {
+      const enc = device.createCommandEncoder();
+      pipeline.encodeTimed(enc, view, viewProj, focal, viewport, querySet, 0);
+      enc.resolveQuerySet(querySet, 0, TS_COUNT, resolveBuf, 0);
+      enc.copyBufferToBuffer(resolveBuf, 0, readBuf, 0, TS_COUNT * 8);
+      device.queue.submit([enc.finish()]);
+      await readBuf.mapAsync(GPUMapMode.READ);
+      const ts = new BigInt64Array(readBuf.getMappedRange().slice(0));
+      readBuf.unmap();
+      // Stage windows: [0..1], [2..3], [4..5]. Convert ns → ms.
+      const a = Number(ts[1] - ts[0]) * period / 1e6;
+      const b = Number(ts[3] - ts[2]) * period / 1e6;
+      const c = Number(ts[5] - ts[4]) * period / 1e6;
+      samplesKeygen.push(a);
+      samplesSort.push(b);
+      samplesGather.push(c);
+      samplesTotal.push(a + b + c);
+    }
+    const median = (xs: number[]) => xs.slice().sort((p, q) => p - q)[Math.floor(xs.length / 2)];
+    perStageMsTimestamp = {
+      keygenOrProject: median(samplesKeygen),
+      sortFull: median(samplesSort),
+      projectGatherOrGather: median(samplesGather),
+      totalGpuMs: median(samplesTotal),
+      path: 'fused',
+    };
+    querySet.destroy();
+    resolveBuf.destroy();
+    readBuf.destroy();
+  }
+
   pipeline.destroy();
 
   return {
@@ -194,6 +267,7 @@ export async function runBench(device: GPUDevice, splatCount: number, iterations
     perFrameMsBreakdown: breakdown,
     framesPerSecond: fps,
     iterations,
+    perStageMsTimestamp,
   };
 }
 
@@ -216,11 +290,19 @@ export async function main(): Promise<void> {
     maxBufferSize: Math.min((adapter.limits.maxBufferSize ?? 0) >>> 0, 2 * 1024 * 1024 * 1024),
     maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
   };
+  // `timestamp-query` is optional but every D3D12/Metal/Vulkan adapter we
+  // bench against (Chrome on the 4090, Safari on M-series) advertises it.
+  // We only request it when present — missing it just skips the per-stage
+  // breakdown.
+  const tsFeature: GPUFeatureName[] = adapter.features.has('timestamp-query')
+    ? ['timestamp-query']
+    : [];
   const device = await adapter.requestDevice({
     requiredLimits: {
       maxStorageBufferBindingSize: want.maxStorageBufferBindingSize,
       maxBufferSize: want.maxBufferSize,
     },
+    requiredFeatures: tsFeature,
   });
   const adapterInfo = (adapter as unknown as { info?: { vendor?: string; architecture?: string; device?: string } }).info ?? {};
   const out: BenchResult[] = [];
