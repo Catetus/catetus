@@ -3,3 +3,5 @@
 *.metallib
 DerivedData/
 *.xcuserstate
+# XCFramework is built locally by scripts/build-xcframework.sh — too large to vendor.
+SplatforgeViewerCore.xcframework/
