@@ -62,17 +62,18 @@ main.page {
   padding: 32px 24px 96px;
 }
 
-section + section {
+/* Spacing/divider between sibling sections inside main.page. We use
+   :not(:first-of-type) instead of the adjacent-sibling combinator because
+   Astro emits `is:inline` script blocks at the parent level, which slip
+   in between two sections and break a `section + section` rule silently. */
+main.page > section:not(:first-of-type) {
   margin-top: 64px;
   padding-top: 64px;
   position: relative;
   border-top: 1px solid var(--line);
 }
 
-/* Inset accent gradient over the hairline so adjacent sections visually
-   read as distinct chapters. The leaderboard table is dense; without this
-   the next section bleeds into it as one wall. */
-section + section::before {
+main.page > section:not(:first-of-type)::before {
   content: "";
   position: absolute;
   top: -1px;
