@@ -125,6 +125,18 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // Anchor: 15s GPU training base + 0.090 s/MB (v0.1) plus
         // 4s base + 0.028 s/MB (CodecGS post-process), summed.
         "codec-gs-stacked" => (19.0, 0.118),
+        // CodecGS Mixed (K=2 default) — novel-3 BUILT 2026-05-15. Bicycle v0.1
+        // stacked: 151× @ 25.2 dB (vs 152× @ 22.4 dB for codec-gs-stacked). Same
+        // ratio, +2.82 dB render-PSNR. Encodes top-K% of splats by importance
+        // (opacity × det(scale)^(2/3)) at CRF 14, rest at CRF 28. Decoder
+        // concatenates both streams. Same compute curve as codec-gs-stacked
+        // (the partitioning is cheap; both CRF passes run sequentially on CPU).
+        // Anchor: bicycle 855 MB → 5.9 MB at 25.2 dB.
+        "codec-gs-mixed" => (19.0, 0.118),
+        // K=5 variant — slightly worse ratio (59× on bicycle), slightly better
+        // PSNR (26.3 dB). Same compute curve. Exposed for users wanting more
+        // hi-fidelity headroom at the cost of ratio.
+        "codec-gs-mixed-k5" => (19.0, 0.118),
         // Unknown / future preset: assume web-mobile shape so the
         // preview doesn't 400 on a new preset before the operator
         // tunes a curve for it.
@@ -543,6 +555,33 @@ mod tests {
         // (we did the bookkeeping work) but compute should be ~base only.
         let p = preview_job_cost(0, "web-mobile", 0);
         assert!(p.estimated_cost_usd_cents >= PER_JOB_FLAT_CENTS as u64);
+    }
+
+    #[test]
+    fn codec_gs_mixed_matches_codec_gs_stacked_compute_curve() {
+        // novel-3 BUILT 2026-05-15: codec-gs-mixed and codec-gs-mixed-k5
+        // share codec-gs-stacked's compute curve because the K-percentile
+        // partitioning is cheap and both CRF passes run sequentially on
+        // CPU. The pricing entry must match exactly so users don't see
+        // a different quote for a same-cost pipeline.
+        for sz_mb in [100u64, 274, 855] {
+            let bytes = sz_mb * 1024 * 1024;
+            let stacked = preview_job_cost(bytes, "codec-gs-stacked", 0);
+            let mixed = preview_job_cost(bytes, "codec-gs-mixed", 0);
+            let mixed_k5 = preview_job_cost(bytes, "codec-gs-mixed-k5", 0);
+            assert_eq!(
+                stacked.estimated_compute_seconds,
+                mixed.estimated_compute_seconds,
+                "codec-gs-mixed should match codec-gs-stacked compute at {} MB",
+                sz_mb
+            );
+            assert_eq!(
+                stacked.estimated_compute_seconds,
+                mixed_k5.estimated_compute_seconds,
+                "codec-gs-mixed-k5 should match codec-gs-stacked compute at {} MB",
+                sz_mb
+            );
+        }
     }
 
     #[test]
