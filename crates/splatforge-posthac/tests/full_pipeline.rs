@@ -16,8 +16,12 @@ use std::path::PathBuf;
 
 #[test]
 fn full_pipeline_round_trip() {
-    let Ok(pthc_path) = env::var("SPLATFORGE_PYTHON_PTHC") else { return; };
-    let Ok(codes_path) = env::var("SPLATFORGE_RAW_CODES") else { return; };
+    let Ok(pthc_path) = env::var("SPLATFORGE_PYTHON_PTHC") else {
+        return;
+    };
+    let Ok(codes_path) = env::var("SPLATFORGE_RAW_CODES") else {
+        return;
+    };
 
     let bytes = fs::read(PathBuf::from(pthc_path)).expect("read .pthc");
     let container = read_container(&bytes).expect("parse container");
@@ -34,10 +38,7 @@ fn full_pipeline_round_trip() {
     assert_eq!(d, d_codes, "container D != codes D");
     let mut raw_codes = vec![0u8; n * d];
     cur.read_exact(&mut raw_codes).unwrap();
-    eprintln!(
-        "[pipeline] loaded raw codes: {} bytes",
-        raw_codes.len()
-    );
+    eprintln!("[pipeline] loaded raw codes: {} bytes", raw_codes.len());
 
     // Rust predict() for every splat
     let predictions = predict_all(

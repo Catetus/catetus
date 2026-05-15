@@ -146,8 +146,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "splatforge.list_presets",
-        description:
-            "List all built-in SplatForge presets with their target use case, typical \
+        description: "List all built-in SplatForge presets with their target use case, typical \
              compression ratio, and whether they're free or paid. Use when the user asks \
              'what presets are available?' or before picking one yourself.",
         input_schema: schema_list_presets,
@@ -164,8 +163,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "splatforge.generate_lod_pyramid",
-        description:
-            "Take one .ply / .spz / .gltf and emit N .ply files at user-specified \
+        description: "Take one .ply / .spz / .gltf and emit N .ply files at user-specified \
              splat-count ratios. Ranks splats by saliency (sigmoid(α) · Σexp(scale), \
              the same metric the diff-repack premium tier converges to), then writes \
              top-K subsets. Use this when a hosting / streaming platform requires the \
@@ -176,8 +174,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "splatforge.find_similar_scenes",
-        description:
-            "Given a scene's splatCount, SH degree, and optional content class, find the \
+        description: "Given a scene's splatCount, SH degree, and optional content class, find the \
              K closest scenes in the bundled SplatBench v0 corpus and return their measured \
              per-preset compression ratios + ΔE94/ML-score fidelity numbers. This is the \
              public-tier substitute for `recommend_preset` — the LLM can pick a preset by \
@@ -415,18 +412,12 @@ fn tool_generate_lod_pyramid(args: &Value) -> ToolResult {
         // lods is Option<Vec<LodLevel>> — drop it entirely for the subset
         // since the original indices reference splats we just dropped.
         sub_scene.lods = None;
-        let level_name = format!(
-            "lod_{:02}_r{:.4}.ply",
-            idx,
-            ratio
-        );
+        let level_name = format!("lod_{:02}_r{:.4}.ply", idx, ratio);
         let level_path = out_dir.join(&level_name);
         if let Err(e) = write_ply(&sub_scene, &level_path) {
             return tool_error(format!("writing {}: {e}", level_path.display()));
         }
-        let bytes_out = std::fs::metadata(&level_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let bytes_out = std::fs::metadata(&level_path).map(|m| m.len()).unwrap_or(0);
         pyramid.push(json!({
             "ratio": ratio,
             "splatCount": keep_n,
@@ -475,8 +466,7 @@ fn tool_generate_lod_pyramid(args: &Value) -> ToolResult {
 /// Refreshing it requires rebuilding the crate — that's intentional, so a
 /// stale binary can't quietly recommend numbers that don't match the public
 /// leaderboard.
-const SPLATBENCH_V0_JSON: &str =
-    include_str!("../../../benches/reports/splatbench-v0.json");
+const SPLATBENCH_V0_JSON: &str = include_str!("../../../benches/reports/splatbench-v0.json");
 
 /// Compact per-scene record used for similarity scoring. Built once at
 /// startup from the bundled JSON.
@@ -695,7 +685,11 @@ fn tool_analyze(args: &Value) -> ToolResult {
         report.sh_degree,
         report.hash,
     );
-    ToolResult { json, text, is_error: false }
+    ToolResult {
+        json,
+        text,
+        is_error: false,
+    }
 }
 
 // ------------------------------------------- splatforge.list_presets handler
@@ -870,6 +864,7 @@ fn tool_optimize(args: &Value) -> ToolResult {
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize,
+        compress: None,
     };
     if let Err(e) = write_gltf(&scene, &out_path, &opts) {
         return tool_error(format!("write glTF: {e}"));
@@ -1244,8 +1239,9 @@ mod tests {
             .as_array()
             .unwrap();
         assert_eq!(pyramid.len(), 3);
-        let splats_in =
-            resp["result"]["structuredContent"]["splatsIn"].as_u64().unwrap();
+        let splats_in = resp["result"]["structuredContent"]["splatsIn"]
+            .as_u64()
+            .unwrap();
         // r=1.0 must emit exactly the input count; r=0.5 ≈ half; r=0.25 ≈ quarter.
         let counts: Vec<u64> = pyramid
             .iter()
@@ -1255,18 +1251,26 @@ mod tests {
         let half = splats_in / 2;
         assert!(
             (counts[1] as i64 - half as i64).abs() <= 1,
-            "r=0.5 emitted {} vs expected ~{}", counts[1], half
+            "r=0.5 emitted {} vs expected ~{}",
+            counts[1],
+            half
         );
         let quarter = splats_in / 4;
         assert!(
             (counts[2] as i64 - quarter as i64).abs() <= 1,
-            "r=0.25 emitted {} vs expected ~{}", counts[2], quarter
+            "r=0.25 emitted {} vs expected ~{}",
+            counts[2],
+            quarter
         );
         // Every emitted file exists and is non-empty.
         for level in pyramid {
             let p = level["path"].as_str().unwrap();
             let m = std::fs::metadata(p).unwrap();
-            assert!(m.len() > 1024, "{p} is suspiciously small ({} bytes)", m.len());
+            assert!(
+                m.len() > 1024,
+                "{p} is suspiciously small ({} bytes)",
+                m.len()
+            );
         }
     }
 
@@ -1336,9 +1340,10 @@ mod tests {
         assert_eq!(contents.len(), 1);
         assert_eq!(contents[0]["mimeType"], "application/json");
         let text = contents[0]["text"].as_str().unwrap();
-        // Sanity: this should at least parse and contain 16 scenes.
+        // Sanity: this should at least parse and contain a non-trivial corpus.
+        // The exact count grows as new real-photo scenes land; assert a floor.
         let parsed: Value = serde_json::from_str(text).unwrap();
-        assert_eq!(parsed["scenes"].as_array().unwrap().len(), 16);
+        assert!(parsed["scenes"].as_array().unwrap().len() >= 16);
     }
 
     #[test]

@@ -104,7 +104,11 @@ impl ModalClient {
         self.post(&url, &payload).await
     }
 
-    async fn post(&self, url: &str, payload: &EnqueuePayload<'_>) -> Result<EnqueueAck, ModalError> {
+    async fn post(
+        &self,
+        url: &str,
+        payload: &EnqueuePayload<'_>,
+    ) -> Result<EnqueueAck, ModalError> {
         let resp = self
             .http
             .post(url)

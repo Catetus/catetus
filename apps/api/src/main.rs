@@ -1,3 +1,10 @@
+#![allow(
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::manual_pattern_char_comparison,
+    clippy::question_mark,
+    clippy::too_many_arguments
+)]
 //! `splatforge-api` — hosted optimize endpoint.
 //!
 //! Public surface for the design-partner program. Responsibilities:
@@ -13,13 +20,13 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use axum::{
     body::{Body, Bytes},
-    extract::{Path, State},
-    http::{HeaderMap, Request, StatusCode},
+    extract::{Path, Query, State},
+    http::{HeaderMap, HeaderValue, Request, StatusCode},
     middleware::{self, Next},
     response::IntoResponse,
     routing::{get, post},
@@ -36,21 +43,32 @@ use uuid::Uuid;
 // reach them via the library crate name (`splatforge_api`). The bin
 // crate is a thin wrapper that wires the handlers; no per-module
 // re-instantiation happens here.
+use splatforge_api::audit;
 use splatforge_api::billing::{self, BillingClient, KeyCustomerMap};
 use splatforge_api::checkout::{
     self, CheckoutConfig, CheckoutError, CreateSessionRequest, PendingClaimTokens, PendingKeyCache,
     RevealRequest, StripeCheckoutClient,
 };
 use splatforge_api::modal_client::{self, ModalClient};
-use splatforge_api::store::{self, Job, JobStatus, JobStore, RatingSummaryRow, Tier};
-use sha2::{Digest, Sha256};
+use splatforge_api::ratelimit::{self, Decision, Limiter, Limits, RouteClass};
+use splatforge_api::ratings::{respondent_hash, validate_rating, RATING_RATE_LIMIT_PER_HOUR};
+use splatforge_api::routes::import::{
+    self as import_route, CaptureResolver, HttpCaptureResolver, ImportError, ImportRateLimiter,
+    ImportRequest, ImportResponse, Provider,
+};
+use splatforge_api::store::{
+    self, AuditEvent, DynJobStore, Job, JobStatus, RatingSummaryRow, Tier,
+};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
 pub struct AppState {
-    /// In-memory job store. Swapped for Postgres once we have multi-instance
-    /// deployment; everything below treats it as an opaque trait object.
-    pub jobs: Arc<JobStore>,
+    /// Trait-object handle to whichever backend `DATABASE_URL`'s scheme
+    /// selected at startup (SQLite for the single-instance Fly deploy,
+    /// Postgres for multi-instance promotion — see v2 plan §3b and
+    /// `apps/api/STORE-BACKENDS.md`). Every handler talks `JobStoreApi`;
+    /// no production code touches the concrete impl.
+    pub jobs: DynJobStore,
     /// Modal worker client.
     pub modal: Arc<ModalClient>,
     /// Blob storage adapter (Vercel Blob today; R2/S3 later).
@@ -102,6 +120,30 @@ pub struct AppState {
     /// endpoint configured for both event categories) or different
     /// (separate endpoint per event category). Operator decision.
     pub checkout_webhook_secret: Option<Arc<String>>,
+    /// Per-API-key token-bucket rate limiter. Wrapped in `Arc` so the
+    /// `AppState` clone stays cheap; the limiter itself holds an
+    /// internal mutex for the bucket map.
+    pub limiter: Arc<Limiter>,
+    /// Bearer tokens permitted to read the audit log via
+    /// `GET /v1/admin/audit`. Separate from `api_keys` so a leaked
+    /// customer key cannot read other customers' activity. Empty
+    /// means the admin endpoint is fully disabled (returns 503).
+    pub admin_api_keys: Arc<HashSet<String>>,
+    /// Pro on-prem license issuer. `None` disables the `/v1/license/*`
+    /// endpoints (dev / OSS-only deploys). See `license::LicenseIssuer`.
+    pub license_issuer: Option<Arc<splatforge_api::license::LicenseIssuer>>,
+    /// Capture-tool import resolver.
+    pub capture_resolver: Arc<dyn CaptureResolver>,
+    /// In-memory rate limiter for the three `/v1/import/*` endpoints.
+    pub import_limiter: Arc<ImportRateLimiter>,
+}
+
+impl axum::extract::FromRef<AppState>
+    for Option<std::sync::Arc<splatforge_api::license::LicenseIssuer>>
+{
+    fn from_ref(input: &AppState) -> Self {
+        input.license_issuer.clone()
+    }
 }
 
 #[tokio::main]
@@ -121,17 +163,16 @@ async fn main() -> anyhow::Result<()> {
     // Persisted job state. Default to `./data/jobs.db` so a vanilla `cargo
     // run` works without ceremony; production sets DATABASE_URL to a
     // mounted-volume path.
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://data/jobs.db".to_string());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://data/jobs.db".to_string());
     if let Some(path) = database_url
         .strip_prefix("sqlite://")
         .or_else(|| database_url.strip_prefix("sqlite:"))
     {
         if let Some(parent) = std::path::Path::new(path).parent() {
             if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("creating sqlite parent dir {}", parent.display())
-                })?;
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating sqlite parent dir {}", parent.display()))?;
             }
         }
     }
@@ -144,6 +185,30 @@ async fn main() -> anyhow::Result<()> {
     // at least one key set).
     let api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_API_KEYS").ok());
     let paid_api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_PAID_API_KEYS").ok());
+    let admin_api_keys: HashSet<String> =
+        parse_keys(std::env::var("SPLATFORGE_ADMIN_API_KEYS").ok());
+    if admin_api_keys.is_empty() {
+        warn!(
+            "SPLATFORGE_ADMIN_API_KEYS is empty — /v1/admin/audit is disabled (503). \
+             Set this to enable the audit-log read endpoint."
+        );
+    } else {
+        info!(
+            n_admin_keys = admin_api_keys.len(),
+            "admin audit endpoint enabled"
+        );
+    }
+    let rate_limits = Limits::from_env(std::env::var("SPLATFORGE_RATE_LIMITS").ok().as_deref());
+    info!(
+        create_free = rate_limits.create_free.capacity,
+        create_paid = rate_limits.create_paid.capacity,
+        upload_free = rate_limits.upload_free.capacity,
+        upload_paid = rate_limits.upload_paid.capacity,
+        repack = rate_limits.repack.capacity,
+        get_job = rate_limits.get_job.capacity,
+        batch_paid = rate_limits.batch_paid.capacity,
+        "rate limits (per hour, per API key)"
+    );
     if api_keys.is_empty() {
         warn!(
             "SPLATFORGE_API_KEYS is empty — running with NO authentication. \
@@ -159,7 +224,10 @@ async fn main() -> anyhow::Result<()> {
              A100 paid path to billing-attached customers."
         );
     } else {
-        info!(n_paid_keys = paid_api_keys.len(), "paid-tier bearer auth enabled");
+        info!(
+            n_paid_keys = paid_api_keys.len(),
+            "paid-tier bearer auth enabled"
+        );
     }
 
     // Dedicated client for outbound webhook firing. Short timeout so a
@@ -169,11 +237,13 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .expect("reqwest client");
 
-    let jobs = JobStore::connect(&database_url)
+    // `store::connect` is the only place in the binary that knows which
+    // backend is in play. SQLite vs Postgres is selected by URL scheme;
+    // see `store/mod.rs::connect` for the dispatch rule.
+    let jobs: DynJobStore = store::connect(&database_url)
         .await
         .with_context(|| format!("opening jobs db at {database_url}"))?;
     info!(%database_url, "job store ready");
-    let jobs = Arc::new(jobs);
 
     // Billing setup. Mode is one of "live" / "test" / "dry-run" per
     // BillingClient::from_env. The dry-run fallback keeps `cargo run`
@@ -249,6 +319,8 @@ async fn main() -> anyhow::Result<()> {
         .map(Arc::new)
         .or_else(|| stripe_webhook_secret.clone());
 
+    let license_issuer = splatforge_api::license::LicenseIssuer::from_env()
+        .with_context(|| "loading LICENSE_PRIVATE_KEY")?;
     let state = AppState {
         jobs,
         modal: Arc::new(ModalClient::new(modal_url, modal_repack_url)),
@@ -265,6 +337,11 @@ async fn main() -> anyhow::Result<()> {
         pending_keys: Arc::new(PendingKeyCache::new()),
         pending_claim_tokens: Arc::new(PendingClaimTokens::new()),
         checkout_webhook_secret,
+        limiter: Arc::new(Limiter::new(rate_limits)),
+        admin_api_keys: Arc::new(admin_api_keys),
+        license_issuer: license_issuer.map(Arc::new),
+        capture_resolver: Arc::new(HttpCaptureResolver::from_env()),
+        import_limiter: Arc::new(ImportRateLimiter::default_production()),
     };
 
     // Background sweep: drop any pending plaintext / claim_token entry
@@ -287,14 +364,20 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Three routers:
-    //   - `open`  — always public (healthz, worker callback). The worker
-    //               callback is protected by the per-job UUID, not the
-    //               bearer token, so a worker doesn't need an API key.
+    // Router layout:
+    //   - `open`  — always public (healthz, worker callback, stripe webhook,
+    //               openapi spec, docs UI). Worker callback is protected by
+    //               the per-job UUID, the webhook by HMAC, the spec/docs are
+    //               static. No rate limiting or audit (operator-targeted).
     //   - `paid`  — gated on the bearer token when SPLATFORGE_API_KEYS is set.
+    //               Rate-limited per-key per-class, audited on completion.
     //               Job creation + GET (clients poll their own job state).
-    //   - `upload`— same auth as `paid` but with a 250 MB body cap.
+    //   - `repack`— additionally requires a paid-tier key.
+    //   - `upload`— same auth as `paid` but with a 2 GB body cap.
+    //   - `admin` — gated on SPLATFORGE_ADMIN_API_KEYS; serves the audit log.
     let auth_layer = middleware::from_fn_with_state(state.clone(), require_api_key);
+    let rate_audit_layer = middleware::from_fn_with_state(state.clone(), rate_limit_and_audit);
+    let admin_layer = middleware::from_fn_with_state(state.clone(), require_admin_api_key);
 
     let open = Router::new()
         .route("/healthz", get(healthz))
@@ -319,24 +402,54 @@ async fn main() -> anyhow::Result<()> {
         // flood the corpus.
         .route("/v1/ratings", post(post_rating))
         .route("/v1/ratings/summary", get(ratings_summary))
+        // Self-served OpenAPI spec + Swagger UI. Both static, no auth.
+        .route("/openapi.yaml", get(openapi_yaml))
+        .route("/openapi.json", get(openapi_json_passthrough))
+        .route("/docs", get(docs_ui))
+        // Pro on-prem license framework. issue is admin-only (bearer
+        // check inside the handler); refresh + heartbeat are customer-
+        // facing — refresh is gated by the inbound license's signature,
+        // heartbeat is best-effort telemetry.
+        .route(
+            "/v1/license/issue",
+            post(splatforge_api::license::issue_route),
+        )
+        .route(
+            "/v1/license/refresh",
+            post(splatforge_api::license::refresh_route),
+        )
+        .route(
+            "/v1/license/heartbeat",
+            post(splatforge_api::license::heartbeat_route),
+        )
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
 
-    let paid_layer =
-        middleware::from_fn_with_state(state.clone(), require_paid_api_key);
+    let paid_layer = middleware::from_fn_with_state(state.clone(), require_paid_api_key);
 
     let paid = Router::new()
         .route("/v1/jobs", post(create_job))
         .route("/v1/jobs/batch", post(create_jobs_batch))
         .route("/v1/jobs/:id", get(get_job))
+        // Capture-tool imports. Same bearer auth as `/v1/jobs` (so the
+        // import surface is paid-customer-only); rate-limited at
+        // 10/min/key inside the handler via `state.import_limiter`. The
+        // body cap is tiny — the request only carries a share URL.
+        .route("/v1/import/luma", post(import_luma))
+        .route("/v1/import/polycam", post(import_polycam))
+        .route("/v1/import/scaniverse", post(import_scaniverse))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
+        // Order matters: layers apply outermost-first. Auth must run
+        // before the rate-limit layer so the limiter has a verified key
+        // to bucket by.
+        .layer(rate_audit_layer.clone())
         .layer(auth_layer.clone());
 
     let repack = Router::new()
         .route("/v1/jobs/:id/repack", post(repack_job))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
-        // Order matters: tower layers apply outermost-first. Free gate runs
-        // first (rejects unauthenticated requests early), paid gate runs
-        // second so it only sees pre-authenticated calls.
+        .layer(rate_audit_layer.clone())
+        // Free gate runs first (rejects unauthenticated requests early),
+        // paid gate runs second so it only sees pre-authenticated calls.
         .layer(paid_layer)
         .layer(auth_layer.clone());
 
@@ -348,13 +461,19 @@ async fn main() -> anyhow::Result<()> {
         // buffer it in memory. Users with cloud-hosted data should still
         // prefer the source_url form which skips the proxy entirely.
         .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024 * 1024))
+        .layer(rate_audit_layer)
         .layer(auth_layer);
+
+    let admin = Router::new()
+        .route("/v1/admin/audit", get(admin_audit))
+        .layer(admin_layer);
 
     let app = Router::new()
         .merge(open)
         .merge(paid)
         .merge(repack)
         .merge(upload)
+        .merge(admin)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -435,7 +554,10 @@ async fn require_api_key(
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default();
-        auth.strip_prefix("Bearer ").unwrap_or_default().trim().to_owned()
+        auth.strip_prefix("Bearer ")
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
     };
     if presented.is_empty() {
         return Err(ApiError::Unauthorized(
@@ -447,6 +569,233 @@ async fn require_api_key(
     }
     req.extensions_mut().insert(AuthenticatedKey(presented));
     Ok(next.run(req).await)
+}
+
+/// Admin-tier auth for `/v1/admin/*`. Independent set of bearer tokens
+/// from `SPLATFORGE_API_KEYS` — leaking a customer key must not give
+/// access to the audit log. An empty admin-key set disables the
+/// endpoint entirely (returns 503), which is the safe default for
+/// fresh deployments that haven't provisioned an operator key yet.
+async fn require_admin_api_key(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<axum::response::Response, ApiError> {
+    if state.admin_api_keys.is_empty() {
+        return Err(ApiError::Unauthorized(
+            "admin endpoint disabled (SPLATFORGE_ADMIN_API_KEYS unset)".to_string(),
+        ));
+    }
+    let auth = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let presented = auth.strip_prefix("Bearer ").unwrap_or_default().trim();
+    if presented.is_empty() {
+        return Err(ApiError::Unauthorized(
+            "missing Authorization: Bearer <admin-key>".to_string(),
+        ));
+    }
+    if !state.admin_api_keys.contains(presented) {
+        return Err(ApiError::Unauthorized("invalid admin API key".to_string()));
+    }
+    Ok(next.run(req).await)
+}
+
+/// Pick the rate-limit class for an inbound request based on
+/// (method, path). Returns `None` for routes that aren't rate-limited
+/// — the middleware falls through to `next` in that case. Path
+/// matching is structural so `/v1/jobs/<uuid>/upload` correctly maps
+/// to `RouteClass::Upload`.
+fn classify_for_ratelimit(method: &axum::http::Method, path: &str) -> Option<RouteClass> {
+    let method_str = method.as_str();
+    match method_str {
+        "POST" => {
+            if path == "/v1/jobs" {
+                return Some(RouteClass::CreateJob);
+            }
+            if path == "/v1/jobs/batch" {
+                return Some(RouteClass::CreateBatch);
+            }
+            let rest = path.strip_prefix("/v1/jobs/")?;
+            let (_id, tail) = rest.split_once('/')?;
+            match tail {
+                "upload" => Some(RouteClass::Upload),
+                "repack" => Some(RouteClass::Repack),
+                _ => None,
+            }
+        }
+        "GET" => {
+            let rest = path.strip_prefix("/v1/jobs/")?;
+            // /v1/jobs/<id> with no trailing segment.
+            if !rest.is_empty() && !rest.contains('/') {
+                return Some(RouteClass::GetJob);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Combined rate-limit + audit middleware. Two responsibilities folded
+/// into one pass because they both want the same data (key prefix,
+/// route template, request status, duration) and pulling the request
+/// apart twice would double the path-matching cost on the hot path.
+///
+/// Order of operations:
+///   1. Read the authenticated key from the request extensions.
+///      Unauthenticated requests bypass the limiter (they only reach
+///      open routes; this layer never wraps `/healthz`).
+///   2. Classify the (method, path) into a `RouteClass`. Unknown
+///      routes pass straight through to `next` without limiting or
+///      auditing.
+///   3. Decide tier from the paid-key set. Limiter caps differ.
+///   4. `Limiter::take` — returns Allow (with remaining) or Deny
+///      (with retry_after). Deny → 429 carrying both headers, and
+///      we still write the audit row (operator wants to see
+///      throttled traffic).
+///   5. Run the inner handler; capture status + duration.
+///   6. Best-effort audit insert. DB failures here are logged but
+///      MUST NOT propagate to the response.
+async fn rate_limit_and_audit(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<axum::response::Response, ApiError> {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let class = classify_for_ratelimit(&method, &path);
+
+    // Read the authenticated key out of extensions. If auth is disabled
+    // (dev mode), there's no key — we use a sentinel "anon" bucket so
+    // a developer poking the API locally still sees the limiter behave
+    // sensibly. In prod this branch never runs because the auth layer
+    // is mandatory.
+    let key = req
+        .extensions()
+        .get::<AuthenticatedKey>()
+        .map(|k| k.0.clone())
+        .unwrap_or_else(|| "anon".to_string());
+
+    let tier = if state.paid_api_keys.contains(&key) {
+        ratelimit::Tier::Paid
+    } else {
+        ratelimit::Tier::Free
+    };
+    let key_prefix = ratelimit::key_prefix(&key);
+
+    // Free-tier callers can't use the batch endpoint at all — return a
+    // structured 403 instead of pretending they have a 0-cap bucket.
+    if matches!(class, Some(RouteClass::CreateBatch)) && tier == ratelimit::Tier::Free {
+        let started = Instant::now();
+        let err_msg = "batch endpoint requires a paid-tier API key";
+        // Audit the rejection so the operator can see "free tier trying
+        // to batch" patterns and reach out about upgrades.
+        let route_tmpl = audit::route_template(method.as_str(), &path).unwrap_or("/v1/jobs/batch");
+        let elapsed = started.elapsed().as_millis() as u64;
+        audit::record(
+            &state.jobs,
+            &key_prefix,
+            route_tmpl,
+            method.as_str(),
+            403,
+            0,
+            elapsed,
+            Some("free-tier-batch-forbidden"),
+        )
+        .await;
+        return Err(ApiError::Forbidden(err_msg.to_string()));
+    }
+
+    // Rate-limit decision.
+    let decision = if let Some(class) = class {
+        Some(state.limiter.take(&key, class, tier))
+    } else {
+        None
+    };
+
+    let started = Instant::now();
+    let (response, body_size, status_code, error_note) = match decision {
+        Some(Decision::Deny {
+            retry_after_s,
+            remaining,
+        }) => {
+            // Build a structured 429 with operator-canonical headers.
+            let body = serde_json::json!({
+                "error": "rate limit exceeded",
+                "retry_after_s": retry_after_s,
+            });
+            let body_bytes = serde_json::to_vec(&body).expect("json");
+            let body_size = body_bytes.len() as u64;
+            let mut response = (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response();
+            response.headers_mut().insert(
+                "Retry-After",
+                HeaderValue::from_str(&retry_after_s.to_string())
+                    .unwrap_or(HeaderValue::from_static("1")),
+            );
+            response.headers_mut().insert(
+                "X-RateLimit-Remaining",
+                HeaderValue::from_str(&remaining.to_string())
+                    .unwrap_or(HeaderValue::from_static("0")),
+            );
+            (
+                response,
+                body_size,
+                429u16,
+                Some("rate-limited".to_string()),
+            )
+        }
+        _ => {
+            // Allowed (or unclassified route): proceed and capture
+            // status + (approximate) body size from the inner response.
+            let remaining_hdr = match decision {
+                Some(Decision::Allow { remaining }) => Some(remaining),
+                _ => None,
+            };
+            let mut response = next.run(req).await;
+            let status = response.status().as_u16();
+            // Body size is opportunistic — axum's body is a Stream; we
+            // don't drain it here (that would buffer the entire upload
+            // response in RAM). The audit row's body_size is therefore
+            // 0 for non-429 paths today. Documented in the audit
+            // schema comment as a known limitation.
+            let body_size = 0u64;
+            if let Some(r) = remaining_hdr {
+                let _ = response.headers_mut().insert(
+                    "X-RateLimit-Remaining",
+                    HeaderValue::from_str(&r.to_string()).unwrap_or(HeaderValue::from_static("0")),
+                );
+            }
+            let err_note = if status >= 400 {
+                Some(format!("status-{status}"))
+            } else {
+                None
+            };
+            (response, body_size, status, err_note)
+        }
+    };
+
+    // Audit on completion. The spec calls for mutating-only routes;
+    // GET /v1/jobs/:id passes through here too (it has its own bucket)
+    // but `audit::is_audited` returns false for it, so we skip.
+    if audit::is_audited(method.as_str(), &path) {
+        let route_tmpl = audit::route_template(method.as_str(), &path).unwrap_or("/v1/unknown");
+        let elapsed = started.elapsed().as_millis() as u64;
+        audit::record(
+            &state.jobs,
+            &key_prefix,
+            route_tmpl,
+            method.as_str(),
+            status_code,
+            body_size,
+            elapsed,
+            error_note.as_deref(),
+        )
+        .await;
+    }
+
+    Ok(response)
 }
 
 /// Resolve the Stripe customer id for the request's authenticated key.
@@ -755,10 +1104,7 @@ async fn build_job(
     }
 }
 
-fn job_creation_response(
-    job: &Job,
-    _state: &AppState,
-) -> Result<CreateJobResponse, ApiError> {
+fn job_creation_response(job: &Job, _state: &AppState) -> Result<CreateJobResponse, ApiError> {
     let (upload_url, upload_method) = match job.status {
         JobStatus::AwaitingUpload => (
             Some(format!("blob://stub/{}", job.blob_key)),
@@ -803,7 +1149,7 @@ fn validate_source_url(url: &str) -> Result<(), ApiError> {
     // sanity check.
     let after_scheme = &url["https://".len()..];
     let host = after_scheme
-        .split(|c: char| c == '/' || c == ':' || c == '?' || c == '#')
+        .split(['/', ':', '?', '#'])
         .next()
         .unwrap_or("");
     if host.is_empty() {
@@ -821,7 +1167,10 @@ fn validate_source_url(url: &str) -> Result<(), ApiError> {
         "[fc",
         "[fd",
     ];
-    if FORBIDDEN_HOST_PREFIXES.iter().any(|p| host_lower.starts_with(p)) {
+    if FORBIDDEN_HOST_PREFIXES
+        .iter()
+        .any(|p| host_lower.starts_with(p))
+    {
         return Err(ApiError::BadRequest(format!(
             "source_url host {host} is in a private / loopback range"
         )));
@@ -856,7 +1205,9 @@ fn validate_webhook_url(url: &str) -> Result<(), ApiError> {
 /// Job JSON. Logs but never errors — webhook delivery is best-effort.
 /// Caller should already have persisted the job before invoking this.
 async fn fire_webhook(state: &AppState, job: &Job) {
-    let Some(url) = job.webhook_url.as_deref() else { return };
+    let Some(url) = job.webhook_url.as_deref() else {
+        return;
+    };
     let payload = match serde_json::to_value(job) {
         Ok(v) => v,
         Err(e) => {
@@ -864,12 +1215,7 @@ async fn fire_webhook(state: &AppState, job: &Job) {
             return;
         }
     };
-    let resp = state
-        .webhook_http
-        .post(url)
-        .json(&payload)
-        .send()
-        .await;
+    let resp = state.webhook_http.post(url).json(&payload).send().await;
     match resp {
         Ok(r) if r.status().is_success() => {
             info!(job_id = %job.id, status = %r.status(), "webhook delivered");
@@ -1194,10 +1540,7 @@ async fn job_result(
     // that retries will see the seconds row already claimed and skip.
     // This is the load-bearing invariant — see BILLING.md "double-fire"
     // section.
-    if terminal
-        && matches!(job.status, JobStatus::Done)
-        && job.tier == Tier::Paid
-    {
+    if terminal && matches!(job.status, JobStatus::Done) && job.tier == Tier::Paid {
         if let Err(e) = state
             .billing
             .record_repack_job(
@@ -1253,7 +1596,9 @@ async fn stripe_webhook(
             "stripe webhook secret not configured".to_string(),
         ));
     };
-    let sig = headers.get("stripe-signature").and_then(|v| v.to_str().ok());
+    let sig = headers
+        .get("stripe-signature")
+        .and_then(|v| v.to_str().ok());
     let now = chrono::Utc::now().timestamp();
     let event = billing::verify_webhook(
         &body,
@@ -1371,7 +1716,9 @@ async fn checkout_webhook(
             "checkout webhook secret not configured".to_string(),
         ));
     };
-    let sig = headers.get("stripe-signature").and_then(|v| v.to_str().ok());
+    let sig = headers
+        .get("stripe-signature")
+        .and_then(|v| v.to_str().ok());
     let now = chrono::Utc::now().timestamp();
     let event = billing::verify_webhook(
         &body,
@@ -1429,12 +1776,7 @@ async fn reveal_route(
     State(state): State<AppState>,
     Json(req): Json<RevealRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let resp = checkout::reveal_key(
-        state.jobs.as_ref(),
-        state.pending_keys.as_ref(),
-        req,
-    )
-    .await?;
+    let resp = checkout::reveal_key(state.jobs.as_ref(), state.pending_keys.as_ref(), req).await?;
     Ok(Json(serde_json::json!({
         "api_key": resp.api_key,
         "key_prefix": resp.key_prefix,
@@ -1457,6 +1799,216 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
+/* ---------- ratings (fidelity-ml v0.4 collection) ---------- */
+//
+// Validation, hashing, and the rate-limit constant all live in
+// `splatforge_api::ratings` so the integration tests under
+// `tests/ratings.rs` can exercise them without spinning up the full
+// Axum app. The handlers below are thin glue: parse JSON, call the
+// pure helpers, hit the store, return JSON.
+
+#[derive(Debug, Deserialize)]
+pub struct PostRatingRequest {
+    pub scene_id: String,
+    pub left_preset: String,
+    pub right_preset: String,
+    pub winner: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PostRatingResponse {
+    pub id: i64,
+    /// Ratings remaining in this respondent's rolling-hour window after
+    /// this submission. The page surfaces this so a heavy rater knows
+    /// they're approaching the cap (and can plausibly suspect rate
+    /// limiting if their next POSTs start 429-ing).
+    pub remaining: i64,
+}
+
+#[instrument(skip(state, headers, req), fields(scene = %req.scene_id))]
+async fn post_rating(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<PostRatingRequest>,
+) -> Result<Json<PostRatingResponse>, ApiError> {
+    validate_rating(
+        &req.scene_id,
+        &req.left_preset,
+        &req.right_preset,
+        &req.winner,
+    )
+    .map_err(ApiError::BadRequest)?;
+
+    let respondent = respondent_hash(&headers);
+
+    // Cheap rate-limit gate: count rows from this hash in the trailing
+    // hour. SQLite + indexed column + a small table — this scales to
+    // millions of rows before the count starts to hurt.
+    let recent = state
+        .jobs
+        .count_recent_ratings(&respondent, chrono::Duration::hours(1))
+        .await?;
+    if recent >= RATING_RATE_LIMIT_PER_HOUR {
+        return Err(ApiError::TooManyRequests(format!(
+            "respondent has submitted {recent} ratings in the last hour; cap is {RATING_RATE_LIMIT_PER_HOUR}"
+        )));
+    }
+
+    let id = state
+        .jobs
+        .insert_rating(
+            &req.scene_id,
+            &req.left_preset,
+            &req.right_preset,
+            &req.winner,
+            &respondent,
+        )
+        .await?;
+    let remaining = (RATING_RATE_LIMIT_PER_HOUR - recent - 1).max(0);
+    Ok(Json(PostRatingResponse { id, remaining }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct RatingsSummaryResponse {
+    pub pairs: Vec<RatingSummaryRow>,
+    pub total_ratings: i64,
+}
+
+#[instrument(skip(state))]
+async fn ratings_summary(
+    State(state): State<AppState>,
+) -> Result<Json<RatingsSummaryResponse>, ApiError> {
+    let pairs = state.jobs.summarize_ratings().await?;
+    let total: i64 = pairs.iter().map(|r| r.total).sum();
+    Ok(Json(RatingsSummaryResponse {
+        pairs,
+        total_ratings: total,
+    }))
+}
+
+/* ---------- capture-tool imports ---------- */
+
+/// Shared body for the three `/v1/import/*` handlers. The handlers are
+/// trivial wrappers that pick a `Provider` and delegate; keeping the
+/// orchestration in one function makes it easier to reason about the
+/// rate-limit + resolver + Job-build sequence (and easier to keep the
+/// integration test honest — `tests/import.rs` exercises the same path
+/// with a wiremock-backed resolver).
+#[instrument(skip(state, headers, req), fields(provider = provider.as_str()))]
+async fn do_import(
+    state: AppState,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    provider: Provider,
+    req: ImportRequest,
+) -> Result<Json<ImportResponse>, ApiError> {
+    // Rate-limit key — prefer the authenticated bearer (already validated
+    // by `require_api_key`), fall back to the raw header for the
+    // auth-disabled dev mode. Using the API key keeps the bucket scoped
+    // to one customer; falling back to the raw header value keeps dev
+    // mode usable without inventing a "no-auth" key.
+    let rate_key = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim_start_matches("Bearer ").trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "anonymous".to_string());
+
+    let resolved = import_route::run_import(
+        &state.capture_resolver,
+        state.import_limiter.as_ref(),
+        &rate_key,
+        provider,
+        &req.share_url,
+    )
+    .await?;
+
+    // Defense in depth: the per-provider resolver already validated the
+    // returned host against its allowlist, but `validate_source_url`
+    // additionally blocks the private-IP-literal class for any future
+    // provider we add that forgets the allowlist.
+    validate_source_url(&resolved.source_url)?;
+
+    let id = Uuid::new_v4();
+    let filename = sanitize_filename(&resolved.filename);
+    let blob_key = format!("jobs/{id}/{filename}");
+    let customer_id = resolve_customer(&state, &extensions);
+    let job = Job {
+        id,
+        // Same default preset as the proxy-upload flow used to land on.
+        // Operators tweak this per deploy via the SDK; for now web-mobile
+        // is the universally-supported one.
+        preset: "web-mobile".to_string(),
+        filename,
+        size_bytes: 0,
+        label: req
+            .label
+            .or_else(|| Some(format!("{}:{}", provider.as_str(), resolved.capture_id))),
+        status: JobStatus::Queued,
+        blob_key,
+        blob_url: Some(resolved.source_url.clone()),
+        source_url: Some(resolved.source_url.clone()),
+        upload_size_bytes: None,
+        output_url: None,
+        preview_url: None,
+        phase: None,
+        percent: None,
+        webhook_url: None,
+        batch_id: None,
+        tier: Tier::Free,
+        customer_id,
+        created_at: Utc::now(),
+        error: None,
+    };
+    state.jobs.insert(&job).await?;
+    if let Err(e) = enqueue_url_job(&state, &job).await {
+        // Bubble the worker enqueue failure as 502 — same shape as a
+        // `/v1/jobs` URL-mode failure. The job row stays in `Queued`
+        // until a retry; the operator can re-run via the worker's
+        // resume path.
+        warn!(job_id = %job.id, error = %e, "capture import enqueue failed");
+        return Err(e);
+    }
+    info!(
+        job_id = %job.id,
+        provider = provider.as_str(),
+        capture_id = resolved.capture_id,
+        "capture imported"
+    );
+    Ok(Json(ImportResponse {
+        job_id: job.id,
+        source_url: resolved.source_url,
+        provider: provider.as_str(),
+    }))
+}
+
+async fn import_luma(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    Json(req): Json<ImportRequest>,
+) -> Result<Json<ImportResponse>, ApiError> {
+    do_import(state, headers, extensions, Provider::Luma, req).await
+}
+
+async fn import_polycam(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    Json(req): Json<ImportRequest>,
+) -> Result<Json<ImportResponse>, ApiError> {
+    do_import(state, headers, extensions, Provider::Polycam, req).await
+}
+
+async fn import_scaniverse(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    extensions: axum::http::Extensions,
+    Json(req): Json<ImportRequest>,
+) -> Result<Json<ImportResponse>, ApiError> {
+    do_import(state, headers, extensions, Provider::Scaniverse, req).await
+}
+
 /* ---------- errors ---------- */
 
 #[derive(Debug, thiserror::Error)]
@@ -1467,6 +2019,8 @@ pub enum ApiError {
     BadRequest(String),
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    #[error("forbidden: {0}")]
+    Forbidden(String),
     #[error("storage error: {0}")]
     Storage(#[from] store::BlobError),
     #[error("modal error: {0}")]
@@ -1477,10 +2031,23 @@ pub enum ApiError {
     ServiceUnavailable(String),
     #[error("gone")]
     Gone,
-    #[error("forbidden")]
-    Forbidden,
     #[error("bad gateway: stripe: {0}")]
     Stripe(String),
+    #[error("too many requests: {0}")]
+    TooManyRequests(String),
+    /// 415 — surfaced by the `/v1/import/*` routes when the provider says
+    /// "yes, this capture exists, but it's not in a format we can ingest"
+    /// (still-processing Luma capture, Scaniverse USDZ without PLY, …).
+    #[error("unsupported media: {0}")]
+    Unsupported(String),
+    /// 429 — burnt through the per-key import rate budget.
+    #[error("rate limited: {0}")]
+    RateLimited(String),
+    /// 502 — wraps a non-Stripe upstream provider failure (Luma/Polycam/
+    /// Scaniverse timed out, returned 5xx, etc.). Distinct from `Stripe`
+    /// so the IntoResponse arm can read the same way.
+    #[error("bad gateway: {0}")]
+    BadGateway(String),
 }
 
 impl From<checkout::CheckoutError> for ApiError {
@@ -1492,10 +2059,24 @@ impl From<checkout::CheckoutError> for ApiError {
             CheckoutError::BadRequest(msg) => ApiError::BadRequest(msg),
             CheckoutError::NotFound => ApiError::NotFound,
             CheckoutError::Gone => ApiError::Gone,
-            CheckoutError::Forbidden => ApiError::Forbidden,
+            CheckoutError::Forbidden => ApiError::Forbidden("checkout".to_string()),
             CheckoutError::Stripe { status: _, body } => ApiError::Stripe(body),
             CheckoutError::Transport(s) | CheckoutError::BadResponse(s) => ApiError::Stripe(s),
             CheckoutError::Store(s) => ApiError::Internal(s),
+        }
+    }
+}
+
+impl From<ImportError> for ApiError {
+    fn from(e: ImportError) -> Self {
+        let msg = e.to_string();
+        match e {
+            ImportError::InvalidShareUrl { .. } | ImportError::UnsafeAssetUrl { .. } => {
+                ApiError::BadRequest(msg)
+            }
+            ImportError::Unsupported { .. } => ApiError::Unsupported(msg),
+            ImportError::UpstreamFailed { .. } => ApiError::BadGateway(msg),
+            ImportError::RateLimited { .. } => ApiError::RateLimited(msg),
         }
     }
 }
@@ -1506,16 +2087,115 @@ impl IntoResponse for ApiError {
             ApiError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ApiError::Unauthorized(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
-            ApiError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
+            ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             ApiError::Gone => (StatusCode::GONE, self.to_string()),
             ApiError::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
-            ApiError::Storage(_) | ApiError::Modal(_) | ApiError::Stripe(_) => {
-                (StatusCode::BAD_GATEWAY, self.to_string())
-            }
-            ApiError::Internal(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
-            }
+            ApiError::Storage(_)
+            | ApiError::Modal(_)
+            | ApiError::Stripe(_)
+            | ApiError::BadGateway(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            ApiError::Unsupported(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, self.to_string()),
+            ApiError::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
+            ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ApiError::TooManyRequests(_) => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }
+}
+
+/* ---------- openapi spec + docs ---------- */
+
+/// The OpenAPI spec is shipped as a static asset baked into the binary
+/// so the deploy is single-artifact: no sidecar file path to mount, no
+/// CDN dependency. `include_str!` resolves at compile time, which means
+/// `cargo build` will refuse to compile if the spec is missing — that's
+/// a feature, not a bug, since shipping a binary with a stale spec is
+/// strictly worse than a build failure.
+const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
+
+#[instrument]
+async fn openapi_yaml() -> impl IntoResponse {
+    (
+        [("content-type", "application/yaml; charset=utf-8")],
+        OPENAPI_YAML,
+    )
+}
+
+/// Some tooling (Stripe Workbench, Postman) prefers JSON OpenAPI. We
+/// ship YAML and let clients use any standard yaml→json converter;
+/// returning 406 here is the least-surprise behavior.
+#[instrument]
+async fn openapi_json_passthrough() -> impl IntoResponse {
+    (
+        StatusCode::NOT_ACCEPTABLE,
+        Json(serde_json::json!({
+            "error": "JSON OpenAPI not served. Convert /openapi.yaml client-side.",
+            "yaml_url": "/openapi.yaml"
+        })),
+    )
+}
+
+/// Swagger UI served from CDN — single HTML page, no build step, no
+/// node_modules. The UI is a thin pointer at `/openapi.yaml`. Pinned
+/// to a specific Swagger UI version so the docs UI doesn't silently
+/// shift behavior when the CDN updates.
+const SWAGGER_UI_HTML: &str = r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SplatForge API — docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
+  <style>body{margin:0;background:#fafafa;}</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    window.addEventListener("load", () => {
+      window.ui = SwaggerUIBundle({
+        url: "/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        presets: [SwaggerUIBundle.presets.apis],
+      });
+    });
+  </script>
+</body>
+</html>"##;
+
+#[instrument]
+async fn docs_ui() -> impl IntoResponse {
+    (
+        [("content-type", "text/html; charset=utf-8")],
+        SWAGGER_UI_HTML,
+    )
+}
+
+/* ---------- admin audit endpoint ---------- */
+
+#[derive(Debug, Deserialize)]
+pub struct AuditQuery {
+    /// How many rows to return, newest-first. Capped at
+    /// `ADMIN_AUDIT_DEFAULT_LIMIT` (1000) — see `audit.rs`.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuditListResponse {
+    pub events: Vec<AuditEvent>,
+}
+
+#[instrument(skip(state))]
+async fn admin_audit(
+    State(state): State<AppState>,
+    Query(q): Query<AuditQuery>,
+) -> Result<Json<AuditListResponse>, ApiError> {
+    let limit = q
+        .limit
+        .unwrap_or(audit::ADMIN_AUDIT_DEFAULT_LIMIT)
+        .min(audit::ADMIN_AUDIT_DEFAULT_LIMIT);
+    let events = state.jobs.list_audit_events(limit).await?;
+    Ok(Json(AuditListResponse { events }))
 }

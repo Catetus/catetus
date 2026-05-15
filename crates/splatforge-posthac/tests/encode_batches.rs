@@ -34,6 +34,8 @@ fn rust_decodes_python_two_batches() {
         decoded.push(dec.decode_symbol(model).unwrap());
     }
     eprintln!("decoded: {:?}", decoded);
-    let expected = [100, 50, 200, 30, 128, 64, 192, 96, 150, 80, 220, 40, 100, 60, 180, 110];
+    let expected = [
+        100, 50, 200, 30, 128, 64, 192, 96, 150, 80, 220, 40, 100, 60, 180, 110,
+    ];
     assert_eq!(decoded, expected);
 }

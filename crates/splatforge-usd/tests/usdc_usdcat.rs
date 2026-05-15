@@ -86,11 +86,7 @@ fn usdcat_can_read_dense_fixture() {
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [0.25, 0.25, 0.25],
             opacity: 0.5,
-            color: Color::Rgb([
-                (xi as f32) * 0.25,
-                (yi as f32) * 0.25,
-                (zi as f32) * 0.25,
-            ]),
+            color: Color::Rgb([(xi as f32) * 0.25, (yi as f32) * 0.25, (zi as f32) * 0.25]),
         });
     }
     let dir = tempdir().unwrap();

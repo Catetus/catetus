@@ -86,4 +86,22 @@ packages/viewer/dist-bench/
 # Per-task todo dumps from agents — not durable docs.
 tasks/todo.md
 /benches/scenes/bonsai_mipnerf360_iter7k.ply
-/benches/scenes/real/
+/benches/scenes/stump_mipnerf360_iter7k.ply
+# Real scene PLYs are large (hundreds of MB) and pulled on demand by
+# `benches/scenes/scripts/pull-*.sh`. Keep the directory tracked so the
+# manifest.json hash + URL convention is reproducible.
+/benches/scenes/real/*.ply
+/benches/scenes/real/*.splat
+/benches/scenes/real/*.gltf
+/benches/scenes/real/*.glb
+/benches/scenes/real/*.spz
+/benches/scenes/real/*.sog
+/benches/scenes/real/*.bin
+/benches/scenes/real/*.zst
+
+# splatforge-api default local sqlite path — runtime-created.
+/data/
+apps/api/data/
+
+# Blender add-on build artifacts — CI rebuilds these on every push.
+integrations/blender/dist/*.zip

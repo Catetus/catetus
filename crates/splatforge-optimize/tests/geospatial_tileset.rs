@@ -134,7 +134,11 @@ fn geospatial_preset_emits_cesium_tileset() {
             .and_then(Value::as_str)
             .expect("tile.content.uri present");
         let glb_path = dir.join(uri);
-        assert!(glb_path.exists(), "{} should exist on disk", glb_path.display());
+        assert!(
+            glb_path.exists(),
+            "{} should exist on disk",
+            glb_path.display()
+        );
         let glb_scene = read_glb(&glb_path).expect("GLB parses");
         assert!(!glb_scene.splats.is_empty(), "GLB carries splats");
 

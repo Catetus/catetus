@@ -334,11 +334,36 @@ pub(crate) fn encode_usdc(scene: &SplatScene, _opts: &UsdWriteOpts) -> Result<Ve
         None => None,
     };
 
-    let rep_points = value_rep(TypeEnum::Vec3f, false, true, BOOTSTRAP_SIZE as u64 + off_points);
-    let rep_orient = value_rep(TypeEnum::Quatf, false, true, BOOTSTRAP_SIZE as u64 + off_orient);
-    let rep_scales = value_rep(TypeEnum::Vec3f, false, true, BOOTSTRAP_SIZE as u64 + off_scales);
-    let rep_opac = value_rep(TypeEnum::Float, false, true, BOOTSTRAP_SIZE as u64 + off_opac);
-    let rep_colors = value_rep(TypeEnum::Vec3f, false, true, BOOTSTRAP_SIZE as u64 + off_colors);
+    let rep_points = value_rep(
+        TypeEnum::Vec3f,
+        false,
+        true,
+        BOOTSTRAP_SIZE as u64 + off_points,
+    );
+    let rep_orient = value_rep(
+        TypeEnum::Quatf,
+        false,
+        true,
+        BOOTSTRAP_SIZE as u64 + off_orient,
+    );
+    let rep_scales = value_rep(
+        TypeEnum::Vec3f,
+        false,
+        true,
+        BOOTSTRAP_SIZE as u64 + off_scales,
+    );
+    let rep_opac = value_rep(
+        TypeEnum::Float,
+        false,
+        true,
+        BOOTSTRAP_SIZE as u64 + off_opac,
+    );
+    let rep_colors = value_rep(
+        TypeEnum::Vec3f,
+        false,
+        true,
+        BOOTSTRAP_SIZE as u64 + off_colors,
+    );
     let rep_sh = off_sh.map(|o| value_rep(TypeEnum::Float, false, true, BOOTSTRAP_SIZE as u64 + o));
 
     // typeName Tokens (inlined).
@@ -349,7 +374,12 @@ pub(crate) fn encode_usdc(scene: &SplatScene, _opts: &UsdWriteOpts) -> Result<Ve
     let rep_tn_color3f = value_rep(TypeEnum::Token, true, false, tok_color3f_arr as u64);
 
     let rep_spec_def = value_rep(TypeEnum::Specifier, true, false, Specifier::Def as u64);
-    let rep_var_varying = value_rep(TypeEnum::Variability, true, false, Variability::Varying as u64);
+    let rep_var_varying = value_rep(
+        TypeEnum::Variability,
+        true,
+        false,
+        Variability::Varying as u64,
+    );
     let rep_bool_true = value_rep(TypeEnum::Bool, true, false, 1);
 
     let rep_tn_xform = value_rep(TypeEnum::Token, true, false, tok_xform as u64);
@@ -401,31 +431,54 @@ pub(crate) fn encode_usdc(scene: &SplatScene, _opts: &UsdWriteOpts) -> Result<Ve
     let f_splats_typename = fields.intern(tok_type_name, rep_tn_particle);
     let fs_splats = field_sets.intern(&[f_splats_props, f_specifier_def, f_splats_typename]);
 
-    let build_attr_fields =
-        |type_name_rep: u64, default_rep: u64, custom: bool, fields: &mut FieldTable, field_sets: &mut FieldSetTable| -> u32 {
-            let f_tn = fields.intern(tok_type_name, type_name_rep);
-            let f_default = fields.intern(tok_default, default_rep);
-            let f_variability = fields.intern(tok_variability, rep_var_varying);
-            if custom {
-                let f_custom = fields.intern(tok_custom, rep_bool_true);
-                field_sets.intern(&[f_tn, f_default, f_custom, f_variability])
-            } else {
-                field_sets.intern(&[f_tn, f_default, f_variability])
-            }
-        };
+    let build_attr_fields = |type_name_rep: u64,
+                             default_rep: u64,
+                             custom: bool,
+                             fields: &mut FieldTable,
+                             field_sets: &mut FieldSetTable|
+     -> u32 {
+        let f_tn = fields.intern(tok_type_name, type_name_rep);
+        let f_default = fields.intern(tok_default, default_rep);
+        let f_variability = fields.intern(tok_variability, rep_var_varying);
+        if custom {
+            let f_custom = fields.intern(tok_custom, rep_bool_true);
+            field_sets.intern(&[f_tn, f_default, f_custom, f_variability])
+        } else {
+            field_sets.intern(&[f_tn, f_default, f_variability])
+        }
+    };
 
-    let fs_points =
-        build_attr_fields(rep_tn_point3f, rep_points, false, &mut fields, &mut field_sets);
-    let fs_orient =
-        build_attr_fields(rep_tn_quatf, rep_orient, false, &mut fields, &mut field_sets);
-    let fs_scales =
-        build_attr_fields(rep_tn_float3, rep_scales, false, &mut fields, &mut field_sets);
-    let fs_opac =
-        build_attr_fields(rep_tn_float, rep_opac, false, &mut fields, &mut field_sets);
-    let fs_colors =
-        build_attr_fields(rep_tn_color3f, rep_colors, false, &mut fields, &mut field_sets);
-    let fs_sh = rep_sh
-        .map(|r| build_attr_fields(rep_tn_float, r, true, &mut fields, &mut field_sets));
+    let fs_points = build_attr_fields(
+        rep_tn_point3f,
+        rep_points,
+        false,
+        &mut fields,
+        &mut field_sets,
+    );
+    let fs_orient = build_attr_fields(
+        rep_tn_quatf,
+        rep_orient,
+        false,
+        &mut fields,
+        &mut field_sets,
+    );
+    let fs_scales = build_attr_fields(
+        rep_tn_float3,
+        rep_scales,
+        false,
+        &mut fields,
+        &mut field_sets,
+    );
+    let fs_opac = build_attr_fields(rep_tn_float, rep_opac, false, &mut fields, &mut field_sets);
+    let fs_colors = build_attr_fields(
+        rep_tn_color3f,
+        rep_colors,
+        false,
+        &mut fields,
+        &mut field_sets,
+    );
+    let fs_sh =
+        rep_sh.map(|r| build_attr_fields(rep_tn_float, r, true, &mut fields, &mut field_sets));
 
     // ---- Path tree ----
     let mut next_path_idx: u32 = 0;
@@ -781,7 +834,9 @@ pub fn read_usdc(path: &Path) -> Result<SplatScene, UsdError> {
 
 pub(crate) fn decode_usdc(bytes: &[u8]) -> Result<SplatScene, UsdError> {
     if bytes.len() < BOOTSTRAP_SIZE {
-        return Err(UsdError::MalformedUsdc("file shorter than bootstrap".into()));
+        return Err(UsdError::MalformedUsdc(
+            "file shorter than bootstrap".into(),
+        ));
     }
     if bytes[..8] != MAGIC {
         return Err(UsdError::MalformedUsdc("bad magic".into()));
@@ -795,7 +850,8 @@ pub(crate) fn decode_usdc(bytes: &[u8]) -> Result<SplatScene, UsdError> {
     if toc_offset + 8 > bytes.len() {
         return Err(UsdError::MalformedUsdc("toc offset out of range".into()));
     }
-    let n_sections = u64::from_le_bytes(bytes[toc_offset..toc_offset + 8].try_into().unwrap()) as usize;
+    let n_sections =
+        u64::from_le_bytes(bytes[toc_offset..toc_offset + 8].try_into().unwrap()) as usize;
     let mut sections = std::collections::HashMap::<String, (usize, usize)>::new();
     let mut p = toc_offset + 8;
     for _ in 0..n_sections {
@@ -829,8 +885,10 @@ pub(crate) fn decode_usdc(bytes: &[u8]) -> Result<SplatScene, UsdError> {
         if cursor + 16 > field_bytes.len() {
             return Err(UsdError::MalformedUsdc("fields truncated".into()));
         }
-        let token_index = u32::from_le_bytes(field_bytes[cursor + 4..cursor + 8].try_into().unwrap());
-        let value_rep = u64::from_le_bytes(field_bytes[cursor + 8..cursor + 16].try_into().unwrap());
+        let token_index =
+            u32::from_le_bytes(field_bytes[cursor + 4..cursor + 8].try_into().unwrap());
+        let value_rep =
+            u64::from_le_bytes(field_bytes[cursor + 8..cursor + 16].try_into().unwrap());
         fields_vec.push(Field {
             token_index,
             value_rep,
@@ -846,7 +904,9 @@ pub(crate) fn decode_usdc(bytes: &[u8]) -> Result<SplatScene, UsdError> {
     let mut fset = Vec::with_capacity(n_fset);
     for i in 0..n_fset {
         let off = 8 + i * 4;
-        fset.push(u32::from_le_bytes(fs_bytes[off..off + 4].try_into().unwrap()));
+        fset.push(u32::from_le_bytes(
+            fs_bytes[off..off + 4].try_into().unwrap(),
+        ));
     }
 
     let (ss, sz) = sections
@@ -944,16 +1004,21 @@ pub(crate) fn decode_usdc(bytes: &[u8]) -> Result<SplatScene, UsdError> {
     }
 
     let positions = points.ok_or_else(|| UsdError::MalformedUsdc("missing 'points'".into()))?;
-    let orientations = orient
-        .ok_or_else(|| UsdError::MalformedUsdc("missing 'orientations'".into()))?;
+    let orientations =
+        orient.ok_or_else(|| UsdError::MalformedUsdc("missing 'orientations'".into()))?;
     let scales = scales_o.ok_or_else(|| UsdError::MalformedUsdc("missing 'scales'".into()))?;
     let opacities = opac_o.ok_or_else(|| UsdError::MalformedUsdc("missing 'opacities'".into()))?;
     let colors = colors_o.ok_or_else(|| UsdError::MalformedUsdc("missing 'colorsDC'".into()))?;
 
     let n = positions.len();
-    if [orientations.len(), scales.len(), opacities.len(), colors.len()]
-        .iter()
-        .any(|&l| l != n)
+    if [
+        orientations.len(),
+        scales.len(),
+        opacities.len(),
+        colors.len(),
+    ]
+    .iter()
+    .any(|&l| l != n)
     {
         return Err(UsdError::MalformedUsdc("attribute length mismatch".into()));
     }

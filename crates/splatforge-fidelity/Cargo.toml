@@ -1,0 +1,23 @@
+[package]
+name = "splatforge-fidelity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Predict-only fidelity scorer for Gaussian-splat scenes (v0.4 MLP)."
+
+[dependencies]
+splatforge-core = { workspace = true }
+splatforge-ply  = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+anyhow     = { workspace = true }
+thiserror  = { workspace = true }
+
+[[bin]]
+name = "splatforge-fidelity"
+path = "src/bin/splatforge_fidelity.rs"
+
+[dev-dependencies]
+tempfile = "3"

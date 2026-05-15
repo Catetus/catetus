@@ -1,4 +1,6 @@
 #![deny(clippy::all)]
+#![allow(clippy::needless_range_loop)] // tight numeric loops with arithmetic indexing read clearer as range loops than iter-chains
+#![allow(clippy::doc_lazy_continuation)] // module docstrings use markdown-style list continuations that pre-date the lint
 //! PostHAC — hash-grid hyperprior range-coded entropy compression.
 //!
 //! See `specs/0014-posthac-io.md` (TBD) for the wire format. PostHAC sits as
@@ -248,11 +250,7 @@ pub fn hash3(coords: [i64; 3], hashmap_size: usize) -> usize {
 /// This mirrors the Python `HashGrid::forward` + `HyperpriorMLP::forward`
 /// + the inverse scaling done in `encode_residuals`. The training maps
 /// codes to `(code - 128)/64`; here we unmap.
-pub fn predict(
-    pos: [f32; 3],
-    cfg: &HyperpriorConfig,
-    weights: &HyperpriorWeights,
-) -> Prediction {
+pub fn predict(pos: [f32; 3], cfg: &HyperpriorConfig, weights: &HyperpriorWeights) -> Prediction {
     let hashmap_size = 1usize << cfg.log2_hashmap_size;
     let f_per_lvl = cfg.features_per_level as usize;
     let n_feats = (cfg.grid_levels as usize) * f_per_lvl;
@@ -691,8 +689,10 @@ mod tests {
         // With well-predicted means + std=32, we should get some compression.
         // Don't assert specific ratio (it's small data); just sanity-check
         // that we didn't *expand* the stream by more than 2×.
-        assert!(comp_bytes < raw_bytes * 2.0,
-                "compression should not balloon: raw={raw_bytes}, comp={comp_bytes}, ratio={ratio}");
+        assert!(
+            comp_bytes < raw_bytes * 2.0,
+            "compression should not balloon: raw={raw_bytes}, comp={comp_bytes}, ratio={ratio}"
+        );
     }
 
     #[test]
@@ -700,6 +700,9 @@ mod tests {
         let mut buf = Vec::new();
         buf.extend_from_slice(&0xDEADBEEFu32.to_le_bytes());
         let mut cursor = Cursor::new(&buf);
-        assert!(matches!(read_header(&mut cursor), Err(PostHacError::BadMagic)));
+        assert!(matches!(
+            read_header(&mut cursor),
+            Err(PostHacError::BadMagic)
+        ));
     }
 }

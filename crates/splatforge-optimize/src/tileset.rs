@@ -261,6 +261,7 @@ pub fn write_tileset(
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize: opts.quantize_glb,
+        compress: None,
     };
 
     // Emit one GLB per LOD level. We name them by their original BuildLOD
@@ -343,18 +344,14 @@ pub fn write_tileset(
     // Pretty-print with stable key order. `serde_json::to_string_pretty`
     // emits fields in struct-declaration order, which we control above —
     // the result is byte-deterministic.
-    let json = serde_json::to_string_pretty(&tileset)
-        .context("serializing tileset.json")?;
+    let json = serde_json::to_string_pretty(&tileset).context("serializing tileset.json")?;
     let tileset_json_path = output_dir.join("tileset.json");
     std::fs::write(&tileset_json_path, json)
         .with_context(|| format!("writing {}", tileset_json_path.display()))?;
 
     // Reorder report to coarse-to-fine (root first) for the caller.
-    let mut tiles_coarse_to_fine: Vec<TileReport> = tile_reports_fine_to_coarse
-        .iter()
-        .rev()
-        .cloned()
-        .collect();
+    let mut tiles_coarse_to_fine: Vec<TileReport> =
+        tile_reports_fine_to_coarse.iter().rev().cloned().collect();
     // The clone above lost the geometric_error we wrote into the original;
     // re-copy from the source list.
     for (j, t) in tiles_coarse_to_fine.iter_mut().enumerate() {
