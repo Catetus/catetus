@@ -73,6 +73,11 @@ pub struct Job {
     /// opaque "running" badge for the entire job duration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
+    /// Worker-emitted progress fraction in [0,1] alongside `phase`. Drives
+    /// a determinate progress bar in the UI. Comes from the splatforge CLI's
+    /// `PROGRESS frac=<f> stage=<name>` lines forwarded by the worker.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percent: Option<f32>,
     /// Webhook the API fires when this job reaches a terminal state (Done
     /// or Error). Lets callers run a 40-tile batch without polling 40
     /// endpoints. POST body is the Job JSON.
