@@ -36,7 +36,7 @@ mod modal_client;
 mod store;
 
 use modal_client::ModalClient;
-use store::{Job, JobStatus, JobStore};
+use store::{Job, JobStatus, JobStore, Tier};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
@@ -54,6 +54,10 @@ pub struct AppState {
     /// Accepted bearer tokens. Empty means "auth disabled" (dev mode);
     /// non-empty means every paid route must present one of these.
     pub api_keys: Arc<HashSet<String>>,
+    /// Bearer tokens accepted on the paid `/repack` route. Must be a subset
+    /// of (or disjoint from) `api_keys` — both are checked, so a paid key
+    /// also needs to pass the free-tier gate. Empty disables paid gating.
+    pub paid_api_keys: Arc<HashSet<String>>,
     /// Outbound HTTP client used for user-supplied webhook callbacks.
     /// Separate from the Modal/blob clients so a slow subscriber can't
     /// starve those connection pools.
@@ -72,7 +76,25 @@ async fn main() -> anyhow::Result<()> {
 
     let bind = std::env::var("SPLATFORGE_API_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
     let modal_url = std::env::var("SPLATFORGE_MODAL_URL").ok();
+    let modal_repack_url = std::env::var("SPLATFORGE_MODAL_REPACK_URL").ok();
     let blob_token = std::env::var("BLOB_READ_WRITE_TOKEN").ok();
+    // Persisted job state. Default to `./data/jobs.db` so a vanilla `cargo
+    // run` works without ceremony; production sets DATABASE_URL to a
+    // mounted-volume path.
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite://data/jobs.db".to_string());
+    if let Some(path) = database_url
+        .strip_prefix("sqlite://")
+        .or_else(|| database_url.strip_prefix("sqlite:"))
+    {
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).with_context(|| {
+                    format!("creating sqlite parent dir {}", parent.display())
+                })?;
+            }
+        }
+    }
     // Default to the droplet's well-known address; override in env for
     // production behind a proper hostname.
     let public_base_url = std::env::var("SPLATFORGE_PUBLIC_BASE_URL")
@@ -80,12 +102,8 @@ async fn main() -> anyhow::Result<()> {
     // Comma-separated list of accepted bearer tokens. Empty = auth disabled
     // (only acceptable in local dev; the deployed binary should always have
     // at least one key set).
-    let api_keys: HashSet<String> = std::env::var("SPLATFORGE_API_KEYS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+    let api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_API_KEYS").ok());
+    let paid_api_keys: HashSet<String> = parse_keys(std::env::var("SPLATFORGE_PAID_API_KEYS").ok());
     if api_keys.is_empty() {
         warn!(
             "SPLATFORGE_API_KEYS is empty — running with NO authentication. \
@@ -93,6 +111,15 @@ async fn main() -> anyhow::Result<()> {
         );
     } else {
         info!(n_keys = api_keys.len(), "bearer auth enabled");
+    }
+    if paid_api_keys.is_empty() {
+        warn!(
+            "SPLATFORGE_PAID_API_KEYS is empty — /v1/jobs/:id/repack will accept \
+             any key that passes the free-tier gate. Set this to restrict the \
+             A100 paid path to billing-attached customers."
+        );
+    } else {
+        info!(n_paid_keys = paid_api_keys.len(), "paid-tier bearer auth enabled");
     }
 
     // Dedicated client for outbound webhook firing. Short timeout so a
@@ -102,12 +129,18 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .expect("reqwest client");
 
+    let jobs = JobStore::connect(&database_url)
+        .await
+        .with_context(|| format!("opening jobs db at {database_url}"))?;
+    info!(%database_url, "job store ready");
+
     let state = AppState {
-        jobs: Arc::new(JobStore::default()),
-        modal: Arc::new(ModalClient::new(modal_url)),
+        jobs: Arc::new(jobs),
+        modal: Arc::new(ModalClient::new(modal_url, modal_repack_url)),
         blob: Arc::new(store::BlobBackend::new(blob_token)),
         public_base_url: public_base_url.trim_end_matches('/').to_string(),
         api_keys: Arc::new(api_keys),
+        paid_api_keys: Arc::new(paid_api_keys),
         webhook_http: Arc::new(webhook_http),
     };
 
@@ -125,11 +158,23 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/jobs/:id/result", post(job_result))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
 
+    let paid_layer =
+        middleware::from_fn_with_state(state.clone(), require_paid_api_key);
+
     let paid = Router::new()
         .route("/v1/jobs", post(create_job))
         .route("/v1/jobs/batch", post(create_jobs_batch))
         .route("/v1/jobs/:id", get(get_job))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
+        .layer(auth_layer.clone());
+
+    let repack = Router::new()
+        .route("/v1/jobs/:id/repack", post(repack_job))
+        .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024))
+        // Order matters: tower layers apply outermost-first. Free gate runs
+        // first (rejects unauthenticated requests early), paid gate runs
+        // second so it only sees pre-authenticated calls.
+        .layer(paid_layer)
         .layer(auth_layer.clone());
 
     let upload = Router::new()
@@ -145,6 +190,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .merge(open)
         .merge(paid)
+        .merge(repack)
         .merge(upload)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -156,6 +202,41 @@ async fn main() -> anyhow::Result<()> {
     info!(%bind, "splatforge-api listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Parse a comma-separated env var into a deduped, trimmed token set.
+fn parse_keys(raw: Option<String>) -> HashSet<String> {
+    raw.unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Paid-tier gate. Free-tier `require_api_key` runs first; this layer
+/// additionally requires the presented key to be in `paid_api_keys`. When
+/// `paid_api_keys` is empty the gate is a no-op (every authenticated user
+/// can hit /repack — useful in dev, never in prod).
+async fn require_paid_api_key(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<axum::response::Response, ApiError> {
+    if state.paid_api_keys.is_empty() {
+        return Ok(next.run(req).await);
+    }
+    let auth = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let presented = auth.strip_prefix("Bearer ").unwrap_or_default().trim();
+    if !state.paid_api_keys.contains(presented) {
+        return Err(ApiError::Unauthorized(
+            "this key is not enabled for paid-tier endpoints".to_string(),
+        ));
+    }
+    Ok(next.run(req).await)
 }
 
 /// Bearer-token middleware. When `state.api_keys` is non-empty, every
@@ -279,7 +360,7 @@ async fn create_job(
 ) -> Result<Json<CreateJobResponse>, ApiError> {
     let job = build_job(&state, req, None).await?;
     let response = job_creation_response(&job, &state)?;
-    state.jobs.insert(job.clone()).await;
+    state.jobs.insert(&job).await?;
     // URL-mode jobs are immediately enqueueable — kick the worker now so
     // the caller doesn't have to do a follow-up call. Proxy-upload mode
     // jobs wait on `/upload` to flip them to Queued.
@@ -326,7 +407,7 @@ async fn create_jobs_batch(
 
     // Persist + enqueue URL-mode jobs. Proxy-upload jobs wait on /upload.
     for job in &built {
-        state.jobs.insert(job.clone()).await;
+        state.jobs.insert(job).await?;
     }
     for job in &built {
         if job.source_url.is_some() {
@@ -338,7 +419,7 @@ async fn create_jobs_batch(
                 let mut bad = job.clone();
                 bad.status = JobStatus::Error;
                 bad.error = Some(format!("enqueue failed: {e}"));
-                state.jobs.update(bad).await;
+                let _ = state.jobs.update(&bad).await;
             }
         }
     }
@@ -432,6 +513,7 @@ async fn build_job(
             percent: None,
             webhook_url: req.webhook_url,
             batch_id,
+            tier: Tier::Free,
             created_at,
             error: None,
         })
@@ -468,6 +550,7 @@ async fn build_job(
             percent: None,
             webhook_url: req.webhook_url,
             batch_id,
+            tier: Tier::Free,
             created_at,
             error: None,
         })
@@ -614,7 +697,7 @@ async fn get_job(
     state
         .jobs
         .get(&id)
-        .await
+        .await?
         .map(Json)
         .ok_or(ApiError::NotFound)
 }
@@ -631,7 +714,7 @@ async fn upload_job(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Json<Job>, ApiError> {
-    let Some(mut job) = state.jobs.get(&id).await else {
+    let Some(mut job) = state.jobs.get(&id).await? else {
         return Err(ApiError::NotFound);
     };
     if !matches!(job.status, JobStatus::AwaitingUpload) {
@@ -644,7 +727,7 @@ async fn upload_job(
     // Flip to Uploading before we start streaming so the client polling
     // `/v1/jobs/:id` sees the transition.
     job.status = JobStatus::Uploading;
-    state.jobs.update(job.clone()).await;
+    state.jobs.update(&job).await?;
 
     let content_type = headers
         .get("content-type")
@@ -668,7 +751,7 @@ async fn upload_job(
             warn!(error = %e, "blob upload failed");
             job.status = JobStatus::Error;
             job.error = Some(format!("blob upload failed: {e}"));
-            state.jobs.update(job.clone()).await;
+            let _ = state.jobs.update(&job).await;
             return Err(ApiError::Storage(e));
         }
     };
@@ -679,7 +762,7 @@ async fn upload_job(
     // (already validated to be in range) so the field is at least populated.
     job.upload_size_bytes = Some(job.size_bytes);
     job.status = JobStatus::Queued;
-    state.jobs.update(job.clone()).await;
+    state.jobs.update(&job).await?;
 
     let callback_url = format!("{}/v1/jobs/{}/result", state.public_base_url, id);
     match state.modal.enqueue(&job, &blob_url, &callback_url).await {
@@ -692,11 +775,106 @@ async fn upload_job(
             warn!(error = %e, "modal enqueue failed");
             job.status = JobStatus::Error;
             job.error = Some(format!("modal enqueue failed: {e}"));
-            state.jobs.update(job.clone()).await;
+            let _ = state.jobs.update(&job).await;
             return Err(ApiError::Modal(e));
         }
     }
 
+    Ok(Json(job))
+}
+
+/// Payload for `POST /v1/jobs/:id/repack`. Dispatches the (already
+/// uploaded) splat into the differentiable-repack A100 worker. Iteration
+/// count and target byte budget are the two knobs that meaningfully change
+/// cost; everything else lives on the Modal side.
+#[derive(Debug, Deserialize)]
+pub struct RepackRequest {
+    /// Hard ceiling on the repacked output size. The worker stops compressing
+    /// when it hits this, even if quality could still be traded down. The
+    /// bonsai reference (143 MB at 50% of 287 MB baseline → +6.4 dB) lives
+    /// at `target_bytes ≈ size_bytes / 2`.
+    pub target_bytes: u64,
+    /// Adam iterations. Bonsai converges in 1000 (~18s on A100); raising
+    /// this past 2000 hits diminishing returns and inflates cost.
+    #[serde(default = "default_iterations")]
+    pub iterations: u32,
+}
+
+fn default_iterations() -> u32 {
+    1000
+}
+
+/// `POST /v1/jobs/:id/repack`
+///
+/// Paid-tier endpoint. The job must already be in `Done` state (i.e. it has
+/// been through the free pipeline at least once) so we have a known-good
+/// baseline render to optimize against. The worker fetches the original
+/// input via `source_url` or `blob_url`, runs gsplat-on-A100 with the
+/// supplied params, and POSTs the result back through the same callback
+/// shape as the free pipeline. The job is re-marked `Running` while the
+/// repack runs and lands back at `Done` with a new `output_url`.
+#[instrument(skip(state, body), fields(job_id = %id, target = body.target_bytes))]
+async fn repack_job(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<RepackRequest>,
+) -> Result<Json<Job>, ApiError> {
+    let Some(mut job) = state.jobs.get(&id).await? else {
+        return Err(ApiError::NotFound);
+    };
+    if body.target_bytes == 0 || body.target_bytes > MAX_INPUT_BYTES {
+        return Err(ApiError::BadRequest(format!(
+            "target_bytes must be in (0, {MAX_INPUT_BYTES}); got {}",
+            body.target_bytes
+        )));
+    }
+    if body.iterations == 0 || body.iterations > 5000 {
+        return Err(ApiError::BadRequest(format!(
+            "iterations must be in (0, 5000]; got {}",
+            body.iterations
+        )));
+    }
+    // Refuse to repack jobs that never produced a baseline. Repack quality is
+    // measured against the previous render; without a `Done` ancestor we
+    // can't validate the result, and the worker would just be running the
+    // free pipeline twice.
+    if !matches!(job.status, JobStatus::Done) {
+        return Err(ApiError::BadRequest(format!(
+            "job {id} status is {:?}; repack requires the job to be Done first",
+            job.status
+        )));
+    }
+    let input_url = job
+        .source_url
+        .clone()
+        .or_else(|| job.blob_url.clone())
+        .ok_or_else(|| {
+            ApiError::BadRequest("job has no source_url or blob_url to repack".to_string())
+        })?;
+
+    job.tier = Tier::Paid;
+    job.status = JobStatus::Running;
+    job.phase = Some("repack-enqueue".to_string());
+    job.percent = Some(0.0);
+    job.error = None;
+    state.jobs.update(&job).await?;
+
+    let callback_url = format!("{}/v1/jobs/{}/result", state.public_base_url, id);
+    let params = serde_json::json!({
+        "target_bytes": body.target_bytes,
+        "iterations": body.iterations,
+    });
+    if let Err(e) = state
+        .modal
+        .enqueue_repack(&job, &input_url, &callback_url, params)
+        .await
+    {
+        warn!(error = %e, "repack enqueue failed");
+        job.status = JobStatus::Error;
+        job.error = Some(format!("repack enqueue failed: {e}"));
+        let _ = state.jobs.update(&job).await;
+        return Err(ApiError::Modal(e));
+    }
     Ok(Json(job))
 }
 
@@ -736,7 +914,7 @@ async fn job_result(
     Path(id): Path<Uuid>,
     Json(body): Json<ResultPayload>,
 ) -> Result<Json<Job>, ApiError> {
-    let Some(mut job) = state.jobs.get(&id).await else {
+    let Some(mut job) = state.jobs.get(&id).await? else {
         return Err(ApiError::NotFound);
     };
     let mut terminal = false;
@@ -773,7 +951,7 @@ async fn job_result(
             return Err(ApiError::BadRequest(format!("unknown status: {other}")));
         }
     }
-    state.jobs.update(job.clone()).await;
+    state.jobs.update(&job).await?;
     // Only fire webhooks on terminal states so batches of 40 don't
     // generate 80+ wakeups for each subscriber.
     if terminal {
@@ -810,6 +988,8 @@ pub enum ApiError {
     Storage(#[from] store::BlobError),
     #[error("modal error: {0}")]
     Modal(#[from] modal_client::ModalError),
+    #[error("internal: {0}")]
+    Internal(#[from] store::StoreError),
 }
 
 impl IntoResponse for ApiError {
@@ -820,6 +1000,9 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
             ApiError::Storage(_) | ApiError::Modal(_) => {
                 (StatusCode::BAD_GATEWAY, self.to_string())
+            }
+            ApiError::Internal(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()

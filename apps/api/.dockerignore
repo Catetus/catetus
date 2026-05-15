@@ -1,0 +1,15 @@
+target
+**/target
+.git
+.github
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/build
+data
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*

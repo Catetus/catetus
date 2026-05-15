@@ -1,33 +1,86 @@
-//! Job + blob storage. Both are stubbed against in-memory + Vercel Blob today;
-//! the trait surface is meant to swap for Postgres + R2 once we outgrow the
-//! single-instance deploy.
+//! Job + blob storage. Jobs persist to SQLite via sqlx; blob bytes proxy
+//! through Vercel Blob. SQLite is enough for the single-instance droplet
+//! deploy — swap to Postgres by changing the `Pool<Sqlite>` to a generic
+//! `Pool<Any>` once we outgrow it; the call sites here are the only place
+//! that touches the concrete backend.
 
-use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use reqwest::Body;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
+use sqlx::{Row, Sqlite, SqlitePool};
 use uuid::Uuid;
 
 /// Lifecycle of an optimize job.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum JobStatus {
-    /// Job was created; we issued a presign and are waiting for the client
-    /// to actually upload the splat to Blob.
     AwaitingUpload,
-    /// Bytes are streaming through the API into Vercel Blob right now.
     Uploading,
-    /// Upload finished; Modal worker queue is processing it.
     Queued,
-    /// Modal worker is actively running splatforge optimize.
     Running,
-    /// Optimize finished; `output_url` is a downloadable Vercel Blob URL.
     Done,
-    /// Optimize failed or worker timed out; `error` is populated.
     Error,
+}
+
+impl JobStatus {
+    fn as_db_str(self) -> &'static str {
+        match self {
+            JobStatus::AwaitingUpload => "awaiting-upload",
+            JobStatus::Uploading => "uploading",
+            JobStatus::Queued => "queued",
+            JobStatus::Running => "running",
+            JobStatus::Done => "done",
+            JobStatus::Error => "error",
+        }
+    }
+    fn from_db_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "awaiting-upload" => JobStatus::AwaitingUpload,
+            "uploading" => JobStatus::Uploading,
+            "queued" => JobStatus::Queued,
+            "running" => JobStatus::Running,
+            "done" => JobStatus::Done,
+            "error" => JobStatus::Error,
+            _ => return None,
+        })
+    }
+}
+
+/// Tier the job is being charged against. Free runs the public deterministic
+/// pipeline (Modal CPU worker); Paid runs the gsplat A100 differentiable
+/// repack. Stamped at job creation time so callbacks and webhooks can
+/// surface the SKU without consulting the routing layer.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Tier {
+    Free,
+    Paid,
+}
+
+impl Tier {
+    fn as_db_str(self) -> &'static str {
+        match self {
+            Tier::Free => "free",
+            Tier::Paid => "paid",
+        }
+    }
+    fn from_db_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "free" => Tier::Free,
+            "paid" => Tier::Paid,
+            _ => return None,
+        })
+    }
+}
+
+impl Default for Tier {
+    fn default() -> Self {
+        Tier::Free
+    }
 }
 
 /// One optimize job — created by `POST /v1/jobs`, polled via `GET /v1/jobs/:id`.
@@ -39,80 +92,241 @@ pub struct Job {
     pub size_bytes: u64,
     pub label: Option<String>,
     pub status: JobStatus,
-    /// Storage backend key (e.g. `jobs/<uuid>/scene.ply`). The full URL is
-    /// derived via `BlobBackend::public_url` once the bytes have landed.
     pub blob_key: String,
-    /// Public Vercel Blob URL the worker should pull from; only populated
-    /// after the upload proxy finishes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blob_url: Option<String>,
-    /// User-supplied source URL the worker fetches from directly. Mutually
-    /// exclusive with the upload path: when set, the job skips `AwaitingUpload`
-    /// + `Uploading` and lands in `Queued` immediately. Used for inputs that
-    /// already live on the internet (HuggingFace, S3, GCS, R2, …).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_url: Option<String>,
-    /// Actual bytes received by the upload proxy (may differ from
-    /// the `size_bytes` hint the client gave us at job creation).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upload_size_bytes: Option<u64>,
-    /// Downloadable URL for the optimized artifact, set by the worker callback.
-    /// Points to a self-contained `.glb` (binary glTF) that bundles the splat
-    /// manifest and buffer data in a single file — drag into any viewer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_url: Option<String>,
-    /// Companion URL for in-browser preview using the splatforge viewer. Points
-    /// to a `.gltf` JSON manifest whose buffer URIs have been rewritten to
-    /// absolute Vercel Blob URLs, so the viewer can lazy-stream chunks. Set
-    /// alongside `output_url` by the worker callback when applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_url: Option<String>,
-    /// Worker-emitted step name during the `Running` phase. The worker
-    /// posts intermediate updates with `phase` like "fetching", "optimizing",
-    /// "packaging" so the UI can show what's happening instead of a single
-    /// opaque "running" badge for the entire job duration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
-    /// Worker-emitted progress fraction in [0,1] alongside `phase`. Drives
-    /// a determinate progress bar in the UI. Comes from the splatforge CLI's
-    /// `PROGRESS frac=<f> stage=<name>` lines forwarded by the worker.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percent: Option<f32>,
-    /// Webhook the API fires when this job reaches a terminal state (Done
-    /// or Error). Lets callers run a 40-tile batch without polling 40
-    /// endpoints. POST body is the Job JSON.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook_url: Option<String>,
-    /// Group identifier when this job was created via `POST /v1/jobs/batch`.
-    /// All jobs in the same `/batch` call share a batch_id so clients can
-    /// reassemble results, and webhooks can identify which batch fired.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch_id: Option<Uuid>,
+    #[serde(default)]
+    pub tier: Tier,
     pub created_at: DateTime<Utc>,
-    /// Populated on failure with a short, user-safe message.
     pub error: Option<String>,
 }
 
-/// In-memory job store. Swapped for Postgres in a later iteration; the
-/// surface is intentionally simple so the swap is a drop-in.
-#[derive(Default)]
+/// SQLite-backed job store.
+#[derive(Clone)]
 pub struct JobStore {
-    inner: RwLock<HashMap<Uuid, Job>>,
+    pool: SqlitePool,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError {
+    #[error("sqlite: {0}")]
+    Sqlx(#[from] sqlx::Error),
+    #[error("migrate: {0}")]
+    Migrate(#[from] sqlx::migrate::MigrateError),
+    #[error("decoding row: {0}")]
+    Decode(String),
 }
 
 impl JobStore {
-    pub async fn insert(&self, job: Job) {
-        self.inner.write().await.insert(job.id, job);
+    /// Connect to (and migrate) the SQLite database at `url`. Accepts the
+    /// usual `sqlite:` URLs plus the bare path form `./data/jobs.db` for
+    /// convenience in dev. Creates the file if missing.
+    pub async fn connect(url: &str) -> Result<Self, StoreError> {
+        let opts = if let Some(rest) = url.strip_prefix("sqlite://") {
+            SqliteConnectOptions::from_str(&format!("sqlite://{rest}"))?
+        } else if let Some(rest) = url.strip_prefix("sqlite:") {
+            SqliteConnectOptions::from_str(&format!("sqlite:{rest}"))?
+        } else {
+            SqliteConnectOptions::new().filename(url)
+        }
+        .create_if_missing(true)
+        // WAL keeps reads non-blocking against writers, which matters once
+        // the polling client + the worker callback hit the same row. NORMAL
+        // sync is the standard recommendation for WAL and survives crash.
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5));
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect_with(opts)
+            .await?;
+
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        Ok(Self { pool })
     }
 
-    pub async fn update(&self, job: Job) {
-        self.inner.write().await.insert(job.id, job);
+    /// In-memory database for tests. No migration files needed at the call
+    /// site; the same `migrations/` directory is replayed.
+    #[cfg(test)]
+    pub async fn in_memory() -> Result<Self, StoreError> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::from_str("sqlite::memory:")?
+                    .create_if_missing(true),
+            )
+            .await?;
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        Ok(Self { pool })
     }
 
-    pub async fn get(&self, id: &Uuid) -> Option<Job> {
-        self.inner.read().await.get(id).cloned()
+    /// Direct pool accessor for read-only listing endpoints (e.g. `/v1/jobs`
+    /// admin view). Kept public so we don't grow a new method per query.
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
+    pub async fn insert(&self, job: &Job) -> Result<(), StoreError> {
+        let now = Utc::now();
+        sqlx::query(
+            r#"
+            INSERT INTO jobs (
+                id, preset, filename, size_bytes, label, status,
+                blob_key, blob_url, source_url, upload_size_bytes,
+                output_url, preview_url, phase, percent, webhook_url,
+                batch_id, tier, created_at, updated_at, error
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                      ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+            "#,
+        )
+        .bind(job.id.to_string())
+        .bind(&job.preset)
+        .bind(&job.filename)
+        .bind(job.size_bytes as i64)
+        .bind(&job.label)
+        .bind(job.status.as_db_str())
+        .bind(&job.blob_key)
+        .bind(&job.blob_url)
+        .bind(&job.source_url)
+        .bind(job.upload_size_bytes.map(|v| v as i64))
+        .bind(&job.output_url)
+        .bind(&job.preview_url)
+        .bind(&job.phase)
+        .bind(job.percent)
+        .bind(&job.webhook_url)
+        .bind(job.batch_id.map(|b| b.to_string()))
+        .bind(job.tier.as_db_str())
+        .bind(job.created_at.to_rfc3339())
+        .bind(now.to_rfc3339())
+        .bind(&job.error)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update(&self, job: &Job) -> Result<(), StoreError> {
+        sqlx::query(
+            r#"
+            UPDATE jobs SET
+                preset = ?2, filename = ?3, size_bytes = ?4, label = ?5,
+                status = ?6, blob_key = ?7, blob_url = ?8, source_url = ?9,
+                upload_size_bytes = ?10, output_url = ?11, preview_url = ?12,
+                phase = ?13, percent = ?14, webhook_url = ?15,
+                batch_id = ?16, tier = ?17, updated_at = ?18, error = ?19
+            WHERE id = ?1
+            "#,
+        )
+        .bind(job.id.to_string())
+        .bind(&job.preset)
+        .bind(&job.filename)
+        .bind(job.size_bytes as i64)
+        .bind(&job.label)
+        .bind(job.status.as_db_str())
+        .bind(&job.blob_key)
+        .bind(&job.blob_url)
+        .bind(&job.source_url)
+        .bind(job.upload_size_bytes.map(|v| v as i64))
+        .bind(&job.output_url)
+        .bind(&job.preview_url)
+        .bind(&job.phase)
+        .bind(job.percent)
+        .bind(&job.webhook_url)
+        .bind(job.batch_id.map(|b| b.to_string()))
+        .bind(job.tier.as_db_str())
+        .bind(Utc::now().to_rfc3339())
+        .bind(&job.error)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get(&self, id: &Uuid) -> Result<Option<Job>, StoreError> {
+        let row = sqlx::query("SELECT * FROM jobs WHERE id = ?1")
+            .bind(id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(row_to_job).transpose()
+    }
+
+    /// All jobs in a batch, ordered by insertion. Used by the batch-status
+    /// endpoint so a 40-tile client doesn't have to poll 40 IDs.
+    pub async fn list_by_batch(&self, batch_id: &Uuid) -> Result<Vec<Job>, StoreError> {
+        let rows = sqlx::query("SELECT * FROM jobs WHERE batch_id = ?1 ORDER BY created_at ASC")
+            .bind(batch_id.to_string())
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(row_to_job).collect()
     }
 }
+
+fn row_to_job(row: sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {
+    let id_str: String = row.try_get("id")?;
+    let id = Uuid::parse_str(&id_str).map_err(|e| StoreError::Decode(e.to_string()))?;
+
+    let status_str: String = row.try_get("status")?;
+    let status = JobStatus::from_db_str(&status_str)
+        .ok_or_else(|| StoreError::Decode(format!("unknown status: {status_str}")))?;
+
+    let tier_str: String = row.try_get("tier")?;
+    let tier = Tier::from_db_str(&tier_str)
+        .ok_or_else(|| StoreError::Decode(format!("unknown tier: {tier_str}")))?;
+
+    let batch_id_opt: Option<String> = row.try_get("batch_id")?;
+    let batch_id = batch_id_opt
+        .map(|s| Uuid::parse_str(&s).map_err(|e| StoreError::Decode(e.to_string())))
+        .transpose()?;
+
+    let created_at_str: String = row.try_get("created_at")?;
+    let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+        .map_err(|e| StoreError::Decode(e.to_string()))?
+        .with_timezone(&Utc);
+
+    let size_bytes: i64 = row.try_get("size_bytes")?;
+    let upload_size_bytes: Option<i64> = row.try_get("upload_size_bytes")?;
+
+    Ok(Job {
+        id,
+        preset: row.try_get("preset")?,
+        filename: row.try_get("filename")?,
+        size_bytes: size_bytes as u64,
+        label: row.try_get("label")?,
+        status,
+        blob_key: row.try_get("blob_key")?,
+        blob_url: row.try_get("blob_url")?,
+        source_url: row.try_get("source_url")?,
+        upload_size_bytes: upload_size_bytes.map(|v| v as u64),
+        output_url: row.try_get("output_url")?,
+        preview_url: row.try_get("preview_url")?,
+        phase: row.try_get("phase")?,
+        percent: row.try_get("percent")?,
+        webhook_url: row.try_get("webhook_url")?,
+        batch_id,
+        tier,
+        created_at,
+        error: row.try_get("error")?,
+    })
+}
+
+// Avoid "unused" lint on Sqlite alias when only used in path positions.
+const _: Option<Sqlite> = None;
 
 /* ---------- Blob backend ---------- */
 
@@ -126,12 +340,6 @@ pub enum BlobError {
     Transport(String),
 }
 
-/// Adapter around a Vercel Blob (or compatible) storage backend.
-///
-/// The Vercel Blob HTTPS protocol is dead-simple: PUT to
-/// `https://blob.vercel-storage.com/<pathname>?addRandomSuffix=0` with the
-/// bearer token and content-type headers. The 200 response carries the
-/// canonical public URL.
 pub struct BlobBackend {
     token: Option<String>,
     http: reqwest::Client,
@@ -145,9 +353,6 @@ impl BlobBackend {
         Self {
             token,
             http: reqwest::Client::builder()
-                // Splat uploads can be hundreds of MB on slow links; keep the
-                // overall PUT generous but require steady progress via the
-                // tcp keepalive defaults baked into reqwest.
                 .timeout(Duration::from_secs(600))
                 .pool_max_idle_per_host(4)
                 .build()
@@ -155,11 +360,6 @@ impl BlobBackend {
         }
     }
 
-    /// Issue a write-only URL valid for `ttl`. We don't have a real presign
-    /// API (Vercel Blob doesn't expose stable HTTPS presigning for Rust), so
-    /// the contract here returns a sentinel pointing back at this same API:
-    /// the client PUTs to `/v1/jobs/:id/upload` and we proxy the bytes to
-    /// Vercel Blob server-side using the bearer token.
     pub async fn presign_upload(&self, key: &str, _ttl: Duration) -> Result<String, BlobError> {
         let suffix = if self.token.is_some() {
             "?ttl=900&mode=server-proxy"
@@ -169,16 +369,10 @@ impl BlobBackend {
         Ok(format!("blob://stub/{key}{suffix}"))
     }
 
-    /// Best-effort guess at the public URL for a key, used only when the
-    /// server-side PUT hasn't run yet (e.g. for fallback rendering). The
-    /// real, canonical URL is the one Vercel returns from `put`.
     pub fn public_url(&self, key: &str) -> String {
         format!("blob://stub/{key}")
     }
 
-    /// Stream raw bytes to Vercel Blob and return the public URL Vercel
-    /// hands back. `content_type` is forwarded as the resulting object's
-    /// content type; pass `application/octet-stream` for splats.
     pub async fn put_bytes(
         &self,
         key: &str,
@@ -206,7 +400,6 @@ impl BlobBackend {
             let text = resp.text().await.unwrap_or_default();
             return Err(BlobError::Api(format!("{status}: {text}")));
         }
-        // Response envelope: `{ "url": "...", "pathname": "...", ... }`.
         let body: serde_json::Value = resp
             .json()
             .await
@@ -215,5 +408,81 @@ impl BlobBackend {
             .and_then(|v| v.as_str())
             .map(str::to_owned)
             .ok_or_else(|| BlobError::Api(format!("blob response missing url field: {body}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_job() -> Job {
+        Job {
+            id: Uuid::new_v4(),
+            preset: "web-mobile".into(),
+            filename: "scene.ply".into(),
+            size_bytes: 1024,
+            label: Some("smoke".into()),
+            status: JobStatus::AwaitingUpload,
+            blob_key: "jobs/x/scene.ply".into(),
+            blob_url: None,
+            source_url: None,
+            upload_size_bytes: None,
+            output_url: None,
+            preview_url: None,
+            phase: None,
+            percent: None,
+            webhook_url: None,
+            batch_id: None,
+            tier: Tier::Free,
+            created_at: Utc::now(),
+            error: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn roundtrip_insert_get_update() {
+        let store = JobStore::in_memory().await.expect("store");
+        let mut job = sample_job();
+        store.insert(&job).await.expect("insert");
+        let got = store.get(&job.id).await.expect("get").expect("present");
+        assert_eq!(got.id, job.id);
+        assert_eq!(got.preset, "web-mobile");
+        assert_eq!(got.tier, Tier::Free);
+        assert_eq!(got.status, JobStatus::AwaitingUpload);
+
+        job.status = JobStatus::Done;
+        job.output_url = Some("https://example.com/out.glb".into());
+        job.tier = Tier::Paid;
+        store.update(&job).await.expect("update");
+        let got = store.get(&job.id).await.expect("get").expect("present");
+        assert_eq!(got.status, JobStatus::Done);
+        assert_eq!(got.output_url.as_deref(), Some("https://example.com/out.glb"));
+        assert_eq!(got.tier, Tier::Paid);
+    }
+
+    #[tokio::test]
+    async fn list_by_batch_returns_grouped_jobs() {
+        let store = JobStore::in_memory().await.expect("store");
+        let batch_id = Uuid::new_v4();
+        for i in 0..3 {
+            let mut j = sample_job();
+            j.batch_id = Some(batch_id);
+            j.filename = format!("tile-{i}.ply");
+            store.insert(&j).await.expect("insert");
+        }
+        // One job NOT in the batch — must not be returned.
+        let other = sample_job();
+        store.insert(&other).await.expect("insert");
+
+        let batch = store.list_by_batch(&batch_id).await.expect("list");
+        assert_eq!(batch.len(), 3);
+        assert!(batch.iter().all(|j| j.batch_id == Some(batch_id)));
+    }
+
+    #[tokio::test]
+    async fn missing_id_returns_none() {
+        let store = JobStore::in_memory().await.expect("store");
+        let got = store.get(&Uuid::new_v4()).await.expect("get");
+        assert!(got.is_none());
     }
 }
