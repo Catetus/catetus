@@ -1,0 +1,378 @@
+---
+import Base from "../layouts/Base.astro";
+
+const title = "Welcome to SplatForge Cloud";
+const description =
+  "Your SplatForge Cloud API key, shown exactly once. Copy it now — we never show it again.";
+
+const revealUrl = "/api/v1/checkout/reveal";
+// 60s is deliberately short — we want them in the docs while the key
+// is still in their clipboard, not on a tab they've already closed.
+const redirectAfterMs = 60_000;
+const redirectTo = "/#docs";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/pricing">Pricing</a>
+    </div>
+  </nav>
+
+  <section class="welcome">
+    <h2 class="section-title">You're in</h2>
+    <h1 class="welcome-title">Welcome to SplatForge Cloud — Team tier.</h1>
+
+    {/*
+      Four regions; the inline script flips data-state on the
+      container so the right one is visible. CSS uses [data-state="X"]
+      selectors with `!important` overrides because the global rule for
+      sections (`display: grid` etc.) would otherwise win against
+      `hidden` — that's the CSS-display-vs-hidden lesson we've eaten
+      before, see MEMORY.md.
+    */}
+    <div id="state" class="state-host" data-state="loading">
+      <div class="region region-loading">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Issuing your API key…</p>
+      </div>
+
+      <div class="region region-error">
+        <div class="error-card">
+          <h3>We couldn't issue your key automatically.</h3>
+          <p id="error-msg">
+            The most common cause is that this welcome page was opened
+            more than once. For your security we show each key exactly
+            once and refuse the second attempt.
+          </p>
+          <p>
+            Email
+            <a href="mailto:support@splatforge.dev">support@splatforge.dev</a>
+            with your Stripe receipt and we'll rotate you a fresh key.
+          </p>
+        </div>
+      </div>
+
+      <div class="region region-ready">
+        <div class="key-card">
+          <h3>Your API key — copy it now.</h3>
+          <p class="warning">
+            <strong>This is the only time you'll see this key.</strong>
+            We store only a SHA-256 hash on the server. If you close
+            this tab without copying it, support will have to mint
+            you a new one — there is no "show again" button.
+          </p>
+
+          <div class="key-row">
+            <input
+              id="api-key"
+              type="text"
+              readonly
+              spellcheck="false"
+              autocomplete="off"
+            />
+            <button id="copy-btn" type="button">Copy</button>
+          </div>
+
+          <div class="key-meta">
+            <span><b>Account:</b> <span id="account-email">—</span></span>
+            <span><b>Prefix:</b> <code id="account-prefix">—</code></span>
+          </div>
+
+          <details class="how-to">
+            <summary>How to use it</summary>
+            <p>Set it as <code>SPLATFORGE_API_KEY</code> in your shell:</p>
+            <pre><code>export SPLATFORGE_API_KEY=<span class="placeholder">your-key-here</span></code></pre>
+            <p>
+              Then send it as a bearer token on any
+              <a href="/#docs">SplatForge Cloud</a> request:
+            </p>
+            <pre><code id="curl-example">curl -H "Authorization: Bearer your-key-here" \
+  https://splatforge.dev/api/v1/jobs</code></pre>
+            <p>
+              For the GitHub Action, add the key as a repository secret
+              named <code>SPLATFORGE_API_KEY</code>.
+            </p>
+          </details>
+
+          <div class="redirect-note">
+            Redirecting to the docs in <span id="countdown">60</span>s…
+            <a href={redirectTo}>skip</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="region region-stub">
+        <div class="stub-card">
+          <h3>Self-serve checkout isn't live on this deployment.</h3>
+          <p>
+            This page is the surface that appears after a successful
+            Stripe Checkout payment. In production it pulls the
+            plaintext API key from <code>/api/v1/checkout/reveal</code>
+            (once per Stripe session, then never again) and shows it
+            here with a copy button.
+          </p>
+          <p>The full surface:</p>
+          <ul class="stub-list">
+            <li><code>POST /api/v1/checkout/create-session</code> → returns a Stripe Checkout URL</li>
+            <li>Stripe webhook → mints <code>sf_live_…</code> key, persists SHA-256 hash only</li>
+            <li><code>POST /api/v1/checkout/reveal</code> → returns plaintext, marks revealed</li>
+            <li>This page → displays plaintext exactly once with a copy button</li>
+          </ul>
+          <p>
+            To enable: set <code>STRIPE_SECRET_KEY</code>,
+            <code>STRIPE_TEAM_PRICE_ID</code>, and the webhook secret on
+            the API host. See
+            <a href="https://github.com/montabano1/SplatForge/blob/main/apps/api/CHECKOUT.md">CHECKOUT.md</a>
+            for the operator runbook.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <span>SplatForge Cloud — Team tier signup.</span>
+    <span><a href="/">splatforge.dev</a></span>
+  </footer>
+</Base>
+
+<script is:inline define:vars={{ revealUrl, redirectAfterMs, redirectTo }}>
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get("session_id");
+  const token = params.get("token");
+
+  const host = document.getElementById("state");
+  function setState(s) { if (host) host.setAttribute("data-state", s); }
+
+  if (!sessionId || !token) {
+    setState("stub");
+  } else {
+    (async () => {
+      try {
+        const res = await fetch(revealUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, token }),
+        });
+        if (res.status === 503) {
+          setState("stub");
+          return;
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const msg = (body && body.error) || `HTTP ${res.status}`;
+          const errEl = document.getElementById("error-msg");
+          if (errEl && res.status === 410) {
+            errEl.textContent =
+              "This welcome page has already been opened once. For your security each key is shown exactly once. Email support@splatforge.dev with your Stripe receipt and we'll rotate you a fresh key.";
+          } else if (errEl && res.status === 403) {
+            errEl.textContent =
+              "The signup token in this URL doesn't match what we have on file. Most often this means the API restarted between your payment and now. Email support@splatforge.dev and we'll issue you a fresh key.";
+          } else if (errEl && res.status === 404) {
+            errEl.textContent =
+              "We can't find a SplatForge Cloud signup for this checkout session. If you just paid and saw a 'success' page, the webhook may still be in flight — retry in 10 seconds. Otherwise email support@splatforge.dev.";
+          } else if (errEl) {
+            errEl.textContent = `Couldn't issue your key: ${msg}`;
+          }
+          setState("error");
+          return;
+        }
+        const data = await res.json();
+        const apiKey = data.api_key;
+        const prefix = data.key_prefix;
+        const email = data.email;
+        const input = document.getElementById("api-key");
+        if (input) input.value = apiKey;
+        const acct = document.getElementById("account-email");
+        if (acct) acct.textContent = email || "";
+        const pref = document.getElementById("account-prefix");
+        if (pref) pref.textContent = prefix || "";
+        const curl = document.getElementById("curl-example");
+        if (curl) {
+          curl.textContent = `curl -H "Authorization: Bearer ${apiKey}" \\\n  https://splatforge.dev/api/v1/jobs`;
+        }
+        setState("ready");
+
+        const copyBtn = document.getElementById("copy-btn");
+        if (copyBtn) {
+          copyBtn.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(apiKey);
+              copyBtn.textContent = "Copied ✓";
+              copyBtn.classList.add("copied");
+            } catch {
+              if (input && "select" in input) input.select();
+              copyBtn.textContent = "Press ⌘C / Ctrl+C";
+            }
+            setTimeout(() => {
+              copyBtn.textContent = "Copy";
+              copyBtn.classList.remove("copied");
+            }, 2200);
+          });
+        }
+
+        let remaining = Math.floor(redirectAfterMs / 1000);
+        const cd = document.getElementById("countdown");
+        if (cd) cd.textContent = String(remaining);
+        const timer = setInterval(() => {
+          remaining -= 1;
+          if (cd) cd.textContent = String(Math.max(0, remaining));
+          if (remaining <= 0) {
+            clearInterval(timer);
+            window.location.assign(redirectTo);
+          }
+        }, 1000);
+      } catch {
+        const errEl = document.getElementById("error-msg");
+        if (errEl) {
+          errEl.textContent =
+            "Network error while contacting the API. Check your connection and refresh — but note that refreshing this page does NOT issue a new key (each key is shown exactly once).";
+        }
+        setState("error");
+      }
+    })();
+  }
+</script>
+
+<style>
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0 24px; border-bottom: 1px solid var(--line);
+    margin-bottom: 32px;
+  }
+  .nav-brand {
+    color: var(--fg); font-weight: 600;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .nav-brand .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent-warm);
+  }
+  .nav-links { display: flex; gap: 20px; }
+  .nav-links a { color: var(--fg-muted); }
+
+  .welcome { max-width: 720px; margin: 32px auto 64px; }
+  .welcome-title { font-size: 32px; line-height: 1.2; margin: 8px 0 32px; }
+
+  /* Region switcher. The container always has exactly one region
+     visible based on its data-state. We use !important on the
+     non-active hides because the global rule sets `display: grid` on
+     sections and would otherwise win. */
+  .state-host .region { display: none !important; }
+  .state-host[data-state="loading"] .region-loading {
+    display: flex !important;
+    align-items: center; gap: 12px; color: var(--fg-muted);
+  }
+  .state-host[data-state="error"] .region-error { display: block !important; }
+  .state-host[data-state="ready"] .region-ready { display: block !important; }
+  .state-host[data-state="stub"] .region-stub { display: block !important; }
+
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid var(--line-strong);
+    border-top-color: var(--accent-warm);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .key-card {
+    background: var(--bg-elev);
+    border: 1px solid rgba(251, 146, 60, 0.4);
+    box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.15),
+      0 16px 40px -16px rgba(251, 146, 60, 0.25);
+    border-radius: 12px; padding: 28px;
+  }
+  .key-card h3 { margin: 0 0 12px; font-size: 18px; }
+  .warning {
+    background: rgba(251, 146, 60, 0.08);
+    border-left: 3px solid var(--accent-warm);
+    padding: 10px 14px; margin: 0 0 20px;
+    font-size: 14px; color: var(--fg);
+    border-radius: 0 6px 6px 0;
+  }
+  .warning strong { color: var(--accent-warm); }
+
+  .key-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .key-row input {
+    flex: 1; background: var(--bg);
+    border: 1px solid var(--line-strong);
+    color: var(--fg);
+    font-family: var(--mono); font-size: 14px;
+    padding: 10px 12px; border-radius: 8px;
+  }
+  .key-row input:focus { outline: none; border-color: var(--accent-warm); }
+  #copy-btn {
+    background: var(--accent-warm); color: #1a0f06;
+    border: 1px solid var(--accent-warm-strong);
+    border-radius: 8px; padding: 10px 18px;
+    font-weight: 600; cursor: pointer;
+    font-family: var(--sans); font-size: 14px;
+  }
+  #copy-btn:hover { background: var(--accent-warm-strong); color: #fff; }
+  #copy-btn.copied {
+    background: var(--good); color: #062; border-color: var(--good);
+  }
+
+  .key-meta {
+    display: flex; gap: 24px;
+    font-size: 13px; color: var(--fg-muted);
+    margin-bottom: 16px;
+  }
+  .key-meta b { color: var(--fg); font-weight: 500; }
+  .key-meta code {
+    background: var(--bg); padding: 2px 6px; border-radius: 4px;
+  }
+
+  .how-to {
+    border-top: 1px solid var(--line);
+    margin-top: 8px; padding-top: 16px;
+  }
+  .how-to summary {
+    cursor: pointer; color: var(--fg-muted);
+    font-size: 14px; list-style: none;
+  }
+  .how-to summary::-webkit-details-marker { display: none; }
+  .how-to summary::after { content: " ▸"; color: var(--fg-dim); }
+  .how-to[open] summary::after { content: " ▾"; }
+  .how-to pre {
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px 12px;
+    overflow-x: auto; font-size: 13px;
+  }
+  .how-to p { color: var(--fg-muted); font-size: 14px; }
+  .how-to .placeholder { color: var(--fg-dim); }
+
+  .redirect-note {
+    font-size: 13px; color: var(--fg-dim); margin-top: 16px;
+  }
+
+  .error-card, .stub-card {
+    background: var(--bg-elev); border: 1px solid var(--line);
+    border-radius: 12px; padding: 24px; color: var(--fg-muted);
+  }
+  .error-card h3, .stub-card h3 {
+    color: var(--fg); margin: 0 0 12px; font-size: 17px;
+  }
+  .error-card p, .stub-card p { margin: 8px 0; line-height: 1.6; }
+  .stub-list {
+    color: var(--fg-muted); line-height: 1.7;
+    font-size: 14px; margin: 8px 0 16px; padding-left: 22px;
+  }
+  .stub-list code {
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+  }
+
+  .site-footer {
+    display: flex; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px; color: var(--fg-dim);
+    font-size: 13px; border-top: 1px solid var(--line);
+    padding-top: 24px; margin-top: 48px;
+  }
+</style>

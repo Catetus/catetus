@@ -1,0 +1,332 @@
+---
+import Base from "../layouts/Base.astro";
+
+const title = "SplatForge — Pricing";
+const description =
+  "Three tiers for SplatForge Cloud: Free for OSS use, Team at $99/mo per seat with 5000 jobs and the GitHub Action, and Enterprise for SSO + on-prem.";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+const createSessionUrl = "/api/v1/checkout/create-session";
+
+const tiers = [
+  {
+    name: "Free",
+    tagline: "OSS CLI + public web analyzer",
+    price: "$0",
+    period: "forever",
+    cta: { label: "Install the CLI", href: `${githubUrl}#install`, external: true },
+    features: [
+      "splatforge optimize / convert / inspect / diff",
+      "Public benchmark reports",
+      "Web analyzer (50 MB file cap)",
+      "All v1 export formats (.gltf / .glb / .spz / .usdz)",
+      "Apache-2.0 source",
+    ],
+    accent: "neutral",
+  },
+  {
+    name: "Team",
+    tagline: "Hosted optimize + paid A100 repack",
+    price: "$99",
+    period: "per seat / month",
+    cta: { label: "Start with Team", action: "team", external: false },
+    features: [
+      "5,000 hosted optimize jobs / month",
+      "Pro presets: web-mobile-aggressive, vision-pro, quest, geospatial",
+      "GitHub Action: optimize on every PR with fidelity badge",
+      "A100 differentiable repack ($0.05/run + $0.0008/sec usage)",
+      "Private uploads with shareable previews",
+      "Batch jobs (up to 100 tiles per call)",
+      "Custom presets per workspace",
+    ],
+    accent: "warm",
+    featured: true,
+  },
+  {
+    name: "Enterprise",
+    tagline: "VPC / on-prem + SSO + SLA",
+    price: "Custom",
+    period: "annual",
+    cta: {
+      label: "Talk to sales",
+      href: "mailto:sales@splatforge.dev?subject=SplatForge%20Enterprise",
+      external: true,
+    },
+    features: [
+      "WorkOS SSO (SAML / OIDC / SCIM)",
+      "Audit logs + DPA",
+      "Self-hosted optimize worker (Docker or Helm)",
+      "Custom device profiles + private benchmark corpus",
+      "White-label viewer SDK",
+      "Named-engineer support, 99.9% SLA",
+    ],
+    accent: "neutral",
+  },
+];
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/pricing" aria-current="page">Pricing</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <section class="pricing-hero">
+    <h2 class="section-title">Pricing</h2>
+    <h1 class="pricing-title">
+      Free for OSS. <span class="warm">$99/seat</span> for the hosted pipeline.
+      Custom for the enterprise stack.
+    </h1>
+    <p class="section-sub">
+      The CLI, the SPZ reader, the glTF KHR Gaussian Splatting writer, and the
+      benchmark suite are all Apache-2.0 forever. The Team tier adds the
+      hosted optimize service, the A100 differentiable-repack worker, the
+      GitHub Action, and the Pro presets — billed monthly, usage-metered
+      against the published per-run + per-second rates.
+    </p>
+  </section>
+
+  <section class="pricing-grid">
+    {tiers.map((t) => (
+      <article
+        class:list={[
+          "tier",
+          t.accent === "warm" && "tier-warm",
+          t.featured && "tier-featured",
+        ]}
+      >
+        {t.featured && <div class="tier-badge">Most popular</div>}
+        <header class="tier-head">
+          <h3 class="tier-name">{t.name}</h3>
+          <p class="tier-tagline">{t.tagline}</p>
+          <div class="tier-price">
+            <span class="tier-amount">{t.price}</span>
+            <span class="tier-period">{t.period}</span>
+          </div>
+        </header>
+        <ul class="tier-features">
+          {t.features.map((f) => (<li>{f}</li>))}
+        </ul>
+        {t.cta.action === "team" ? (
+          <button class="tier-cta tier-cta-warm" data-cta="team" type="button">
+            {t.cta.label}
+          </button>
+        ) : (
+          <a
+            class:list={[
+              "tier-cta",
+              t.accent === "warm" ? "tier-cta-warm" : "tier-cta-neutral",
+            ]}
+            href={t.cta.href}
+            target={t.cta.external ? "_blank" : undefined}
+            rel={t.cta.external ? "noreferrer noopener" : undefined}
+          >
+            {t.cta.label}
+          </a>
+        )}
+      </article>
+    ))}
+  </section>
+
+  <section class="pricing-faq">
+    <h2 class="section-title">FAQ</h2>
+    <details>
+      <summary>How does the $99/seat tier compare to the A100 usage charges?</summary>
+      <p>
+        The $99 seat covers the hosted free-tier optimize pipeline (5,000
+        jobs/month, all Pro presets, the GitHub Action, private uploads).
+        The differentiable-repack worker that runs on an A100 is metered
+        separately at $0.05 per run + $0.0008 per second — roughly $0.064
+        for the bonsai reference scene (1000 iters, ~18s). The seat fee
+        is the same whether you run zero or 4,999 jobs.
+      </p>
+    </details>
+    <details>
+      <summary>What's in the GitHub Action?</summary>
+      <p>
+        Drop-in <code>splatforge/optimize-action@v1</code> step that runs
+        the same hosted optimize pipeline on every PR, posts a
+        fidelity-vs-size diff comment, and fails the build if the
+        regression exceeds a configurable PSNR floor. See
+        <a href={`${githubUrl}/tree/main/apps/optimize-action`}>apps/optimize-action</a>.
+      </p>
+    </details>
+    <details>
+      <summary>Where does my API key come from?</summary>
+      <p>
+        After checkout, Stripe redirects you to <code>/welcome</code>
+        where we show your <code>sf_live_…</code> key exactly once. The
+        server keeps only a SHA-256 hash; the plaintext is never logged,
+        never stored, and never recoverable. Copy it into
+        <code>SPLATFORGE_API_KEY</code> before you close the tab.
+      </p>
+    </details>
+    <details>
+      <summary>Can I cancel anytime?</summary>
+      <p>
+        Yes. Cancellation is via the Stripe customer portal, takes effect
+        at the end of the current billing cycle, and disables the API key
+        on the cycle boundary. Pre-cancellation jobs in flight finish.
+      </p>
+    </details>
+  </section>
+
+  <footer class="site-footer">
+    <span>SplatForge — Apache-2.0 OSS, hosted Team tier, on-prem Enterprise.</span>
+    <span><a href="/">Back to splatforge.dev</a></span>
+  </footer>
+</Base>
+
+<script is:inline define:vars={{ createSessionUrl }}>
+  const btn = document.querySelector('button[data-cta="team"]');
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      const email = window.prompt(
+        "Work email for the SplatForge invoice + your initial API key:",
+        ""
+      );
+      if (!email || !email.includes("@")) return;
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Opening Stripe…";
+      try {
+        const nonce =
+          (crypto && crypto.randomUUID && crypto.randomUUID()) ||
+          String(Date.now()) + Math.random();
+        const res = await fetch(createSessionUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, nonce }),
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(
+            res.status === 503
+              ? "Self-serve checkout isn't live yet — emailing sales instead."
+              : `Stripe rejected the request (${res.status}): ${body.slice(0, 200)}`
+          );
+        }
+        const { url } = await res.json();
+        if (!url) throw new Error("Stripe returned no checkout URL.");
+        window.location.assign(url);
+      } catch (err) {
+        btn.textContent = original ?? "Start with Team";
+        btn.disabled = false;
+        const msg = err instanceof Error ? err.message : "Unknown error.";
+        const fallback = `mailto:sales@splatforge.dev?subject=SplatForge%20Team%20signup&body=${encodeURIComponent(
+          `Hi — I tried to sign up via /pricing but got: ${msg}\n\nMy email: ${email}\n`
+        )}`;
+        if (window.confirm(`${msg}\n\nEmail sales@splatforge.dev directly?`)) {
+          window.location.assign(fallback);
+        }
+      }
+    });
+  }
+</script>
+
+<style>
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0 24px; border-bottom: 1px solid var(--line);
+    margin-bottom: 32px;
+  }
+  .nav-brand {
+    color: var(--fg); font-weight: 600;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .nav-brand .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent-warm);
+  }
+  .nav-links { display: flex; gap: 20px; }
+  .nav-links a { color: var(--fg-muted); }
+  .nav-links a[aria-current="page"] { color: var(--fg); }
+
+  .pricing-hero { margin-top: 16px; margin-bottom: 56px; max-width: 760px; }
+  .pricing-title { font-size: 34px; line-height: 1.2; margin: 8px 0 16px; }
+  .pricing-title .warm { color: var(--accent-warm); }
+
+  .pricing-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px; margin-bottom: 64px;
+  }
+  @media (max-width: 880px) { .pricing-grid { grid-template-columns: 1fr; } }
+
+  .tier {
+    background: var(--bg-elev); border: 1px solid var(--line);
+    border-radius: 12px; padding: 24px;
+    display: flex; flex-direction: column; position: relative;
+  }
+  .tier-warm {
+    border-color: rgba(251, 146, 60, 0.4);
+    box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.2),
+      0 12px 32px -16px rgba(251, 146, 60, 0.2);
+  }
+  .tier-badge {
+    position: absolute; top: -10px; right: 16px;
+    background: var(--accent-warm); color: #1a0f06;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+    text-transform: uppercase; padding: 4px 10px; border-radius: 12px;
+  }
+  .tier-head { margin-bottom: 16px; }
+  .tier-name { font-size: 18px; margin: 0; }
+  .tier-tagline { font-size: 13px; color: var(--fg-dim); margin: 4px 0 16px; }
+  .tier-price { display: flex; align-items: baseline; gap: 8px; }
+  .tier-amount { font-size: 32px; font-weight: 600; color: var(--fg); }
+  .tier-warm .tier-amount { color: var(--accent-warm); }
+  .tier-period { font-size: 13px; color: var(--fg-dim); }
+  .tier-features {
+    list-style: none; padding: 0; margin: 16px 0 24px;
+    font-size: 14px; color: var(--fg-muted); line-height: 1.7; flex: 1;
+  }
+  .tier-features li { padding-left: 18px; position: relative; }
+  .tier-features li::before {
+    content: "✓"; position: absolute; left: 0; color: var(--good);
+  }
+  .tier-cta {
+    display: inline-block; width: 100%; text-align: center;
+    padding: 10px 14px; border-radius: 8px;
+    font-size: 14px; font-weight: 600;
+    border: 1px solid var(--line-strong);
+    background: transparent; color: var(--fg);
+    cursor: pointer; font-family: var(--sans);
+  }
+  .tier-cta:hover { text-decoration: none; background: var(--bg-row); }
+  .tier-cta-warm {
+    background: var(--accent-warm); color: #1a0f06;
+    border-color: var(--accent-warm-strong);
+  }
+  .tier-cta-warm:hover { background: var(--accent-warm-strong); color: #fff; }
+  .tier-cta-neutral { color: var(--fg); }
+  .tier-cta[disabled] { opacity: 0.6; cursor: progress; }
+
+  .pricing-faq { margin-bottom: 64px; }
+  .pricing-faq details {
+    border-top: 1px solid var(--line); padding: 14px 0;
+  }
+  .pricing-faq details summary {
+    cursor: pointer; color: var(--fg); font-weight: 500; list-style: none;
+  }
+  .pricing-faq details summary::-webkit-details-marker { display: none; }
+  .pricing-faq details summary::after { content: " +"; color: var(--fg-dim); }
+  .pricing-faq details[open] summary::after { content: " −"; }
+  .pricing-faq details p {
+    margin: 10px 0 0; color: var(--fg-muted);
+    font-size: 14px; line-height: 1.6;
+  }
+
+  .site-footer {
+    display: flex; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px; color: var(--fg-dim);
+    font-size: 13px; border-top: 1px solid var(--line);
+    padding-top: 24px; margin-top: 48px;
+  }
+</style>
