@@ -76,3 +76,16 @@ subtle = "2.5"
 # the same source the WorkOS branch's auth.rs uses, so the contract
 # carries forward byte-for-byte once that branch merges.
 rand = "0.8"
+
+# Capture-tool import resolvers (`routes/import.rs`) abstract the three
+# providers behind an async trait so the integration test can swap in a
+# wiremock-backed fake without touching live HTTP. async-trait desugars
+# `async fn in trait` to boxed futures, restoring object-safety so the
+# resolver can live behind `Arc<dyn CaptureResolver>`.
+async-trait = "0.1"
+
+# Integration tests under `tests/import.rs` mock the three provider
+# endpoints with wiremock so CI never touches public.lumalabs.ai etc.
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "time"] }
