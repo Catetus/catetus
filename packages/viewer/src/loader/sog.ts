@@ -281,22 +281,35 @@ export async function readSog(
 }
 
 /**
+ * Options for {@link sogSceneToGltf}. By default the writer emits the
+ * KHR_gaussian_splatting **Release Candidate (RC)** attribute layout:
+ * attributes are namespaced (e.g. `KHR_gaussian_splatting:ROTATION`) and live
+ * on `primitive.attributes` next to `mode`. Pass `legacy: true` to emit the
+ * pre-RC layout (bare keys inside the per-primitive extension object) for
+ * compatibility with old viewers.
+ */
+export interface SogSceneToGltfOptions {
+  legacy?: boolean;
+}
+
+/**
  * Build a self-contained glTF + binary buffer from a decoded SOG scene. The
  * resulting pair drops straight into the viewer's existing `KHR_gaussian_splatting`
  * load path — no SOG-specific renderer changes needed.
  *
  * Layout per splat (SoA, FLOAT, packed):
  *   POSITION    vec3   (0,                0 + N*12)
- *   _ROTATION   vec4   (N*12,             N*12 + N*16)
- *   _SCALE      vec3   (N*28,             N*28 + N*12)
- *   _OPACITY    scalar (N*40,             N*40 + N*4)
- *   _COLOR_DC   vec3   (N*44,             N*44 + N*12)
+ *   ROTATION    vec4   (N*12,             N*12 + N*16)
+ *   SCALE       vec3   (N*28,             N*28 + N*12)
+ *   OPACITY     scalar (N*40,             N*40 + N*4)
+ *   COLOR_DC    vec3   (N*44,             N*44 + N*12)
  *
  * Returns the glTF JSON string and the raw `.bin` buffer the manifest points at.
  */
 export function sogSceneToGltf(
   scene: SogScene,
   bufferUri: string,
+  options: SogSceneToGltfOptions = {},
 ): { gltf: string; bin: Uint8Array } {
   const n = scene.splatCount;
   // 12 + 16 + 12 + 4 + 12 = 56 bytes per splat.
@@ -344,6 +357,35 @@ export function sogSceneToGltf(
   // We intentionally do not synthesize a `KHR_mesh_quantization` quantized
   // path — bench fidelity scoring wants the SOG-decoded values rendered
   // directly, not re-quantized through SplatForge's own optimize step.
+  const legacy = options.legacy === true;
+  const primitive = legacy
+    ? {
+        mode: 0,
+        extensions: {
+          KHR_gaussian_splatting: {
+            attributes: {
+              POSITION: 0,
+              _ROTATION: 1,
+              _SCALE: 2,
+              _OPACITY: 3,
+              _COLOR_DC: 4,
+            },
+          },
+        },
+      }
+    : {
+        mode: 0,
+        attributes: {
+          'KHR_gaussian_splatting:POSITION': 0,
+          'KHR_gaussian_splatting:ROTATION': 1,
+          'KHR_gaussian_splatting:SCALE': 2,
+          'KHR_gaussian_splatting:OPACITY': 3,
+          'KHR_gaussian_splatting:COLOR_DC': 4,
+        },
+        extensions: {
+          KHR_gaussian_splatting: {},
+        },
+      };
   const gltfDoc = {
     asset: { version: '2.0', generator: 'splatforge sog-loader' },
     extensionsUsed: ['KHR_gaussian_splatting'],
@@ -369,26 +411,7 @@ export function sogSceneToGltf(
       { bufferView: 3, componentType: 5126, count: n, type: 'SCALAR' },
       { bufferView: 4, componentType: 5126, count: n, type: 'VEC3' },
     ],
-    meshes: [
-      {
-        primitives: [
-          {
-            mode: 0,
-            extensions: {
-              KHR_gaussian_splatting: {
-                attributes: {
-                  POSITION: 0,
-                  _ROTATION: 1,
-                  _SCALE: 2,
-                  _OPACITY: 3,
-                  _COLOR_DC: 4,
-                },
-              },
-            },
-          },
-        ],
-      },
-    ],
+    meshes: [{ primitives: [primitive] }],
     extensions: {
       KHR_gaussian_splatting: {
         splatCount: n,

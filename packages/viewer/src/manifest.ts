@@ -106,11 +106,21 @@ interface RawGltf {
   extensions?: Record<string, unknown>;
   meshes?: Array<{
     primitives?: Array<{
+      mode?: number;
+      attributes?: Record<string, number>;
       extensions?: Record<string, unknown>;
     }>;
   }>;
 }
 
+/**
+ * Canonical (layout-neutral) attribute index table. Both the legacy
+ * (pre-RC) layout — where attribute indices live inside the
+ * `KHR_gaussian_splatting` extension under bare keys (`_ROTATION`, etc.) —
+ * and the RC layout — where attributes live on the primitive itself under
+ * namespaced keys (`KHR_gaussian_splatting:ROTATION`, etc.) — are
+ * normalized into this shape by {@link extractGaussianAttributes}.
+ */
 interface RawGaussianAttributes {
   POSITION?: number;
   _ROTATION?: number;
@@ -119,6 +129,9 @@ interface RawGaussianAttributes {
   _COLOR_DC?: number;
   _COLOR_SH?: number;
 }
+
+/** Source layout the manifest was authored in. */
+export type GaussianAttributeLayout = 'rc' | 'legacy';
 
 interface RawGaussianSplatting {
   splatCount?: number;
@@ -169,7 +182,10 @@ function findSceneGaussianExt(g: RawGltf): RawGaussianSplatting | undefined {
 
 /**
  * Locate the per-primitive `KHR_gaussian_splatting` extension which carries
- * the attribute → accessor table needed to decode binary chunks.
+ * (in the legacy layout) the attribute → accessor table needed to decode
+ * binary chunks. Returns the extension object plus a flag indicating whether
+ * it actually carried `.attributes` (legacy) or not (RC, where attributes
+ * live on the primitive itself).
  */
 function findPrimitiveGaussianExt(g: RawGltf): RawGaussianSplatting | undefined {
   for (const mesh of g.meshes ?? []) {
@@ -179,6 +195,64 @@ function findPrimitiveGaussianExt(g: RawGltf): RawGaussianSplatting | undefined 
     }
   }
   return undefined;
+}
+
+/**
+ * Namespaced-attribute keys per the KHR_gaussian_splatting Release Candidate
+ * (RC). These live on the primitive's `attributes` map (not inside the
+ * extension object) alongside `mode`. We sniff for these first; absence falls
+ * back to the legacy in-extension `.attributes` table.
+ */
+const RC_ATTR_KEYS = {
+  POSITION: `${GS_EXT}:POSITION`,
+  ROTATION: `${GS_EXT}:ROTATION`,
+  SCALE: `${GS_EXT}:SCALE`,
+  OPACITY: `${GS_EXT}:OPACITY`,
+  COLOR_DC: `${GS_EXT}:COLOR_DC`,
+  COLOR_SH: `${GS_EXT}:COLOR_SH`,
+} as const;
+
+/**
+ * Extract the attribute → accessor index table from the first splat primitive,
+ * supporting both the RC (namespaced keys on `primitive.attributes`) and
+ * legacy (bare keys inside `prim.extensions.KHR_gaussian_splatting.attributes`)
+ * layouts. Schema sniff: presence of any `KHR_gaussian_splatting:*` key on a
+ * primitive's `attributes` map is taken as authoritative for RC; otherwise we
+ * fall back to legacy.
+ */
+function extractGaussianAttributes(
+  g: RawGltf,
+): { attrs: RawGaussianAttributes; layout: GaussianAttributeLayout } {
+  for (const mesh of g.meshes ?? []) {
+    for (const prim of mesh.primitives ?? []) {
+      const primAttrs = prim.attributes;
+      if (isObject(primAttrs)) {
+        const pa = primAttrs as Record<string, number>;
+        const hasRc = Object.keys(pa).some((k) => k.startsWith(`${GS_EXT}:`));
+        if (hasRc) {
+          return {
+            attrs: {
+              POSITION: typeof pa[RC_ATTR_KEYS.POSITION] === 'number' ? pa[RC_ATTR_KEYS.POSITION] : undefined,
+              _ROTATION: typeof pa[RC_ATTR_KEYS.ROTATION] === 'number' ? pa[RC_ATTR_KEYS.ROTATION] : undefined,
+              _SCALE: typeof pa[RC_ATTR_KEYS.SCALE] === 'number' ? pa[RC_ATTR_KEYS.SCALE] : undefined,
+              _OPACITY: typeof pa[RC_ATTR_KEYS.OPACITY] === 'number' ? pa[RC_ATTR_KEYS.OPACITY] : undefined,
+              _COLOR_DC: typeof pa[RC_ATTR_KEYS.COLOR_DC] === 'number' ? pa[RC_ATTR_KEYS.COLOR_DC] : undefined,
+              _COLOR_SH: typeof pa[RC_ATTR_KEYS.COLOR_SH] === 'number' ? pa[RC_ATTR_KEYS.COLOR_SH] : undefined,
+            },
+            layout: 'rc',
+          };
+        }
+      }
+      const e = prim.extensions?.[GS_EXT];
+      if (isObject(e)) {
+        const legacy = (e as RawGaussianSplatting).attributes;
+        if (isObject(legacy)) {
+          return { attrs: legacy as RawGaussianAttributes, layout: 'legacy' };
+        }
+      }
+    }
+  }
+  return { attrs: {}, layout: 'legacy' };
 }
 
 function findStreamingIndex(g: RawGltf): RawStreamingIndex | undefined {
@@ -249,7 +323,9 @@ export function parseManifest(json: string): Manifest {
   }
 
   // Resolve attribute → SoA byte-slice (relative to its buffer's start).
-  const attrs = primExt?.attributes ?? {};
+  // Auto-detect RC (namespaced primitive-level attributes) vs legacy
+  // (bare attributes inside the per-primitive extension object).
+  const { attrs } = extractGaussianAttributes(g);
   const posSlice = accessorSlice(g, attrs.POSITION);
   const rotSlice = accessorSlice(g, attrs._ROTATION);
   const sclSlice = accessorSlice(g, attrs._SCALE);
