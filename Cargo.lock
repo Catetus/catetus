@@ -2766,6 +2766,7 @@ dependencies = [
  "serde_json",
  "splatforge-bench",
  "splatforge-core",
+ "splatforge-fidelity",
  "splatforge-gltf",
  "splatforge-optimize",
  "splatforge-ply",
@@ -2786,6 +2787,19 @@ dependencies = [
  "ryu",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "splatforge-fidelity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "splatforge-core",
+ "splatforge-ply",
+ "tempfile",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
