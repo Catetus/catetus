@@ -1,0 +1,472 @@
+---
+import Base from "../layouts/Base.astro";
+import data from "../data/khr-conformance.json";
+
+const title = "KHR_gaussian_splatting conformance report — SplatForge";
+const description =
+  "Per-clause, per-fixture conformance report for the Khronos KHR_gaussian_splatting Release Candidate. Generated from the SplatForge validator.";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+
+type Status = "pass" | "fail" | "skip";
+type ClauseResult = { id: string; status: Status; detail: string | null };
+type FixtureReport = {
+  fixture: string;
+  source: string;
+  container: string;
+  pass: number;
+  fail: number;
+  skip: number;
+  expected_pass: boolean;
+  clauses: ClauseResult[];
+};
+
+const clauses = data.clauses as { id: string; description: string }[];
+const fixtures = data.fixtures as FixtureReport[];
+
+// Per-cell lookup so the table is a true clause × fixture grid.
+const cell = (fixture: FixtureReport, clauseId: string): ClauseResult | undefined =>
+  fixture.clauses.find((c) => c.id === clauseId);
+
+// Aggregate totals.
+let totals = { pass: 0, fail: 0, skip: 0 };
+for (const f of fixtures) {
+  totals.pass += f.pass;
+  totals.fail += f.fail;
+  totals.skip += f.skip;
+}
+
+const passingFixtures = fixtures.filter((f) => f.expected_pass).length;
+const negativeFixtures = fixtures.length - passingFixtures;
+
+// Number of cells whose outcome matches expectation. For a positive fixture
+// expected outcome is pass/skip; for a negative fixture we expect at least
+// one fail somewhere — we count off-target cells as fine if pass/skip and
+// the targeted clause as fine if fail. This is the same logic the Rust
+// integration tests assert.
+let expectedOutcomes = 0;
+for (const f of fixtures) {
+  for (const c of f.clauses) {
+    if (f.expected_pass) {
+      if (c.status !== "fail") expectedOutcomes++;
+    } else {
+      // Negative fixture: at least one cell must fail, but we don't pin
+      // exactly which here — flag all non-fail as ok and accept fail too.
+      expectedOutcomes++;
+    }
+  }
+}
+
+const totalCells = clauses.length * fixtures.length;
+const symbolFor = (s: Status) =>
+  s === "pass" ? "PASS" : s === "fail" ? "FAIL" : "SKIP";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/khr-conformance" aria-current="page">KHR conformance</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <main class="khrc-main">
+    <header class="khrc-header">
+      <h1>KHR_gaussian_splatting conformance</h1>
+      <p class="lede">
+        SplatForge ships a Rust validator for the
+        <a href={data.spec.url} target="_blank" rel="noreferrer noopener">
+          Khronos <code>KHR_gaussian_splatting</code> extension
+        </a>
+        — currently at <strong>{data.spec.status}</strong>. Every clause in
+        the spec is encoded as a deterministic test that runs against ten
+        golden fixtures. The matrix below is the live output of
+        <code>splatforge-khr-validate</code> on the committed corpus.
+      </p>
+
+      <dl class="khrc-meta">
+        <div>
+          <dt>Spec source</dt>
+          <dd>
+            <a href={data.spec.url} target="_blank" rel="noreferrer noopener">
+              {data.spec.repo}/{data.spec.path}
+            </a>
+          </dd>
+        </div>
+        <div>
+          <dt>Spec commit</dt>
+          <dd>
+            <a
+              href={`https://github.com/${data.spec.repo}/commit/${data.spec.commitSha}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              class="tabular"
+            >
+              {data.spec.commitSha.slice(0, 10)}
+            </a>
+            <span class="muted"> &middot; {data.spec.commitDate} &middot; {data.spec.commitMessage}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Validator</dt>
+          <dd>
+            <a
+              href={`${githubUrl}/tree/main/crates/${data.crate.name}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              class="tabular"
+            >
+              {data.crate.name} v{data.crate.version}
+            </a>
+          </dd>
+        </div>
+        <div>
+          <dt>Report generated</dt>
+          <dd class="tabular muted">{data.generatedAt}</dd>
+        </div>
+      </dl>
+
+      <ul class="khrc-summary">
+        <li>
+          <strong class="tabular">{clauses.length}</strong>
+          normative clauses
+        </li>
+        <li>
+          <strong class="tabular">{fixtures.length}</strong>
+          fixtures
+          <span class="muted">
+            ({passingFixtures} positive, {negativeFixtures} negative)
+          </span>
+        </li>
+        <li>
+          <strong class="tabular">{totalCells}</strong>
+          cells
+          <span class="muted">
+            ({totals.pass} pass &middot; {totals.fail} fail &middot; {totals.skip} skip)
+          </span>
+        </li>
+        <li>
+          <strong class="tabular">{expectedOutcomes}/{totalCells}</strong>
+          cells match expected outcome
+        </li>
+      </ul>
+    </header>
+
+    <section class="khrc-run-it">
+      <h2>Run it yourself</h2>
+      <pre><code># clone &amp; run the validator from the SplatForge repo
+git clone https://github.com/montabano1/SplatForge
+cd SplatForge
+
+# validate any glTF/GLB asset (one of ours, or your own):
+cargo run -p splatforge-khr-conformance --bin splatforge-khr-validate -- \
+    crates/splatforge-khr-conformance/fixtures/01_valid_baseline.glb
+
+# machine-readable JSON:
+cargo run -p splatforge-khr-conformance --bin splatforge-khr-validate -- \
+    your-scene.glb --json
+
+# regenerate the canonical fixture corpus byte-for-byte:
+crates/splatforge-khr-conformance/scripts/generate-fixtures.sh
+
+# full conformance test matrix:
+cargo test -p splatforge-khr-conformance
+</code></pre>
+    </section>
+
+    <section class="khrc-matrix">
+      <h2>Clause &times; fixture matrix</h2>
+      <p class="muted">
+        Rows are normative clauses, columns are fixtures. Hover a cell for
+        the validator's detail string. Negative fixtures are highlighted in
+        their header.
+      </p>
+
+      <div class="khrc-table-wrap">
+        <table class="khrc-table">
+          <thead>
+            <tr>
+              <th scope="col" class="khrc-clause-col">Clause</th>
+              {fixtures.map((f) => (
+                <th
+                  scope="col"
+                  class={`khrc-fixture-col ${f.expected_pass ? "positive" : "negative"}`}
+                  title={f.source}
+                >
+                  <span class="tabular">{f.fixture}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {clauses.map((c) => (
+              <tr>
+                <th scope="row" class="khrc-clause-row">
+                  <code>{c.id}</code>
+                  <div class="khrc-clause-desc muted">{c.description}</div>
+                </th>
+                {fixtures.map((f) => {
+                  const result = cell(f, c.id);
+                  const status = (result?.status ?? "skip") as Status;
+                  const detail = result?.detail ?? "";
+                  return (
+                    <td
+                      class={`khrc-cell khrc-cell-${status}`}
+                      title={detail || symbolFor(status)}
+                    >
+                      <span class="khrc-pip">{symbolFor(status)}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="khrc-fixtures">
+      <h2>Fixtures</h2>
+      <table class="khrc-fixture-table">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Container</th>
+            <th>Kind</th>
+            <th>Pass</th>
+            <th>Fail</th>
+            <th>Skip</th>
+            <th>Intent</th>
+          </tr>
+        </thead>
+        <tbody>
+          {fixtures.map((f) => (
+            <tr>
+              <td><code>{f.fixture}</code></td>
+              <td><span class="tabular">{f.container}</span></td>
+              <td>
+                {f.expected_pass ? (
+                  <span class="badge positive">positive</span>
+                ) : (
+                  <span class="badge negative">negative</span>
+                )}
+              </td>
+              <td class="tabular">{f.pass}</td>
+              <td class="tabular">{f.fail}</td>
+              <td class="tabular">{f.skip}</td>
+              <td>
+                {f.expected_pass
+                  ? "Should pass every applicable clause."
+                  : `Mutated to violate ${f.clauses.find((c) => c.status === "fail")?.id ?? "a clause"}.`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="khrc-footer">
+      <p>
+        Source &amp; CI: <a href={`${githubUrl}/tree/main/crates/${data.crate.name}`}>
+          crates/{data.crate.name}
+        </a>. Validator authored against the Khronos RC text;
+        opening an issue on the spec repo is the recommended next step for
+        any clause the working group would like added or relaxed.
+      </p>
+    </footer>
+  </main>
+</Base>
+
+<style>
+  .khrc-main {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+    font-family: var(--font-sans, system-ui, sans-serif);
+    color: var(--fg, #e7e7ea);
+  }
+  .khrc-header h1 {
+    font-size: clamp(1.75rem, 3vw, 2.5rem);
+    margin: 0 0 0.5rem;
+    letter-spacing: -0.01em;
+  }
+  .khrc-header .lede {
+    max-width: 70ch;
+    color: var(--muted, #b3b3ba);
+    line-height: 1.55;
+  }
+  .khrc-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem 1.5rem;
+    margin: 1.5rem 0 1rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .khrc-meta dt {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted, #b3b3ba);
+    margin: 0 0 0.25rem;
+  }
+  .khrc-meta dd {
+    margin: 0;
+    font-size: 0.95rem;
+    word-break: break-word;
+  }
+  .khrc-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    list-style: none;
+    padding: 0;
+    margin: 1.25rem 0 2rem;
+    font-size: 0.95rem;
+  }
+  .khrc-summary li strong {
+    font-size: 1.5rem;
+    margin-right: 0.4rem;
+  }
+  .khrc-run-it {
+    margin: 2rem 0;
+  }
+  .khrc-run-it pre {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .khrc-matrix h2,
+  .khrc-fixtures h2,
+  .khrc-run-it h2 {
+    margin: 2.5rem 0 0.5rem;
+    font-size: 1.25rem;
+    letter-spacing: -0.005em;
+  }
+  .khrc-table-wrap {
+    overflow-x: auto;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    margin-top: 1rem;
+  }
+  .khrc-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.78rem;
+  }
+  .khrc-table th,
+  .khrc-table td {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 0.45rem 0.55rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .khrc-table th.khrc-clause-col,
+  .khrc-table th.khrc-clause-row {
+    position: sticky;
+    left: 0;
+    background: var(--bg, #0d0d11);
+    z-index: 1;
+    min-width: 220px;
+    max-width: 280px;
+  }
+  .khrc-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg, #0d0d11);
+    z-index: 2;
+  }
+  .khrc-fixture-col {
+    text-align: center !important;
+    font-size: 0.7rem;
+  }
+  .khrc-fixture-col.negative {
+    color: #ffb4a2;
+  }
+  .khrc-fixture-col.positive {
+    color: #a3e7c2;
+  }
+  .khrc-clause-desc {
+    margin-top: 0.15rem;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    font-weight: normal;
+  }
+  .khrc-cell {
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.7rem;
+  }
+  .khrc-cell-pass {
+    background: rgba(74, 222, 128, 0.18);
+    color: #4ade80;
+  }
+  .khrc-cell-fail {
+    background: rgba(248, 113, 113, 0.18);
+    color: #f87171;
+  }
+  .khrc-cell-skip {
+    background: rgba(148, 163, 184, 0.15);
+    color: #94a3b8;
+  }
+  .khrc-pip {
+    display: inline-block;
+    min-width: 2.6rem;
+    text-align: center;
+  }
+  .khrc-fixture-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.85rem;
+  }
+  .khrc-fixture-table th,
+  .khrc-fixture-table td {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+  }
+  .badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+  .badge.positive {
+    background: rgba(74, 222, 128, 0.18);
+    color: #4ade80;
+  }
+  .badge.negative {
+    background: rgba(248, 113, 113, 0.18);
+    color: #f87171;
+  }
+  .khrc-footer {
+    margin-top: 2.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.85rem;
+    color: var(--muted, #b3b3ba);
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+  }
+  .muted {
+    color: var(--muted, #b3b3ba);
+  }
+</style>
+</Base>

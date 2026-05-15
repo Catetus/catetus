@@ -9,9 +9,6 @@ use std::process::Command;
 use splatforge_khr_conformance::{validate_path, Status};
 
 fn fixtures_bin() -> PathBuf {
-    // env!("CARGO_BIN_EXE_<name>") resolves to the integration-test-time path
-    // of the binary built from this crate, so we can invoke the fixture
-    // generator without shelling out to `cargo run`.
     PathBuf::from(env!("CARGO_BIN_EXE_splatforge-khr-fixtures"))
 }
 
@@ -63,7 +60,15 @@ fn valid_baseline_gltf_passes_all_clauses() {
     let corpus = build_corpus();
     let p = corpus.path().join("02_valid_baseline.gltf");
     let report = validate_path(&p).expect("validate");
-    assert!(report.is_pass());
+    assert!(
+        report.is_pass(),
+        "expected no failing clauses, got: {:?}",
+        report
+            .clauses
+            .iter()
+            .filter(|c| c.status == Status::Fail)
+            .collect::<Vec<_>>()
+    );
     assert_eq!(report.container, "gltf");
 }
 
@@ -84,56 +89,41 @@ fn valid_quantized_glb_passes() {
 }
 
 #[test]
-fn valid_with_sh_exercises_sh_clause() {
-    // The KHR_gaussian_splatting RC text is ambiguous about how `_COLOR_SH`
-    // is laid out — some readings expect `count = splat_count * 45` (one
-    // FLOAT element per coefficient), others expect `count = splat_count`
-    // with a 45-float stride. SplatForge's writer currently emits the
-    // latter; the strict-glTF reading rejects it. This fixture documents
-    // the disagreement so the Khronos submission can ask for clarification.
-    //
-    // The clause-level assertion intentionally tracks the *strict* reading:
-    // if it ever flips to PASS we know the writer changed and the spec
-    // submission needs to be updated.
+fn valid_with_sh_evaluates_sh_clauses() {
     let corpus = build_corpus();
     let p = corpus.path().join("04_valid_with_sh.glb");
     let report = validate_path(&p).expect("validate");
-    // Every other clause must still pass.
-    let non_sh_fails: Vec<_> = report
-        .clauses
-        .iter()
-        .filter(|c| c.id != "ACC_COLOR_SH" && c.status == Status::Fail)
-        .collect();
-    assert!(
-        non_sh_fails.is_empty(),
-        "unexpected non-SH failures: {non_sh_fails:?}"
-    );
-    let sh = report
-        .clauses
-        .iter()
-        .find(|c| c.id == "ACC_COLOR_SH")
-        .expect("ACC_COLOR_SH present");
-    // Either reading is acceptable here; we just want the clause to have
-    // been *evaluated* (not skipped), proving _COLOR_SH was present.
-    assert_ne!(sh.status, Status::Skip);
-}
-
-#[test]
-fn spz_stub_passes_spz_clauses() {
-    let corpus = build_corpus();
-    let p = corpus.path().join("05_valid_spz_stub.glb");
-    let report = validate_path(&p).expect("validate");
     assert!(
         report.is_pass(),
-        "SPZ stub fixture failed: {:?}",
+        "SH fixture failed: {:?}",
         report
             .clauses
             .iter()
             .filter(|c| c.status == Status::Fail)
             .collect::<Vec<_>>()
     );
-    assert_clause(&p, "SPZ_DECLARED", Status::Pass);
-    assert_clause(&p, "SPZ_CONSISTENT", Status::Pass);
+    // SH-related clauses must be PASS (not SKIP) because the fixture
+    // declares SH attributes.
+    assert_clause(&p, "ACC_SH_COEF", Status::Pass);
+    assert_clause(&p, "SH_DEGREES_FULL", Status::Pass);
+}
+
+#[test]
+fn defaults_method_glb_passes_with_skips() {
+    let corpus = build_corpus();
+    let p = corpus.path().join("05_valid_default_methods.glb");
+    let report = validate_path(&p).expect("validate");
+    assert!(
+        report.is_pass(),
+        "default-methods fixture failed: {:?}",
+        report
+            .clauses
+            .iter()
+            .filter(|c| c.status == Status::Fail)
+            .collect::<Vec<_>>()
+    );
+    assert_clause(&p, "EXT_PROJECTION", Status::Skip);
+    assert_clause(&p, "EXT_SORTING", Status::Skip);
 }
 
 #[test]
@@ -172,13 +162,15 @@ fn accessor_count_mismatch_fails() {
 }
 
 #[test]
-fn validate_returns_at_least_twenty_clauses() {
+fn validate_returns_thirty_clauses() {
+    // 23 core KHR_gaussian_splatting RC clauses + 7 SPZ sub-extension clauses.
     let corpus = build_corpus();
     let p = corpus.path().join("01_valid_baseline.glb");
     let report = validate_path(&p).expect("validate");
-    assert!(
-        report.clauses.len() >= 20,
-        "expected >=20 clauses, got {}",
+    assert_eq!(
+        report.clauses.len(),
+        30,
+        "expected exactly 30 clauses (23 KHR + 7 SPZ), got {}",
         report.clauses.len()
     );
 }
@@ -193,7 +185,7 @@ fn spz_compressed_glb_passes_all_spz_clauses() {
     let fails: Vec<&splatforge_khr_conformance::ClauseResult> = report
         .clauses
         .iter()
-        .filter(|c| c.status == Status::Fail && c.id != "ACC_COLOR_SH")
+        .filter(|c| c.status == Status::Fail)
         .collect();
     assert!(fails.is_empty(), "unexpected failures: {fails:?}");
     for id in [
@@ -272,7 +264,6 @@ fn collect_files(root: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
 
 #[test]
 fn fixtures_are_byte_deterministic() {
-    // Regenerate the corpus twice and confirm every file is byte-identical.
     let a = build_corpus();
     let b = build_corpus();
     let fa = collect_files(a.path());
