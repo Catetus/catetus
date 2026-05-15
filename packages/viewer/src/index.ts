@@ -18,3 +18,25 @@ export { orbitFrames, orbitPose, bboxCenter, bboxRadius } from './camera.js';
 export type { CameraPose } from './camera.js';
 export { parseManifest } from './manifest.js';
 export type { Manifest, ChunkDescriptor, Bbox, Vec3 } from './manifest.js';
+export {
+  StreamingTileset,
+  TileStreamer,
+  loadTilesetJson,
+  parseTileset,
+  decodeGlb,
+  manifestFromGlb,
+  extractFrustum,
+  selectVisibleTiles,
+  screenSpaceError,
+} from './streaming/index.js';
+export type {
+  StreamingTilesetOptions,
+  FrameReport,
+  TileNode,
+  Tileset,
+  TileSelection,
+  SelectorOptions,
+  LoadedTilePayload,
+  StreamerStats,
+  Frustum,
+} from './streaming/index.js';

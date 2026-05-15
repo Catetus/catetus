@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::{
-    body::Body,
+    body::{Body, Bytes},
     extract::{Path, State},
     http::{HeaderMap, Request, StatusCode},
     middleware::{self, Next},
@@ -32,11 +32,13 @@ use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, trace::TraceLaye
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
-mod modal_client;
-mod store;
-
-use modal_client::ModalClient;
-use store::{Job, JobStatus, JobStore, Tier};
+// All modules live in `lib.rs` so integration tests under `tests/` can
+// reach them via the library crate name (`splatforge_api`). The bin
+// crate is a thin wrapper that wires the handlers; no per-module
+// re-instantiation happens here.
+use splatforge_api::billing::{self, BillingClient, KeyCustomerMap};
+use splatforge_api::modal_client::{self, ModalClient};
+use splatforge_api::store::{self, Job, JobStatus, JobStore, Tier};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
@@ -62,6 +64,18 @@ pub struct AppState {
     /// Separate from the Modal/blob clients so a slow subscriber can't
     /// starve those connection pools.
     pub webhook_http: Arc<reqwest::Client>,
+    /// Stripe billing client. Always present — falls back to dry-run mode
+    /// when STRIPE_SECRET_KEY is unset (local dev). The paid `/repack`
+    /// handler and the Modal callback both fire `record_repack_job`.
+    pub billing: Arc<BillingClient>,
+    /// API-key → Stripe customer id resolver. Populated from
+    /// `SPLATFORGE_KEY_CUSTOMERS`. Unknown keys map to `None` and emit
+    /// no billing events (paid pipeline still runs — operator decision
+    /// whether to refuse those at the gate).
+    pub key_customers: Arc<KeyCustomerMap>,
+    /// HMAC secret for verifying `/v1/stripe/webhook` signatures.
+    /// `None` disables the webhook handler entirely (returns 503).
+    pub stripe_webhook_secret: Option<Arc<String>>,
 }
 
 #[tokio::main]
@@ -133,15 +147,51 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("opening jobs db at {database_url}"))?;
     info!(%database_url, "job store ready");
+    let jobs = Arc::new(jobs);
+
+    // Billing setup. Mode is one of "live" / "test" / "dry-run" per
+    // BillingClient::from_env. The dry-run fallback keeps `cargo run`
+    // working in checkouts without Stripe credentials.
+    let (billing, billing_mode) = BillingClient::from_env(jobs.clone());
+    info!(mode = billing_mode, "billing client initialized");
+
+    // SPLATFORGE_KEY_CUSTOMERS — `key1:cus_xxx,key2:cus_yyy`. Empty means
+    // every paid call falls through to the no-customer code path, which
+    // logs but doesn't bill. Useful for closed beta where the operator
+    // is invoicing manually.
+    let key_customers = KeyCustomerMap::parse(std::env::var("SPLATFORGE_KEY_CUSTOMERS").ok());
+    if key_customers.is_empty() {
+        warn!(
+            "SPLATFORGE_KEY_CUSTOMERS is empty — paid jobs will not be billed. \
+             Set this to enable usage-based charges."
+        );
+    } else {
+        info!(n_customers = key_customers.len(), "key→customer map loaded");
+    }
+
+    let stripe_webhook_secret = std::env::var("STRIPE_WEBHOOK_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(Arc::new);
+    if stripe_webhook_secret.is_none() {
+        warn!(
+            "STRIPE_WEBHOOK_SECRET is unset — /v1/stripe/webhook will reject all requests \
+             with 503. Set this to the `whsec_...` value from `stripe listen` (dev) or \
+             your endpoint config (prod)."
+        );
+    }
 
     let state = AppState {
-        jobs: Arc::new(jobs),
+        jobs,
         modal: Arc::new(ModalClient::new(modal_url, modal_repack_url)),
         blob: Arc::new(store::BlobBackend::new(blob_token)),
         public_base_url: public_base_url.trim_end_matches('/').to_string(),
         api_keys: Arc::new(api_keys),
         paid_api_keys: Arc::new(paid_api_keys),
         webhook_http: Arc::new(webhook_http),
+        billing: Arc::new(billing),
+        key_customers: Arc::new(key_customers),
+        stripe_webhook_secret,
     };
 
     // Three routers:
@@ -156,6 +206,10 @@ async fn main() -> anyhow::Result<()> {
     let open = Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/jobs/:id/result", post(job_result))
+        // Stripe webhook is "open" because it has its own HMAC-SHA256
+        // signature gate (`STRIPE_WEBHOOK_SECRET`), not a bearer token.
+        // 1 MB is well over the largest event payload Stripe sends.
+        .route("/v1/stripe/webhook", post(stripe_webhook))
         .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024));
 
     let paid_layer =
@@ -239,35 +293,63 @@ async fn require_paid_api_key(
     Ok(next.run(req).await)
 }
 
+/// The bearer key the request was authenticated with, if any. Stamped into
+/// the request extensions by `require_api_key` so downstream handlers
+/// (notably `create_job` → `build_job`) can look up the customer mapping
+/// without re-parsing the header. Wrapped in a newtype so it doesn't
+/// collide with any other `String` extension.
+#[derive(Clone)]
+struct AuthenticatedKey(String);
+
 /// Bearer-token middleware. When `state.api_keys` is non-empty, every
 /// request to a route under this layer must present
 /// `Authorization: Bearer <key>` matching one of the configured keys.
 /// Returns 401 with the canonical error envelope otherwise.
+///
+/// On success, stamps the verified key into the request extensions as
+/// `AuthenticatedKey` so handlers can map it to a Stripe customer.
 async fn require_api_key(
     State(state): State<AppState>,
-    req: Request<Body>,
+    mut req: Request<Body>,
     next: Next,
 ) -> Result<axum::response::Response, ApiError> {
     if state.api_keys.is_empty() {
         // Auth disabled — dev mode. Logged once at startup; don't log per
-        // request to avoid spam.
+        // request to avoid spam. No AuthenticatedKey is stamped.
         return Ok(next.run(req).await);
     }
-    let auth = req
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-    let presented = auth.strip_prefix("Bearer ").unwrap_or_default().trim();
+    // Extract the bearer token into an owned String so we can drop the
+    // immutable header borrow before taking the mutable extensions borrow.
+    let presented: String = {
+        let auth = req
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        auth.strip_prefix("Bearer ").unwrap_or_default().trim().to_owned()
+    };
     if presented.is_empty() {
         return Err(ApiError::Unauthorized(
             "missing Authorization: Bearer <key>".to_string(),
         ));
     }
-    if !state.api_keys.contains(presented) {
+    if !state.api_keys.contains(&presented) {
         return Err(ApiError::Unauthorized("invalid API key".to_string()));
     }
+    req.extensions_mut().insert(AuthenticatedKey(presented));
     Ok(next.run(req).await)
+}
+
+/// Resolve the Stripe customer id for the request's authenticated key.
+/// Returns `None` when:
+///   * auth is disabled (no AuthenticatedKey extension)
+///   * the key isn't in SPLATFORGE_KEY_CUSTOMERS
+/// `None` means "do not bill" — the paid pipeline still runs, but no
+/// meter event is emitted. This is intentional for the closed-beta
+/// stage where the operator may be invoicing manually.
+fn resolve_customer(state: &AppState, extensions: &axum::http::Extensions) -> Option<String> {
+    let key = extensions.get::<AuthenticatedKey>()?;
+    state.key_customers.lookup(&key.0).map(str::to_owned)
 }
 
 #[instrument(skip(_state))]
@@ -353,12 +435,14 @@ pub struct BatchCreateResponse {
 /// that would blow Modal's budget.
 const MAX_INPUT_BYTES: u64 = 3 * 1024 * 1024 * 1024;
 
-#[instrument(skip(state, req), fields(preset = %req.preset))]
+#[instrument(skip(state, extensions, req), fields(preset = %req.preset))]
 async fn create_job(
     State(state): State<AppState>,
+    extensions: axum::http::Extensions,
     Json(req): Json<CreateJobRequest>,
 ) -> Result<Json<CreateJobResponse>, ApiError> {
-    let job = build_job(&state, req, None).await?;
+    let customer_id = resolve_customer(&state, &extensions);
+    let job = build_job(&state, req, None, customer_id).await?;
     let response = job_creation_response(&job, &state)?;
     state.jobs.insert(&job).await?;
     // URL-mode jobs are immediately enqueueable — kick the worker now so
@@ -375,11 +459,13 @@ async fn create_job(
 /// rejected with a 400 and no jobs are inserted. On success every job
 /// in the batch carries the same `batch_id` for downstream correlation
 /// (e.g. a 40-tile dataset).
-#[instrument(skip(state, req), fields(n_jobs = req.jobs.len()))]
+#[instrument(skip(state, extensions, req), fields(n_jobs = req.jobs.len()))]
 async fn create_jobs_batch(
     State(state): State<AppState>,
+    extensions: axum::http::Extensions,
     Json(req): Json<BatchCreateRequest>,
 ) -> Result<Json<BatchCreateResponse>, ApiError> {
+    let customer_id = resolve_customer(&state, &extensions);
     if req.jobs.is_empty() {
         return Err(ApiError::BadRequest(
             "batch must contain at least one job".to_string(),
@@ -398,7 +484,7 @@ async fn create_jobs_batch(
     // entry doesn't leave half a batch persisted.
     let mut built: Vec<Job> = Vec::with_capacity(req.jobs.len());
     for entry in req.jobs {
-        built.push(build_job(&state, entry, Some(batch_id)).await?);
+        built.push(build_job(&state, entry, Some(batch_id), customer_id.clone()).await?);
     }
     let responses: Vec<CreateJobResponse> = built
         .iter()
@@ -438,6 +524,7 @@ async fn build_job(
     state: &AppState,
     req: CreateJobRequest,
     batch_id: Option<Uuid>,
+    customer_id: Option<String>,
 ) -> Result<Job, ApiError> {
     // Enforce input-mode XOR up front. The schema lets the caller send
     // both upload + URL fields by accident; reject explicitly so we
@@ -514,6 +601,7 @@ async fn build_job(
             webhook_url: req.webhook_url,
             batch_id,
             tier: Tier::Free,
+            customer_id,
             created_at,
             error: None,
         })
@@ -551,6 +639,7 @@ async fn build_job(
             webhook_url: req.webhook_url,
             batch_id,
             tier: Tier::Free,
+            customer_id,
             created_at,
             error: None,
         })
@@ -813,15 +902,24 @@ fn default_iterations() -> u32 {
 /// supplied params, and POSTs the result back through the same callback
 /// shape as the free pipeline. The job is re-marked `Running` while the
 /// repack runs and lands back at `Done` with a new `output_url`.
-#[instrument(skip(state, body), fields(job_id = %id, target = body.target_bytes))]
+#[instrument(skip(state, extensions, body), fields(job_id = %id, target = body.target_bytes))]
 async fn repack_job(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    extensions: axum::http::Extensions,
     Json(body): Json<RepackRequest>,
 ) -> Result<Json<Job>, ApiError> {
     let Some(mut job) = state.jobs.get(&id).await? else {
         return Err(ApiError::NotFound);
     };
+    // Stamp the customer onto the job at repack time. The original
+    // (free) job may have been created before the operator mapped the
+    // key, or with a different key entirely. The repack call is the
+    // billing event, so the repack key wins.
+    let repack_customer = resolve_customer(&state, &extensions);
+    if repack_customer.is_some() {
+        job.customer_id = repack_customer.clone();
+    }
     if body.target_bytes == 0 || body.target_bytes > MAX_INPUT_BYTES {
         return Err(ApiError::BadRequest(format!(
             "target_bytes must be in (0, {MAX_INPUT_BYTES}); got {}",
@@ -875,6 +973,28 @@ async fn repack_job(
         let _ = state.jobs.update(&job).await;
         return Err(ApiError::Modal(e));
     }
+    // Bill the per-run flat fee on successful dispatch. Seconds are
+    // billed when the worker callback lands with elapsed time. The
+    // ledger UNIQUE(job_id, sku) constraint makes both paths idempotent
+    // — a duplicate dispatch (e.g. user double-clicks the button) only
+    // produces one charge.
+    if let Err(e) = state
+        .billing
+        .record_repack_job(
+            job.id,
+            job.customer_id.as_deref(),
+            job.size_bytes,
+            body.iterations,
+            None,
+        )
+        .await
+    {
+        // Billing failure is logged but does not roll back the run. The
+        // alternative — refusing to start the job because Stripe is
+        // down — punishes the customer for our outage. The ledger row
+        // is already claimed, so a backfill script can re-emit later.
+        warn!(error = %e, job_id = %job.id, "billing record_repack_job failed; continuing");
+    }
     Ok(Json(job))
 }
 
@@ -904,6 +1024,13 @@ pub struct ResultPayload {
     /// UI can render a determinate bar instead of an indeterminate slide.
     #[serde(default)]
     pub percent: Option<f32>,
+    /// Wall-clock compute seconds the worker burned on this job. Reported
+    /// by the worker on the terminal `done` callback so the billing path
+    /// can emit the `splatforge_repack_seconds` meter event. Free-tier
+    /// jobs may also send this; it's ignored because no customer_id is
+    /// attached.
+    #[serde(default)]
+    pub compute_seconds: Option<u64>,
     #[serde(default)]
     pub error: Option<String>,
 }
@@ -952,12 +1079,129 @@ async fn job_result(
         }
     }
     state.jobs.update(&job).await?;
+    // Billing on terminal `done` of a paid job, when the worker
+    // reported compute seconds. The ledger UNIQUE constraint on
+    // (job_id, sku) makes this safe to double-fire: a flaky callback
+    // that retries will see the seconds row already claimed and skip.
+    // This is the load-bearing invariant — see BILLING.md "double-fire"
+    // section.
+    if terminal
+        && matches!(job.status, JobStatus::Done)
+        && job.tier == Tier::Paid
+    {
+        if let Err(e) = state
+            .billing
+            .record_repack_job(
+                job.id,
+                job.customer_id.as_deref(),
+                job.size_bytes,
+                0, // iterations unknown at callback time; not used downstream
+                body.compute_seconds,
+            )
+            .await
+        {
+            warn!(error = %e, job_id = %job.id, "billing on callback failed; continuing");
+        }
+    }
     // Only fire webhooks on terminal states so batches of 40 don't
     // generate 80+ wakeups for each subscriber.
     if terminal {
         fire_webhook(&state, &job).await;
     }
     Ok(Json(job))
+}
+
+/// `POST /v1/stripe/webhook` — Stripe webhook receiver.
+///
+/// Verifies the `Stripe-Signature` header against the raw body via
+/// HMAC-SHA256 (see `billing::verify_webhook`), then dispatches on
+/// `event.type`. Only the events listed below are handled; everything
+/// else is ack'd with 200 so Stripe stops retrying.
+///
+/// Events handled:
+///   * `customer.subscription.created` / `updated`  — log status; this is
+///     where tier upgrades land. We log the customer + status so the
+///     operator can reconcile against the static key→customer map.
+///   * `customer.subscription.deleted`              — log; downgrade target.
+///   * `invoice.payment_failed`                     — warn; downgrade target.
+///   * `invoice.payment_succeeded`                  — log for observability.
+///
+/// Automatic tier flipping is deliberately *not* wired up here: the
+/// key→customer map is a static env var, and we don't want a webhook to
+/// silently revoke a key. The handler emits structured logs the operator
+/// (or a future control-plane DB) can reconcile against.
+#[instrument(skip(state, body))]
+async fn stripe_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(secret) = state.stripe_webhook_secret.as_ref() else {
+        // No secret configured → reject everything. Better than silently
+        // accepting unsigned events. 401 (not 503) so this matches the
+        // signature-failure path and Stripe's retry budget can chew it.
+        return Err(ApiError::Unauthorized(
+            "stripe webhook secret not configured".to_string(),
+        ));
+    };
+    let sig = headers.get("stripe-signature").and_then(|v| v.to_str().ok());
+    let now = chrono::Utc::now().timestamp();
+    let event = billing::verify_webhook(
+        &body,
+        sig,
+        secret.as_str(),
+        now,
+        billing::WEBHOOK_DEFAULT_TOLERANCE_SECS,
+    )
+    .map_err(|e| ApiError::Unauthorized(format!("webhook signature: {e}")))?;
+
+    let event_type = event
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(unknown)");
+    let event_id = event
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no-id)");
+    let customer = event
+        .pointer("/data/object/customer")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    match event_type {
+        "customer.subscription.updated" | "customer.subscription.created" => {
+            let status = event
+                .pointer("/data/object/status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            info!(
+                %event_id, event_type, customer, status,
+                "stripe webhook: subscription state change (manual tier reconciliation)"
+            );
+        }
+        "customer.subscription.deleted" => {
+            info!(
+                %event_id, event_type, customer,
+                "stripe webhook: subscription cancelled (downgrade target)"
+            );
+        }
+        "invoice.payment_failed" => {
+            warn!(
+                %event_id, event_type, customer,
+                "stripe webhook: invoice payment failed — downgrade target"
+            );
+        }
+        "invoice.payment_succeeded" => {
+            info!(
+                %event_id, event_type, customer,
+                "stripe webhook: payment ok"
+            );
+        }
+        other => {
+            info!(%event_id, event_type = other, "stripe webhook: ignored");
+        }
+    }
+    Ok(Json(serde_json::json!({ "received": true })))
 }
 
 /// Strip path separators + control chars so the blob key stays inside the

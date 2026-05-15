@@ -25,6 +25,7 @@
   ],
   "exclude": [
     "src/__tests__/**/*",
+    "src/streaming/**/*",
     "node_modules",
     "dist"
   ]

@@ -113,6 +113,13 @@ pub struct Job {
     pub batch_id: Option<Uuid>,
     #[serde(default)]
     pub tier: Tier,
+    /// Stripe customer (`cus_xxx`) that owns this job, if the bearer key
+    /// was associated with one at creation time. `None` means "free /
+    /// untracked" — the billing module short-circuits on these and never
+    /// emits meter events. Stored as a string because Stripe customer IDs
+    /// aren't UUIDs and we never parse them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub customer_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub error: Option<String>,
 }
@@ -163,9 +170,11 @@ impl JobStore {
         Ok(Self { pool })
     }
 
-    /// In-memory database for tests. No migration files needed at the call
-    /// site; the same `migrations/` directory is replayed.
-    #[cfg(test)]
+    /// In-memory database. Used by unit + integration tests; also handy
+    /// for ad-hoc dry-runs that don't want to touch disk. The same
+    /// `migrations/` directory is replayed so callers get the full
+    /// schema (including the billing_events ledger). Not gated on
+    /// `#[cfg(test)]` so integration tests under `tests/` can reach it.
     pub async fn in_memory() -> Result<Self, StoreError> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -192,9 +201,9 @@ impl JobStore {
                 id, preset, filename, size_bytes, label, status,
                 blob_key, blob_url, source_url, upload_size_bytes,
                 output_url, preview_url, phase, percent, webhook_url,
-                batch_id, tier, created_at, updated_at, error
+                batch_id, tier, customer_id, created_at, updated_at, error
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                      ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                      ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
             "#,
         )
         .bind(job.id.to_string())
@@ -214,6 +223,7 @@ impl JobStore {
         .bind(&job.webhook_url)
         .bind(job.batch_id.map(|b| b.to_string()))
         .bind(job.tier.as_db_str())
+        .bind(&job.customer_id)
         .bind(job.created_at.to_rfc3339())
         .bind(now.to_rfc3339())
         .bind(&job.error)
@@ -230,7 +240,8 @@ impl JobStore {
                 status = ?6, blob_key = ?7, blob_url = ?8, source_url = ?9,
                 upload_size_bytes = ?10, output_url = ?11, preview_url = ?12,
                 phase = ?13, percent = ?14, webhook_url = ?15,
-                batch_id = ?16, tier = ?17, updated_at = ?18, error = ?19
+                batch_id = ?16, tier = ?17, customer_id = ?18,
+                updated_at = ?19, error = ?20
             WHERE id = ?1
             "#,
         )
@@ -251,6 +262,7 @@ impl JobStore {
         .bind(&job.webhook_url)
         .bind(job.batch_id.map(|b| b.to_string()))
         .bind(job.tier.as_db_str())
+        .bind(&job.customer_id)
         .bind(Utc::now().to_rfc3339())
         .bind(&job.error)
         .execute(&self.pool)
@@ -264,6 +276,64 @@ impl JobStore {
             .fetch_optional(&self.pool)
             .await?;
         row.map(row_to_job).transpose()
+    }
+
+    /// Idempotently claim a (job_id, sku) slot in the billing ledger. Returns
+    /// `Ok(true)` if this is a fresh claim (the caller should post the meter
+    /// event to Stripe); `Ok(false)` if a row already exists (someone else got
+    /// here first — *do not* post another event). Backed by SQLite's UNIQUE
+    /// constraint on (job_id, sku), so concurrent callers serialize cleanly.
+    ///
+    /// This is the no-double-charge invariant. Even if the Modal callback
+    /// fires twice for the same job (flaky webhooks, retries), only one
+    /// caller's INSERT succeeds.
+    pub async fn claim_billing_event(
+        &self,
+        job_id: &Uuid,
+        customer_id: &str,
+        sku: &str,
+        units: u64,
+        idempotency_key: &str,
+    ) -> Result<bool, StoreError> {
+        let row_id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let res = sqlx::query(
+            r#"
+            INSERT INTO billing_events
+                (id, job_id, customer_id, sku, units, idempotency_key, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(job_id, sku) DO NOTHING
+            "#,
+        )
+        .bind(row_id)
+        .bind(job_id.to_string())
+        .bind(customer_id)
+        .bind(sku)
+        .bind(units as i64)
+        .bind(idempotency_key)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() == 1)
+    }
+
+    /// Stamp the Stripe-side event id onto a previously-claimed billing row.
+    /// Best-effort: a missing row (e.g. if the ledger was wiped) is a no-op.
+    pub async fn mark_billing_event_posted(
+        &self,
+        job_id: &Uuid,
+        sku: &str,
+        stripe_event_id: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE billing_events SET stripe_event_id = ?3 WHERE job_id = ?1 AND sku = ?2",
+        )
+        .bind(job_id.to_string())
+        .bind(sku)
+        .bind(stripe_event_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// All jobs in a batch, ordered by insertion. Used by the batch-status
@@ -320,6 +390,7 @@ fn row_to_job(row: sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {
         webhook_url: row.try_get("webhook_url")?,
         batch_id,
         tier,
+        customer_id: row.try_get("customer_id")?,
         created_at,
         error: row.try_get("error")?,
     })
@@ -434,6 +505,7 @@ mod tests {
             webhook_url: None,
             batch_id: None,
             tier: Tier::Free,
+            customer_id: None,
             created_at: Utc::now(),
             error: None,
         }

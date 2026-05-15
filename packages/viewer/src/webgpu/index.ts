@@ -271,8 +271,11 @@ export class ComputeDecodePipeline {
       ],
     });
 
+    // 32 B minimum: WGSL Uniforms { count: u32, _pad: vec3<u32> } occupies
+    // 16 B but WebGPU pads uniform-buffer bindings up to the next power-of-2
+    // ≥ the struct size, with a 32 B minimum on most adapters.
     this.gatherUniforms = this.device.createBuffer({
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.gatherBindGroup = this.device.createBindGroup({
@@ -409,7 +412,8 @@ export class ComputeDecodePipeline {
 
     // Gather pass: write `instanceBuffer[i] = instUnsorted[sorted_indices[i]]`.
     {
-      const u = new Uint32Array([count, 0, 0, 0]);
+      const u = new Uint32Array(8); // 32 bytes
+      u[0] = count;
       this.device.queue.writeBuffer(this.gatherUniforms, 0, u.buffer);
       const pass = encoder.beginComputePass();
       pass.setPipeline(this.pipes.gather);

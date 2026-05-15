@@ -105,7 +105,8 @@ export class RadixSort {
     // The bind groups depend on which ping-pong direction each pass uses.
     for (let pass = 0; pass < PASSES; pass++) {
       const ub = device.createBuffer({
-        size: 16,
+        // 16-byte struct; some adapters require ≥32 B uniform bindings.
+        size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       this.uniformBuffers.push(ub);
@@ -142,9 +143,14 @@ export class RadixSort {
       throw new Error(`RadixSort: count ${count} exceeds capacity ${this.capacity}`);
     }
     const numWgs = Math.ceil(count / WG_SIZE);
-    // Update the per-pass uniform buffers. Writes are cheap (16B each).
+    // Update the per-pass uniform buffers. 32 B each (only the first 16 B
+    // is meaningful; the trailing 16 B is required by the binding-size
+    // floor enforced by the bind-group validation).
     for (let pass = 0; pass < PASSES; pass++) {
-      const u = new Uint32Array([count, pass * BITS_PER_PASS, numWgs, 0]);
+      const u = new Uint32Array(8);
+      u[0] = count;
+      u[1] = pass * BITS_PER_PASS;
+      u[2] = numWgs;
       this.device.queue.writeBuffer(this.uniformBuffers[pass]!, 0, u.buffer);
     }
     for (let pass = 0; pass < PASSES; pass++) {

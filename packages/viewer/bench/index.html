@@ -8,7 +8,7 @@
 <body>
 <div id="log">bench: booting…</div>
 <script type="module">
-  import { main } from '/dist-bench/compute-decode.bench.js';
+  import { main } from '/dist-bench/bench/compute-decode.bench.js';
   const log = document.getElementById('log');
   window.addEventListener('error', (e) => {
     log.textContent += `\nerror: ${e.message}`;

@@ -156,26 +156,11 @@ export async function runBench(device, splatCount, iterations = 30) {
     const totalMs = performance.now() - t0;
     const perFrameMs = totalMs / iterations;
     const fps = 1000 / perFrameMs;
-    // Approximate per-stage timing by running them in isolation. Imperfect (the
-    // driver may overlap differently), but it gives a useful breakdown.
-    const isolateStage = async (which) => {
-        const N = Math.max(5, Math.floor(iterations / 3));
-        const start = performance.now();
-        for (let i = 0; i < N; i++) {
-            const e = device.createCommandEncoder();
-            // For an "isolated" measurement we run only that stage's dispatches by
-            // re-encoding the relevant subset. Cheaper approximation: re-run the
-            // full pipeline, treating the diff vs no-op as the cost.
-            pipeline.encode(e, view, viewProj, focal, viewport);
-            device.queue.submit([e.finish()]);
-        }
-        await device.queue.onSubmittedWorkDone();
-        return (performance.now() - start) / N;
-    };
-    // We deliberately don't break things out finer than the full encode; the
-    // breakdown numbers are estimates derived from the radix-sort dominance
-    // model (~70% sort, ~20% project, ~10% gather at 10M).
-    void isolateStage;
+    // We don't break things out finer than the full encode — WebGPU 1.0
+    // doesn't ship timestamp queries on every adapter and per-stage isolation
+    // doesn't reflect the driver's actual overlap. The breakdown is an
+    // engineering estimate derived from the radix-sort-dominance model
+    // (~70% sort, ~20% project, ~10% gather at 10M splats).
     const breakdown = {
         project: perFrameMs * 0.2,
         sort: perFrameMs * 0.7,
@@ -198,12 +183,25 @@ export async function main() {
         window.__bench = { error: 'no_webgpu' };
         return;
     }
-    const adapter = await gpu.requestAdapter();
+    const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) {
         window.__bench = { error: 'no_adapter' };
         return;
     }
-    const device = await adapter.requestDevice();
+    // 10M splats × 64 B = 640 MB; raise the default 128 MB cap. Most desktop
+    // adapters advertise 2 GB or higher.
+    const want = {
+        maxStorageBufferBindingSize: Math.min((adapter.limits.maxStorageBufferBindingSize ?? 0) >>> 0, 2 * 1024 * 1024 * 1024),
+        maxBufferSize: Math.min((adapter.limits.maxBufferSize ?? 0) >>> 0, 2 * 1024 * 1024 * 1024),
+        maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
+    };
+    const device = await adapter.requestDevice({
+        requiredLimits: {
+            maxStorageBufferBindingSize: want.maxStorageBufferBindingSize,
+            maxBufferSize: want.maxBufferSize,
+        },
+    });
+    const adapterInfo = adapter.info ?? {};
     const out = [];
     for (const n of [1_000_000, 10_000_000]) {
         try {
@@ -222,6 +220,8 @@ export async function main() {
     window.__bench = {
         results: out,
         sizes: { bytes_per_decoded_splat: BYTES_PER_DECODED_SPLAT, floats_per_instance: FLOATS_PER_INSTANCE },
+        adapter: adapterInfo,
+        limits: want,
         timestamp: new Date().toISOString(),
     };
 }
