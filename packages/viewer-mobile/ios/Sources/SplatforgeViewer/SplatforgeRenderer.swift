@@ -5,12 +5,16 @@
 // 2. Build view-proj from a free-orbit camera (touch / drag in a follow-up).
 // 3. Draw one instanced quad per splat with `SplatPointSprite.metal`.
 //
-// The compute-shader sort + 2D-cov path lives in `Shaders/RadixSort.metal` /
-// `Shaders/ProjectCovariance.metal` — both STUBS pending the WGSL→MSL port.
+// The compute-shader sort + decode + 2D-cov projection paths now live in
+// `SplatforgeShaders` (RadixSort.metal, SplatDecode.metal, ProjectGather.metal,
+// HistogramSubgroup.metal, ScanMultiblock.metal). This file still uses the
+// Phase-1 `SplatPointSprite.metal` render path; wiring those compute kernels
+// into the frame pipeline is the next renderer change.
 
 import Foundation
 import MetalKit
 import SplatforgeViewerC
+import SplatforgeShaders
 import simd
 
 /// Swift never sees the inside of `SfmvBuffer` — the C header forward-declares
@@ -106,11 +110,12 @@ final class SplatforgeRenderer: NSObject, MTKViewDelegate {
     // MARK: - helpers
 
     private func makePipeline(device: MTLDevice, pixelFormat: MTLPixelFormat) -> MTLRenderPipelineState? {
-        // The Shaders/ folder ships as a resource bundle: `Bundle.module` is
-        // synthesised by SwiftPM whenever `resources:` is set on the target.
+        // The Shaders/ folder ships as a resource bundle on the
+        // `SplatforgeShaders` target; that's where the compiled .metallib
+        // lives at runtime.
         let library: MTLLibrary?
         do {
-            library = try device.makeDefaultLibrary(bundle: Bundle.module)
+            library = try device.makeDefaultLibrary(bundle: SplatforgeShaders.bundle)
         } catch {
             library = nil
         }
