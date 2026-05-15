@@ -68,7 +68,7 @@ use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
 use tracing::{info, instrument, warn};
 
-use crate::store::{JobStore, StoreError, TeamSignupRow};
+use crate::store::{JobStoreApi, StoreError, TeamSignupRow};
 
 /// Prefix every freshly-minted SplatForge API key starts with. Matches
 /// the WorkOS branch's `auth::KEY_PREFIX_LITERAL` so once that branch
@@ -641,7 +641,7 @@ pub async fn create_session_and_register(
 /// stops retrying.
 #[instrument(skip(store, pending_keys, pending_tokens, event))]
 pub async fn provision_from_session(
-    store: &JobStore,
+    store: &(dyn JobStoreApi + Send + Sync),
     pending_keys: &PendingKeyCache,
     pending_tokens: &PendingClaimTokens,
     event: &serde_json::Value,
@@ -748,7 +748,7 @@ pub async fn provision_from_session(
 ///      at the operator's whim" — refusing is the safe default.
 #[instrument(skip(store, pending_keys))]
 pub async fn reveal_key(
-    store: &JobStore,
+    store: &(dyn JobStoreApi + Send + Sync),
     pending_keys: &PendingKeyCache,
     req: RevealRequest,
 ) -> Result<RevealResponse, CheckoutError> {

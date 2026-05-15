@@ -42,15 +42,17 @@ use splatforge_api::checkout::{
     RevealRequest, StripeCheckoutClient,
 };
 use splatforge_api::modal_client::{self, ModalClient};
-use splatforge_api::store::{self, Job, JobStatus, JobStore, RatingSummaryRow, Tier};
-use sha2::{Digest, Sha256};
+use splatforge_api::store::{self, DynJobStore, Job, JobStatus, RatingSummaryRow, Tier};
 
 /// Top-level app state shared with every handler.
 #[derive(Clone)]
 pub struct AppState {
-    /// In-memory job store. Swapped for Postgres once we have multi-instance
-    /// deployment; everything below treats it as an opaque trait object.
-    pub jobs: Arc<JobStore>,
+    /// Trait-object handle to whichever backend `DATABASE_URL`'s scheme
+    /// selected at startup (SQLite for the single-instance Fly deploy,
+    /// Postgres for multi-instance promotion — see v2 plan §3b and
+    /// `apps/api/STORE-BACKENDS.md`). Every handler talks `JobStoreApi`;
+    /// no production code touches the concrete impl.
+    pub jobs: DynJobStore,
     /// Modal worker client.
     pub modal: Arc<ModalClient>,
     /// Blob storage adapter (Vercel Blob today; R2/S3 later).
@@ -169,11 +171,13 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .expect("reqwest client");
 
-    let jobs = JobStore::connect(&database_url)
+    // `store::connect` is the only place in the binary that knows which
+    // backend is in play. SQLite vs Postgres is selected by URL scheme;
+    // see `store/mod.rs::connect` for the dispatch rule.
+    let jobs: DynJobStore = store::connect(&database_url)
         .await
         .with_context(|| format!("opening jobs db at {database_url}"))?;
     info!(%database_url, "job store ready");
-    let jobs = Arc::new(jobs);
 
     // Billing setup. Mode is one of "live" / "test" / "dry-run" per
     // BillingClient::from_env. The dry-run fallback keeps `cargo run`
@@ -1519,3 +1523,57 @@ impl IntoResponse for ApiError {
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
     }
 }
+
+/* ----------------------------------------------------------------------- */
+/* /v1/ratings — minimal stubs                                             */
+/* ----------------------------------------------------------------------- */
+//
+// The full fidelity-ml v0.4 collection handler (with the 100/hour rate
+// limit, IP+UA hashing, and known-preset gate) lives on the rating-
+// collection feature branch. Until that lands here we need *something*
+// at these route paths so the bin compiles; these two stubs wire the
+// trait through (`state.jobs.summarize_ratings` and `insert_rating`)
+// so the store-trait refactor exercises the same methods the real
+// handler will. Returning a stable JSON shape means front-end work can
+// proceed against the API surface before the full handler arrives.
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PostRatingRequest {
+    pub scene_id: String,
+    pub left_preset: String,
+    pub right_preset: String,
+    pub winner: String,
+}
+
+async fn post_rating(
+    State(state): State<AppState>,
+    Json(req): Json<PostRatingRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if !matches!(req.winner.as_str(), "left" | "right" | "tie") {
+        return Err(ApiError::BadRequest("winner must be left|right|tie".into()));
+    }
+    let id = state
+        .jobs
+        .insert_rating(
+            &req.scene_id,
+            &req.left_preset,
+            &req.right_preset,
+            &req.winner,
+            "stub-respondent",
+        )
+        .await
+        .map_err(ApiError::Internal)?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn ratings_summary(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<RatingSummaryRow>>, ApiError> {
+    let pairs = state
+        .jobs
+        .summarize_ratings()
+        .await
+        .map_err(ApiError::Internal)?;
+    Ok(Json(pairs))
+}
+
