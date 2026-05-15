@@ -66,7 +66,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
 
     <div class="region region-result">
       <canvas data-result-canvas class="result-canvas"></canvas>
-      <div class="result-meta" data-result-meta>live preview · drag to orbit</div>
+      <div class="result-meta" data-result-meta>auto-rotating preview</div>
       <div class="result-actions">
         <a class="btn btn-primary" data-result-download download>
           <span aria-hidden="true">⬇</span>&nbsp;Download .glb
@@ -101,6 +101,16 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
 </section>
 
 <style>
+  /* Center the TryIt header so it visually aligns with the centered
+     content inside the dropzone below. Other sections keep the default
+     left-aligned head; the upload card is the one place where centering
+     reads better because the whole interaction is centered. */
+  .try-section .section-head {
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+  }
+
   /* Region visibility is driven by data-state on the .dropzone. Only one
      region renders at a time so the dropzone *transforms* through the flow
      (idle -> progress -> result) instead of stacking panels. */
@@ -163,9 +173,11 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     display: block;
-    cursor: grab;
   }
-  .result-canvas:active { cursor: grabbing; }
+  /* Interactive control class is added by the viewer once pointer handlers
+     are wired up; gives the user a visible cue that drag will work. */
+  .result-canvas.interactive { cursor: grab; }
+  .result-canvas.interactive:active { cursor: grabbing; }
   .result-meta {
     font-size: 0.82rem;
     opacity: 0.55;
@@ -246,8 +258,13 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     }
 
     function disposeViewer() {
-      if (viewerHandle && typeof viewerHandle.dispose === "function") {
-        try { viewerHandle.dispose(); } catch (_) {}
+      if (viewerHandle) {
+        if (typeof viewerHandle.__detachInteractive === "function") {
+          try { viewerHandle.__detachInteractive(); } catch (_) {}
+        }
+        if (typeof viewerHandle.dispose === "function") {
+          try { viewerHandle.dispose(); } catch (_) {}
+        }
       }
       viewerHandle = null;
     }
@@ -356,19 +373,120 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
           cameraPath: "orbit-8",
           budget: "web-mobile",
           autoRotate: true,
-          autoRotateSpeed: 7,
-        });
-        v.on("firstRender", function () {
-          if (resultMeta) resultMeta.textContent = "drag to orbit · scroll to zoom";
+          autoRotateSpeed: 8,
         });
         v.on("error", function (p) {
           if (resultMeta) resultMeta.textContent = "preview unavailable (" + ((p && p.code) || "unknown") + ")";
+        });
+        let activated = false;
+        v.on("firstRender", function () {
+          if (resultMeta) resultMeta.textContent = "auto-rotating · drag to orbit · scroll to zoom";
+          // Defer activation a tick so the viewer's auto-rotate RAF has settled.
+          if (!activated) {
+            activated = true;
+            setTimeout(function () { attachInteractiveControls(v); }, 0);
+          }
         });
         await v.load();
         viewerHandle = v;
       } catch (err) {
         if (resultMeta) resultMeta.textContent = "preview failed: " + ((err && err.message) || err);
       }
+    }
+
+    // Wire up drag-to-orbit + wheel-to-zoom on top of the viewer. The
+    // viewer doesn't ship interactive controls (only auto-rotate or a
+    // baked orbit-8 path), so we drive renderer.renderFrame() ourselves
+    // with custom yaw/pitch/distance derived from pointer events.
+    function attachInteractiveControls(v) {
+      if (!(resultCanvas instanceof HTMLCanvasElement)) return;
+      if (!v || !v.renderer || !v.cachedManifest) return;
+      const bbox = (v.opts && v.opts.cameraBbox) || v.cachedManifest.bbox;
+      if (!bbox) return;
+      const center = [
+        (bbox.min[0] + bbox.max[0]) * 0.5,
+        (bbox.min[1] + bbox.max[1]) * 0.5,
+        (bbox.min[2] + bbox.max[2]) * 0.5,
+      ];
+      const dx = bbox.max[0] - bbox.min[0];
+      const dy = bbox.max[1] - bbox.min[1];
+      const dz = bbox.max[2] - bbox.min[2];
+      const radius = Math.max(0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz), 0.001);
+
+      let yaw = 0;
+      let pitch = (20 * Math.PI) / 180;
+      let distMult = 2.5;
+
+      function rerender() {
+        const r = radius * distMult;
+        const cy = Math.cos(pitch);
+        const sy = Math.sin(pitch);
+        const aspect = resultCanvas.width / Math.max(resultCanvas.height, 1);
+        const pose = {
+          position: [
+            center[0] + r * cy * Math.sin(yaw),
+            center[1] + r * sy,
+            center[2] + r * cy * Math.cos(yaw),
+          ],
+          target: center,
+          up: [0, 1, 0],
+          fovY: (60 * Math.PI) / 180,
+          aspect: aspect,
+          near: 0.01,
+          far: r * 10,
+        };
+        try { void v.renderer.renderFrame(pose); } catch (_) {}
+      }
+
+      let dragging = false;
+      let lx = 0, ly = 0;
+      const ORBIT_SCALE = 0.0065;  // radians per pixel
+      const PITCH_LIMIT = (85 * Math.PI) / 180;
+      function pointerDown(e) {
+        if (e.button !== undefined && e.button !== 0) return;
+        // First user interaction: pause auto-rotate so drag takes over.
+        if (typeof v.stopAutoRotate === "function") v.stopAutoRotate();
+        dragging = true;
+        lx = e.clientX; ly = e.clientY;
+        try { resultCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+      function pointerMove(e) {
+        if (!dragging) return;
+        const ndx = e.clientX - lx;
+        const ndy = e.clientY - ly;
+        lx = e.clientX; ly = e.clientY;
+        yaw -= ndx * ORBIT_SCALE;
+        pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch + ndy * ORBIT_SCALE));
+        rerender();
+      }
+      function pointerUp(e) {
+        if (!dragging) return;
+        dragging = false;
+        try { resultCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      function wheel(e) {
+        e.preventDefault();
+        if (typeof v.stopAutoRotate === "function") v.stopAutoRotate();
+        const factor = Math.exp(e.deltaY * 0.0012);
+        distMult = Math.max(0.4, Math.min(10, distMult * factor));
+        rerender();
+      }
+
+      resultCanvas.addEventListener("pointerdown", pointerDown);
+      resultCanvas.addEventListener("pointermove", pointerMove);
+      resultCanvas.addEventListener("pointerup", pointerUp);
+      resultCanvas.addEventListener("pointercancel", pointerUp);
+      resultCanvas.addEventListener("wheel", wheel, { passive: false });
+      resultCanvas.classList.add("interactive");
+      // Stash so disposeViewer can pull controls down too if needed.
+      v.__detachInteractive = function () {
+        resultCanvas.removeEventListener("pointerdown", pointerDown);
+        resultCanvas.removeEventListener("pointermove", pointerMove);
+        resultCanvas.removeEventListener("pointerup", pointerUp);
+        resultCanvas.removeEventListener("pointercancel", pointerUp);
+        resultCanvas.removeEventListener("wheel", wheel);
+        resultCanvas.classList.remove("interactive");
+      };
     }
 
     function fail(message) {
