@@ -18,6 +18,7 @@ import { StatsOverlay } from './stats.js';
 import { isWebGPUAvailable, WebGPURenderer } from './renderer/webgpu.js';
 import { WebGL2Renderer } from './renderer/webgl2.js';
 import { StreamingTileset, } from './streaming/index.js';
+import { manifestFromGlb } from './streaming/glb.js';
 /**
  * Main viewer class. Construct, subscribe, then call {@link load}.
  */
@@ -296,15 +297,21 @@ export class SplatForgeViewer {
      * canonical splat buffer, the rasterizer picks the result up on the next
      * draw.
      */
-    uploadTileToRenderer(renderer, _tile, json, bin) {
-        const manifest = parseManifest(json);
+    uploadTileToRenderer(renderer, tile, json, bin) {
+        // GLBs from the Cesium tileset emitter carry an inline BIN chunk —
+        // their JSON declares `buffers[0].uri = null`. The viewer's generic
+        // `parseManifest` rejects that path (it expects an external buffer
+        // URI). The streaming layer instead uses `manifestFromGlb` to
+        // synthesize a single chunk that points at the GLB's BIN slice.
+        const { manifest, bin: binSlice } = manifestFromGlb({ json, bin });
+        const tileChunks = [];
         for (const chunk of manifest.chunks) {
-            // For a single-file GLB the chunk's `byteOffset` is relative to the
-            // BIN chunk start — the same convention the bench harness uses.
-            const slice = bin.subarray(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+            // For a one-chunk GLB the slice is the entire BIN payload.
+            const slice = binSlice.subarray(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
             renderer.uploadChunk(chunk, slice);
-            this.tileChunks.set(_tile.id, [{ descriptor: chunk, bytes: slice }]);
+            tileChunks.push({ descriptor: chunk, bytes: slice });
         }
+        this.tileChunks.set(tile.id, tileChunks);
     }
     /** Diagnostic accessor for tests + bench. */
     get streamingTileset() {
