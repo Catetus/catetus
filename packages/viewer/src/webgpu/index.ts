@@ -96,8 +96,26 @@ interface DecodePipelines {
   projectGatherBgl?: GPUBindGroupLayout;
 }
 
-function createDecodePipelines(device: GPUDevice, includeFused: boolean): DecodePipelines {
-  const decodeMod = device.createShaderModule({ code: DECODE_WGSL });
+/**
+ * Replace the EWA-anti-aliasing 2D-covariance dilation floor `let reg = 0.3;`
+ * (marked with the `SF_EWA_DILATION` token) with `let reg = <dilation>;` so
+ * a caller can shrink or disable the screen-space sigma_min^2 = 0.3 floor
+ * that's inherited from the Inria CUDA rasterizer. See research log entry
+ * for 2026-05-15 (novel-2-renderer) for why this matters: trained scenes
+ * have median sigma 0.55-1.3 px so the radius cull never fires, but dropping
+ * the floor to ~0.05-0.1 px brings cull rate from <1% up to 10-30%+ on
+ * already-trained PLYs with negligible visible-pixel impact.
+ */
+function applyDilationOverride(wgsl: string, dilation: number): string {
+  if (dilation === 0.3) return wgsl;
+  // Render a clean WGSL literal: small but non-zero floor stays positive,
+  // exact 0.0 emits "0.0" to keep WGSL happy with type inference.
+  const lit = dilation === 0 ? '0.0' : dilation.toFixed(6);
+  return wgsl.replace(/let reg = 0\.3; \/\/ SF_EWA_DILATION/g, `let reg = ${lit}; // SF_EWA_DILATION(override=${dilation})`);
+}
+
+function createDecodePipelines(device: GPUDevice, includeFused: boolean, dilation: number = 0.3): DecodePipelines {
+  const decodeMod = device.createShaderModule({ code: applyDilationOverride(DECODE_WGSL, dilation) });
   const decodeBgl = device.createBindGroupLayout({
     entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
@@ -148,7 +166,7 @@ function createDecodePipelines(device: GPUDevice, includeFused: boolean): Decode
   //   cs_project_gather:   splats + sorted_indices[] + camera → instanceBuffer[].
   //                        Bindings: (0 splats, 1 indices, 2 inst_out, 3 uniforms).
   // -----------------------------------------------------------------
-  const fusedMod = device.createShaderModule({ code: PROJECT_GATHER_WGSL });
+  const fusedMod = device.createShaderModule({ code: applyDilationOverride(PROJECT_GATHER_WGSL, dilation) });
   const keygenBgl = device.createBindGroupLayout({
     entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
@@ -263,6 +281,18 @@ export interface ComputeDecodePipelineInit {
    * but inactive). The bench harness opts in explicitly.
    */
   useCull?: boolean;
+  /**
+   * EWA anti-aliasing 2D-covariance dilation floor (the `sigma_min^2` added
+   * to the diagonal of the projected screen-space covariance). Inherited
+   * from the Inria CUDA rasterizer where it's hard-coded to 0.3 — the
+   * default here matches that behaviour. Lowering it (e.g. 0.05 - 0.1)
+   * tightens sub-pixel Gaussians and lets the opacity-radius pre-sort cull
+   * (see `useCull`) actually fire on production-trained PLYs at the cost
+   * of some screen-space anti-aliasing fidelity. See research log
+   * 2026-05-15 (novel-2-renderer) for the sweep + decision criteria.
+   * Default: 0.3.
+   */
+  dilation?: number;
 }
 
 /**
@@ -280,6 +310,8 @@ export class ComputeDecodePipeline {
   readonly capacity: number;
   /** True when the fused project+gather path is active. */
   readonly useFusedProject: boolean;
+  /** EWA dilation floor applied to projected 2D covariance. See `ComputeDecodePipelineInit.dilation`. */
+  readonly dilation: number;
   private readonly pipes: DecodePipelines;
   private readonly radixPipes: RadixSortPipelines;
   /** Canonical decoded-splat buffer. One per-splat record across all chunks. */
@@ -320,7 +352,8 @@ export class ComputeDecodePipeline {
     // path (false) until the fuse is made bandwidth-efficient. Real per-stage
     // numbers in `docs/perf/webgpu-10m-profile.md`.
     this.useFusedProject = init.useFusedProject ?? false;
-    this.pipes = createDecodePipelines(this.device, this.useFusedProject);
+    this.dilation = init.dilation ?? 0.3;
+    this.pipes = createDecodePipelines(this.device, this.useFusedProject, this.dilation);
     this.radixPipes = createRadixSortPipelines(this.device, RADIX_SORT_WGSL);
 
     const decodedSize = Math.max(this.capacity * BYTES_PER_DECODED_SPLAT, BYTES_PER_DECODED_SPLAT);
@@ -408,7 +441,7 @@ export class ComputeDecodePipeline {
     // -----------------------------------------------------------------
     this.useCull = init.useCull ?? false;
     if (this.useCull) {
-      const cullPipes = createCullPipelines(this.device);
+      const cullPipes = createCullPipelines(this.device, this.dilation);
       // For the cull path we write Instance records straight into the
       // unsorted scratch buffer (non-fused only — fused-path integration
       // is a follow-up because the fused path skips the scratch buffer

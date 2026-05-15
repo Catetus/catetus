@@ -169,7 +169,7 @@ fn cs_project_gather(@builtin(global_invocation_id) gid : vec3<u32>) {
   let z = max(abs(depth), 1e-4);
   let jx = gu.focal.x / z;
   let jy = gu.focal.y / z;
-  let reg = 0.3;
+  let reg = 0.3; // SF_EWA_DILATION
   let c00 = jx * jx * vxx + reg;
   let c01 = jx * jy * vxy;
   let c11 = jy * jy * vyy + reg;
