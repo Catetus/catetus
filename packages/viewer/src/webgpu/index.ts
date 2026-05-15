@@ -299,7 +299,15 @@ export class ComputeDecodePipeline {
   constructor(init: ComputeDecodePipelineInit) {
     this.device = init.device;
     this.capacity = init.capacity;
-    this.useFusedProject = init.useFusedProject ?? true;
+    // PERFORMANCE NOTE: the fused `cs_project_gather` path (true) eliminates
+    // a 640 MB unsorted-scratch pass at 10 M splats but pays a 2.3× cost in
+    // per-frame GPU time on the laptop 4090 — projection is recomputed in
+    // sorted order with cache-hostile reads back into `splats[]`, vs the
+    // non-fused path which projects once into a coherent scratch buffer and
+    // the per-frame gather is a 64-byte memcpy. We default to the non-fused
+    // path (false) until the fuse is made bandwidth-efficient. Real per-stage
+    // numbers in `docs/perf/webgpu-10m-profile.md`.
+    this.useFusedProject = init.useFusedProject ?? false;
     this.pipes = createDecodePipelines(this.device, this.useFusedProject);
     this.radixPipes = createRadixSortPipelines(this.device, RADIX_SORT_WGSL);
 
