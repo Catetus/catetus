@@ -74,3 +74,4 @@ apps/web/.astro/
 apps/web/src/data/
 __pycache__/
 *.pyc
+.vercel
