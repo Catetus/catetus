@@ -6,6 +6,24 @@ Command-line front end for the SplatForge Gaussian-splat pipeline.
 splatforge <command> [options]
 ```
 
+## Install
+
+```bash
+# Homebrew (macOS, Linux)
+brew tap splatforge/tap && brew install splatforge
+
+# npm (any platform with Node 18+ on $PATH)
+npm install -g @splatforge/cli
+
+# From source (requires a Rust toolchain)
+cargo install --git https://github.com/splatforge/splatforge \
+  --locked splatforge-cli
+```
+
+All three install paths land the same three binaries on your `$PATH`:
+`splatforge`, `splatforge-khr-validate`, `splatforge-usd-validate`. The
+release runbook (`distrib/RELEASE.md`) documents how releases are cut.
+
 ## Commands
 
 | Command | Summary |

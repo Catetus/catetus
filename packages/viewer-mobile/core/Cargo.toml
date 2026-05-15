@@ -1,0 +1,23 @@
+[package]
+name = "splatforge-viewer-mobile"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Shared CPU render core for the SplatForge native mobile viewers (iOS + Android). Decodes .glb (KHR_gaussian_splatting), depth-sorts, projects to NDC. No platform graphics APIs."
+publish = false
+
+# Both rlib (for tests + Rust callers) and staticlib/cdylib (for Swift/Kotlin).
+[lib]
+name = "splatforge_viewer_mobile"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+splatforge-core = { workspace = true }
+splatforge-gltf = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []

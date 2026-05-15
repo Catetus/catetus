@@ -1,0 +1,3 @@
+module SplatforgeViewer {
+    header "/Users/montabano1/Desktop/sf-mobile-wt/packages/viewer-mobile/ios/.build/arm64-apple-macosx/debug/SplatforgeViewer.build/include/SplatforgeViewer-Swift.h"
+}

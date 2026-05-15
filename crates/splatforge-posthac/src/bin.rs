@@ -131,10 +131,7 @@ fn cmd_decode(input: PathBuf, out: PathBuf) -> Result<(), Box<dyn std::error::Er
     let n = c.header.n as usize;
     let d = c.header.d as usize;
 
-    eprintln!(
-        "[decode] N={} D={} — running predict_all() in Rust",
-        n, d
-    );
+    eprintln!("[decode] N={} D={} — running predict_all() in Rust", n, d);
     let predictions = predict_all(
         &c.positions,
         c.header.pos_mn,
@@ -144,7 +141,11 @@ fn cmd_decode(input: PathBuf, out: PathBuf) -> Result<(), Box<dyn std::error::Er
     );
     eprintln!("[decode] range-decoding {} symbols", n * d);
     let codes = decode_codes(&c.compressed, n, d, &predictions)?;
-    eprintln!("[decode] writing {} bytes to {}", codes.len(), out.display());
+    eprintln!(
+        "[decode] writing {} bytes to {}",
+        codes.len(),
+        out.display()
+    );
     let mut f = fs::File::create(&out)?;
     f.write_u32::<LittleEndian>(n as u32)?;
     f.write_u32::<LittleEndian>(d as u32)?;
@@ -152,10 +153,7 @@ fn cmd_decode(input: PathBuf, out: PathBuf) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-fn cmd_roundtrip(
-    input: PathBuf,
-    raw_codes: PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_roundtrip(input: PathBuf, raw_codes: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let bytes = fs::read(&input)?;
     let c = read_container(&bytes)?;
     let n = c.header.n as usize;

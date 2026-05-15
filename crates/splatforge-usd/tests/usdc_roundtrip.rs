@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 //! In-process USDC round-trip tests.
 //!
 //! These tests do not require Pixar's `usdcat` to be installed. They write

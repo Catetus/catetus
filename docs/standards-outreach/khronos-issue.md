@@ -8,21 +8,30 @@
 
 ## Title
 
-`KHR_gaussian_splatting: SplatForge reference implementation + conformance test suite`
+`KHR_gaussian_splatting + KHR_gaussian_splatting_compression_spz: SplatForge reference implementation + conformance test suite`
 
 ## Body
 
-Hi — SplatForge has a candidate reference implementation for `KHR_gaussian_splatting` ready for the working group's consideration.
+Hi — SplatForge has a candidate reference implementation for `KHR_gaussian_splatting` *and* a proposal for a paired SPZ-compression sub-extension (`KHR_gaussian_splatting_compression_spz`) ready for the working group's consideration. The SPZ sub-extension is the second Khronos extension this repository ships, and it is what an SPZ-compressed splat scene looks like once it is embedded inside a self-contained `.glb` — the shape Adobe's Photoshop / Substance 3D export path produces.
 
 ### What we're submitting
 
-- **Implementation** in pure Rust: [`crates/splatforge-gltf`](https://github.com/montabano1/SplatForge/tree/main/crates/splatforge-gltf) — reader + writer for `KHR_gaussian_splatting` and the `KHR_gaussian_splatting_compression_spz` sub-extension. Ships in the public `splatforge` CLI today.
+- **Two-extension reference implementation** in pure Rust:
+  [`crates/splatforge-gltf`](https://github.com/montabano1/SplatForge/tree/main/crates/splatforge-gltf)
+  ships reader + writer support for both the base `KHR_gaussian_splatting`
+  extension *and* the `KHR_gaussian_splatting_compression_spz`
+  sub-extension we are proposing alongside it. The SPZ sub-extension
+  embeds an SPZ v2 blob (Niantic's wire format, the one Adobe Photoshop
+  exports today) inside a glTF `bufferView` and is fully specified in
+  [`docs/standards/KHR_gaussian_splatting_compression_spz.md`](https://github.com/montabano1/SplatForge/blob/main/docs/standards/KHR_gaussian_splatting_compression_spz.md).
+  The `splatforge optimize --target glb --compress spz` path produces the
+  new extension form directly.
 - **Conformance test suite** at [`crates/splatforge-khr-conformance`](https://github.com/montabano1/SplatForge/tree/main/crates/splatforge-khr-conformance):
-  - 23 normative-clause tests (Rust integration tests + a `splatforge-khr-validate` binary that emits a JSON per-clause pass/fail report).
-  - 10 golden fixture glTF/GLB files (5 valid baselines covering quantized + SH + SPZ; 5 negative cases covering missing-required-prop, accessor-shape mismatches, count-disagreement).
+  - 28 normative-clause tests (23 base + 5 SPZ-compression) implemented as Rust integration tests plus a `splatforge-khr-validate` binary that emits a JSON per-clause pass/fail report.
+  - 13 golden fixture glTF/GLB files: 6 valid baselines (FLOAT, KHR_mesh_quantization, SH, SPZ-stub, SPZ-compressed end-to-end), and 7 negative cases (missing-required-prop, accessor-shape mismatches, count-disagreement, SPZ-missing-extensionsUsed, SPZ-wrong-magic).
   - All fixtures byte-deterministically regenerated from `splatforge-gltf` via `scripts/generate-fixtures.sh`.
   - CI workflow runs the validator on every PR.
-- **Companion documentation:** [conformance.md](https://github.com/montabano1/SplatForge/blob/main/crates/splatforge-khr-conformance/conformance.md) (per-clause coverage), [khr-conformance-submission.md](https://github.com/montabano1/SplatForge/blob/main/docs/khr-conformance-submission.md), [blog post draft](https://github.com/montabano1/SplatForge/blob/main/docs/blog/khr-reference-impl.md).
+- **Companion documentation:** [conformance.md](https://github.com/montabano1/SplatForge/blob/main/crates/splatforge-khr-conformance/conformance.md) (per-clause coverage including the 5 new SPZ-compression clauses), [khr-conformance-submission.md](https://github.com/montabano1/SplatForge/blob/main/docs/khr-conformance-submission.md), [blog post draft](https://github.com/montabano1/SplatForge/blob/main/docs/blog/khr-reference-impl.md), and the SPZ sub-extension spec at [`docs/standards/KHR_gaussian_splatting_compression_spz.md`](https://github.com/montabano1/SplatForge/blob/main/docs/standards/KHR_gaussian_splatting_compression_spz.md).
 
 ### One spec clarification ask
 

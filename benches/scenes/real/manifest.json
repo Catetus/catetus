@@ -1,0 +1,19 @@
+{
+  "schema": "splatforge.splatbench.real/0.1",
+  "description": "Manifest for the on-demand-fetched real-world scenes used in SplatBench. The PLY bytes themselves are NOT committed (gitignored — hundreds of MB each). Each entry below is reproducible from the listed source URL; the `hash` is computed by `splatforge analyze` and matches the `hash` field on the corresponding row in benches/reports/splatbench-v0.json.",
+  "scenes": [
+    {
+      "id": "stump_mipnerf360_iter7k",
+      "filename": "stump_iter7000.ply",
+      "splatCount": 3807536,
+      "bytesIn": 944270460,
+      "shDegree": 3,
+      "hash": "blake3:316a4c1c5fac8fc6070dc20b8a4709a513057b684be3a31c192aedebc8cb683c",
+      "sourceUrl": "https://huggingface.co/datasets/dylanebert/3dgs/resolve/main/stump/point_cloud/iteration_7000/point_cloud.ply",
+      "license": "Mip-NeRF 360 dataset (open research; CC-BY-4.0). Original capture and scene © Mip-NeRF 360 authors (Barron et al., CVPR 2022). Re-trained as 3D Gaussian Splats by the Inria GraphDeco group, mirrored on HuggingFace by dylanebert. Used here for reproducible benchmarking under the same terms as the existing bonsai/bicycle entries.",
+      "class": "outdoor-scene",
+      "pulledBy": "benches/scenes/scripts/pull-sweet-corals.sh",
+      "substitutionRationale": "Original target was the canonical 'Sweet Corals' outdoor-coral photogrammetry tile (sc-tile2 in private research, 2.8M splats, used in PostHAC + SwVQ + diff-repack validation). That asset lives on a private Blurry Drive with no public canonical URL — SplatBench is a public corpus and cannot depend on internal credentials. Mip-NeRF 360 garden/flowers were not available as Inria-PLY on the public HuggingFace mirror (only `.splat` files). Mip-NeRF 360 `stump` is the closest available real outdoor 3DGS scene with a public Inria-PLY mirror, complements `bicycle` (organic foliage + tree-stump texture vs bicycle-on-grass), and gives the leaderboard a second large real-outdoor anchor."
+    }
+  ]
+}

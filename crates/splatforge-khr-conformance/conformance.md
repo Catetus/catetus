@@ -6,9 +6,11 @@ the canonical report Khronos opens when reviewing the submission.
 
 ## Suite at a glance
 
-- **23 normative clauses** evaluated per asset (≥ the 20-clause floor the
-  reviewing engineer asked for).
-- **10 fixture files** under `fixtures/`, generated deterministically from
+- **28 normative clauses** evaluated per asset — the original 23 for the
+  base `KHR_gaussian_splatting` extension, plus 5 added for the
+  `KHR_gaussian_splatting_compression_spz` sub-extension that SplatForge
+  ships as the second Khronos extension in this repository.
+- **13 fixture files** under `fixtures/`, generated deterministically from
   Rust — re-running the generator produces byte-identical output.
 - **Pure Rust**, no Python. Single binary entry point.
 - The validator is also wired as a Cargo integration test, so `cargo test
@@ -67,6 +69,11 @@ Exit codes from the CLI:
 | `SPZ_DECLARED`        | MUST     | If `KHR_gaussian_splatting_compression_spz` appears anywhere in the asset it MUST be listed in `extensionsUsed`.                                     |
 | `SPZ_CONSISTENT`      | MUST     | If a primitive declares `KHR_gaussian_splatting_compression_spz` it MUST also declare `KHR_gaussian_splatting` on the same primitive.                |
 | `ATTRS_KNOWN_ONLY`    | MUST     | The `KHR_gaussian_splatting` attributes object MUST NOT contain unknown attribute keys (only the six reserved names are permitted).                  |
+| `SPZ_EXT_PRESENT`     | MUST     | If `KHR_gaussian_splatting_compression_spz` is in `extensionsUsed`, at least one primitive MUST declare it under its own `extensions` object.        |
+| `SPZ_VERSION`         | MUST     | `KHR_gaussian_splatting_compression_spz.version` MUST be `2` (current SPZ wire format).                                                              |
+| `SPZ_BUFFERVIEW`      | MUST     | `KHR_gaussian_splatting_compression_spz.bufferView` MUST be an in-range index and the view MUST fit inside its buffer.                               |
+| `SPZ_BLOB_MAGIC`      | MUST     | The bytes referenced by the SPZ bufferView MUST start with the SPZ magic `0x5053_4e47` (`SNPS` LE).                                                  |
+| `SPZ_DECODED_COUNT`   | MUST     | The `splat_count` decoded from the SPZ header MUST match the primitive's declared `splatCount` (extension field or `_OPACITY` accessor count).       |
 
 ## Fixture corpus
 
@@ -82,6 +89,9 @@ Exit codes from the CLI:
 | `08_invalid_rotation_vec3.gltf`       | glTF      | Negative: `_ROTATION` accessor type is `VEC3`. `ACC_ROTATION` → FAIL.                 |
 | `09_invalid_position_no_minmax.gltf`  | glTF      | Negative: `POSITION` accessor missing `min`/`max`. `ACC_POSITION_MINMAX` → FAIL.      |
 | `10_invalid_count_mismatch.gltf`      | glTF      | Negative: `_OPACITY.count` set to 7 instead of 4. `ACC_COUNTS_AGREE` → FAIL.          |
+| `11_valid_spz_compressed.glb`         | GLB       | End-to-end `KHR_gaussian_splatting_compression_spz`: SPZ blob embedded in the BIN chunk. |
+| `12_invalid_spz_missing_ext_used.glb` | GLB       | Negative: primitive declares SPZ but root `extensionsUsed` omits it. `SPZ_DECLARED` → FAIL. |
+| `13_invalid_spz_wrong_magic.glb`      | GLB       | Negative: SPZ blob's first four bytes zeroed. `SPZ_BLOB_MAGIC` → FAIL.                  |
 
 ## Sample output
 

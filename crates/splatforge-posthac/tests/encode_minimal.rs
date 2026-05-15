@@ -2,7 +2,6 @@
 //! Must produce the same input symbols if Python encoder + Rust decoder
 //! use identical constriction Gaussian models.
 
-use byteorder::{LittleEndian, ReadBytesExt};
 use constriction::stream::model::{DefaultLeakyQuantizer, LeakyQuantizer};
 use constriction::stream::queue::{DefaultRangeDecoder, DefaultRangeEncoder};
 use constriction::stream::{Decode, Encode};
@@ -14,8 +13,9 @@ use std::io::{BufReader, Read};
 #[test]
 fn rust_encode_matches_python_bytes() {
     // Same 16 symbols Python encoded.
-    let symbols: [i32; 16] = [100, 50, 200, 30, 128, 64, 192, 96,
-                               150, 80, 220, 40, 100, 60, 180, 110];
+    let symbols: [i32; 16] = [
+        100, 50, 200, 30, 128, 64, 192, 96, 150, 80, 220, 40, 100, 60, 180, 110,
+    ];
     let quantizer: DefaultLeakyQuantizer<f64, i32> = LeakyQuantizer::new(-1..=256);
     let mut enc = DefaultRangeEncoder::new();
     for &s in &symbols {

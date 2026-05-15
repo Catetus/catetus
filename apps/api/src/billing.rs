@@ -33,14 +33,13 @@
 //! only called from the paid `/repack` handler, and `Job.customer_id ==
 //! None` short-circuits before any network call. The free path is free.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
-use crate::store::JobStore;
+use crate::store::DynJobStore;
 
 /// SKU emitted per repack run (flat fee — 1 unit per call).
 pub const SKU_REPACK_RUNS: &str = "splatforge_repack_runs";
@@ -90,22 +89,24 @@ enum Backend {
 pub struct BillingClient {
     backend: Backend,
     /// Ledger used to dedupe (job_id, sku) before we ever talk to Stripe.
-    /// Sharing the `Arc<JobStore>` from `AppState` keeps the billing path
-    /// transactional with the rest of the job state.
-    store: Arc<JobStore>,
+    /// Sharing the `DynJobStore` (Arc<dyn JobStoreApi + Send + Sync>) from
+    /// `AppState` keeps the billing path transactional with the rest of
+    /// the job state, and lets the same client run against SQLite or
+    /// Postgres without any code change in this file.
+    store: DynJobStore,
 }
 
 impl BillingClient {
     /// Live mode — hits the real Stripe Billing API. Pass the test-mode
     /// secret (`sk_test_...`) unless `STRIPE_LIVE_MODE=true` is set.
-    pub fn live(secret: String, store: Arc<JobStore>) -> Self {
+    pub fn live(secret: String, store: DynJobStore) -> Self {
         Self::with_base_url(secret, store, STRIPE_API_BASE.to_string())
     }
 
     /// Live-mode with a caller-supplied base URL. Used by integration
     /// tests to point at a local Stripe-shaped mock server. The base URL
     /// must NOT have a trailing slash (we append `/v1/billing/...`).
-    pub fn with_base_url(secret: String, store: Arc<JobStore>, base_url: String) -> Self {
+    pub fn with_base_url(secret: String, store: DynJobStore, base_url: String) -> Self {
         let http = reqwest::Client::builder()
             .timeout(STRIPE_TIMEOUT)
             .build()
@@ -123,8 +124,11 @@ impl BillingClient {
     /// Construct from environment. Returns `(client, mode)` where mode is
     /// `"live"` (real Stripe), `"test"` (real Stripe, test-mode key), or
     /// `"dry-run"` (no Stripe credentials — log only).
-    pub fn from_env(store: Arc<JobStore>) -> (Self, &'static str) {
-        match std::env::var("STRIPE_SECRET_KEY").ok().filter(|s| !s.is_empty()) {
+    pub fn from_env(store: DynJobStore) -> (Self, &'static str) {
+        match std::env::var("STRIPE_SECRET_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+        {
             Some(secret) => {
                 let live_mode = std::env::var("STRIPE_LIVE_MODE")
                     .map(|v| matches!(v.as_str(), "true" | "1" | "yes"))
@@ -147,7 +151,7 @@ impl BillingClient {
     /// Dry-run mode. Used when Stripe isn't configured (local dev, CI,
     /// or while the operator is still in the manual-charging stage).
     /// Logs the would-be charge at INFO and returns success.
-    pub fn dry_run(store: Arc<JobStore>) -> Self {
+    pub fn dry_run(store: DynJobStore) -> Self {
         Self {
             backend: Backend::DryRun,
             store,
@@ -189,7 +193,8 @@ impl BillingClient {
         };
 
         // 1 run, always.
-        self.post_meter_event(job_id, customer_id, SKU_REPACK_RUNS, 1).await?;
+        self.post_meter_event(job_id, customer_id, SKU_REPACK_RUNS, 1)
+            .await?;
 
         // Compute-seconds when available. The /repack synchronous handler
         // doesn't know elapsed time; the Modal callback does. Both call
@@ -242,7 +247,11 @@ impl BillingClient {
                 );
                 Ok(())
             }
-            Backend::Live { http, secret, base_url } => {
+            Backend::Live {
+                http,
+                secret,
+                base_url,
+            } => {
                 let url = format!("{base_url}/v1/billing/meter_events");
                 let form = [
                     ("event_name", sku.to_string()),
@@ -270,8 +279,10 @@ impl BillingClient {
                         body,
                     });
                 }
-                let body: serde_json::Value =
-                    resp.json().await.map_err(|e| BillingError::Transport(e.to_string()))?;
+                let body: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| BillingError::Transport(e.to_string()))?;
                 let stripe_event_id = body
                     .get("identifier")
                     .and_then(|v| v.as_str())
@@ -338,12 +349,18 @@ impl KeyCustomerMap {
             let (key, customer) = match entry.rsplit_once(':') {
                 Some((k, v)) => (k.trim(), v.trim()),
                 None => {
-                    warn!(entry, "SPLATFORGE_KEY_CUSTOMERS: entry missing ':' separator, skipping");
+                    warn!(
+                        entry,
+                        "SPLATFORGE_KEY_CUSTOMERS: entry missing ':' separator, skipping"
+                    );
                     continue;
                 }
             };
             if key.is_empty() || customer.is_empty() {
-                warn!(entry, "SPLATFORGE_KEY_CUSTOMERS: empty key or customer id, skipping");
+                warn!(
+                    entry,
+                    "SPLATFORGE_KEY_CUSTOMERS: empty key or customer id, skipping"
+                );
                 continue;
             }
             if !customer.starts_with("cus_") {
@@ -454,9 +471,7 @@ pub fn verify_webhook(
     for sig in v1_sigs {
         // Same-length constant-time compare; differing lengths short-circuit
         // to false but in constant time relative to `sig`.
-        if sig.len() == expected_hex.len()
-            && sig.as_bytes().ct_eq(expected_hex.as_bytes()).into()
-        {
+        if sig.len() == expected_hex.len() && sig.as_bytes().ct_eq(expected_hex.as_bytes()).into() {
             ok = true;
             break;
         }
@@ -471,7 +486,9 @@ pub fn verify_webhook(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::JobStore;
     use hmac::{Hmac, Mac};
+    use std::sync::Arc;
 
     #[test]
     fn idempotency_key_is_deterministic_and_namespaced() {
@@ -524,7 +541,7 @@ mod tests {
         // Same (job_id, sku) claimed twice -> second call returns false
         // and (in production) skips the Stripe POST. This is the
         // load-bearing invariant the whole module exists to enforce.
-        let store = Arc::new(JobStore::in_memory().await.expect("store"));
+        let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
         let job_id = Uuid::new_v4();
         let first = store
             .claim_billing_event(&job_id, "cus_aaa", SKU_REPACK_RUNS, 1, "key1")
@@ -548,7 +565,7 @@ mod tests {
 
     #[tokio::test]
     async fn dry_run_does_not_charge_but_records_ledger() {
-        let store = Arc::new(JobStore::in_memory().await.expect("store"));
+        let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
         let client = BillingClient::dry_run(store.clone());
         let job_id = Uuid::new_v4();
         client
@@ -564,7 +581,7 @@ mod tests {
 
     #[tokio::test]
     async fn free_tier_emits_no_events() {
-        let store = Arc::new(JobStore::in_memory().await.expect("store"));
+        let store: DynJobStore = Arc::new(JobStore::in_memory().await.expect("store"));
         let client = BillingClient::dry_run(store.clone());
         let job_id = Uuid::new_v4();
         // customer_id = None -> free tier -> short-circuit, no ledger row.
@@ -582,8 +599,7 @@ mod tests {
     }
 
     fn sign(secret: &str, ts: i64, body: &[u8]) -> String {
-        let mut mac =
-            <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes()).unwrap();
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(ts.to_string().as_bytes());
         mac.update(b".");
         mac.update(body);

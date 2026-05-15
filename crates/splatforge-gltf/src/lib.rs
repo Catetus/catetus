@@ -12,10 +12,30 @@ use std::path::{Path, PathBuf};
 use byteorder::{LittleEndian, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use splatforge_core::{Color, CoordinateSystem, Splat, SplatScene, TemporalMode};
+use splatforge_spz::{encode_spz, read_spz_bytes};
 use thiserror::Error;
 
 /// Alias to keep both naming conventions working.
 pub type WriteOptions = WriteOpts;
+
+/// Variants of the `KHR_gaussian_splatting_compression_spz` extension that the
+/// writer can emit. The wire-version integer flows straight into the
+/// extension's `version` field — see
+/// `docs/standards/KHR_gaussian_splatting_compression_spz.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpzVariant {
+    /// SPZ v2 — the current wire format produced by `splatforge-spz`.
+    V2,
+}
+
+impl SpzVariant {
+    /// Integer carried in the extension's `version` field.
+    pub fn version(self) -> u32 {
+        match self {
+            SpzVariant::V2 => 2,
+        }
+    }
+}
 
 /// glTF I/O errors.
 #[derive(Debug, Error)]
@@ -44,6 +64,10 @@ pub enum GltfError {
     /// Chunked output is not supported for GLB containers.
     #[error("glb_chunked_unsupported: GLB cannot embed multiple external chunks")]
     GlbChunkedUnsupported,
+    /// SPZ encode/decode failed when emitting or reading the
+    /// `KHR_gaussian_splatting_compression_spz` blob.
+    #[error("spz codec error: {0}")]
+    Spz(String),
 }
 
 /// Options that control glTF export.
@@ -62,6 +86,15 @@ pub struct WriteOpts {
     /// Defaults to `false` so the lossless / quality-max paths stay byte-stable.
     /// The `splatforge optimize` CLI flips this on for the web-targeted presets.
     pub quantize: bool,
+    /// When set, `write_glb` packs the scene as a single SPZ blob and declares
+    /// the `KHR_gaussian_splatting_compression_spz` extension on the output
+    /// primitive. The lossless base-extension accessors are emitted as
+    /// zero-count placeholders so the asset still satisfies
+    /// `KHR_gaussian_splatting`'s required-attribute clauses.
+    ///
+    /// Currently only meaningful for GLB output; `write_gltf` ignores this
+    /// field (the spec only requires the embedded-GLB form).
+    pub compress: Option<SpzVariant>,
 }
 
 impl Default for WriteOpts {
@@ -71,6 +104,7 @@ impl Default for WriteOpts {
             chunk_target_splats: 100_000,
             lod_fractions: vec![1.0],
             quantize: false,
+            compress: None,
         }
     }
 }
@@ -169,6 +203,7 @@ struct GltfRoot {
 }
 
 const KHR: &str = "KHR_gaussian_splatting";
+const KHR_SPZ: &str = "KHR_gaussian_splatting_compression_spz";
 const SF_INDEX: &str = "SF_spatial_streaming_index";
 const KHR_QUANT: &str = "KHR_mesh_quantization";
 const FLOAT: u32 = 5126;
@@ -287,7 +322,7 @@ fn emit_quantized_accessors(
             root,
             buffer_idx,
             &mut offset,
-            n,
+            n * 45,
             n * 45 * 4,
             "SCALAR",
         ))
@@ -390,7 +425,7 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
                     &mut root,
                     buffer_idx,
                     &mut offset,
-                    n,
+                    n * 45,
                     n * 45 * 4,
                     "SCALAR",
                 ))
@@ -895,8 +930,9 @@ fn read_gltf_str(raw: &str, base_dir: &Path) -> Result<SplatScene, GltfError> {
     let opacities = read_attr(op_acc, 1)?;
     let dc = read_attr(dc_acc, 3)?;
     let n = opacities.len();
+    // _COLOR_SH is SCALAR FLOAT with accessor.count = n*45 (per the KHR spec).
     let sh = if let Some(idx) = sh_acc {
-        Some(read_attr(idx, 45)?)
+        Some(read_attr(idx, 1)?)
     } else {
         None
     };
@@ -1135,7 +1171,7 @@ fn build_single_buffer_gltf(
                 &mut root,
                 0,
                 &mut offset,
-                n,
+                n * 45,
                 n * 45 * 4,
                 "SCALAR",
             ))
@@ -1189,6 +1225,159 @@ fn build_single_buffer_gltf(
     Ok((root, buf_bytes))
 }
 
+/// Build the JSON + single binary buffer for an SPZ-compressed GLB.
+///
+/// Wire shape (see `docs/standards/KHR_gaussian_splatting_compression_spz.md`):
+///   - One buffer (the GLB's BIN chunk) — contains the SPZ blob.
+///   - bufferView 0 covers the full SPZ blob and is referenced by the SPZ
+///     extension's `bufferView` field.
+///   - bufferViews 1..=5 are zero-length placeholders backing the base
+///     extension's required-attribute accessors (count=0).
+fn build_single_buffer_gltf_spz(
+    scene: &SplatScene,
+    variant: SpzVariant,
+) -> Result<(GltfRoot, Vec<u8>), GltfError> {
+    let spz_blob = encode_spz(scene).map_err(|e| GltfError::Spz(e.to_string()))?;
+    let bin: Vec<u8> = spz_blob.clone();
+
+    let mut root = GltfRoot {
+        asset: GltfAsset {
+            version: "2.0".to_string(),
+            generator: Some("splatforge-gltf".to_string()),
+        },
+        extensions_used: vec![KHR.to_string(), KHR_SPZ.to_string()],
+        extensions_required: vec![KHR.to_string(), KHR_SPZ.to_string()],
+        buffers: vec![GltfBuffer {
+            byte_length: bin.len(),
+            uri: None,
+        }],
+        buffer_views: Vec::new(),
+        accessors: Vec::new(),
+        meshes: Vec::new(),
+        extensions: serde_json::Map::new(),
+    };
+
+    // bufferView 0 = full SPZ blob.
+    root.buffer_views.push(GltfBufferView {
+        buffer: 0,
+        byte_offset: 0,
+        byte_length: spz_blob.len(),
+    });
+    let spz_view_idx = 0usize;
+
+    // Five zero-length placeholder bufferViews. glTF 2.0 §3.6.1 does not
+    // forbid zero-length bufferViews, and zero-count accessors need no bytes.
+    for _ in 0..5 {
+        root.buffer_views.push(GltfBufferView {
+            buffer: 0,
+            byte_offset: 0,
+            byte_length: 0,
+        });
+    }
+    let (pos_bv, rot_bv, scale_bv, op_bv, dc_bv) = (1usize, 2usize, 3usize, 4usize, 5usize);
+
+    // Placeholder accessors (all count=0). POSITION carries trivial min/max
+    // because the base-extension clause `ACC_POSITION_MINMAX` requires them.
+    root.accessors.push(GltfAccessor {
+        buffer_view: pos_bv,
+        component_type: FLOAT,
+        count: 0,
+        accessor_type: "VEC3".to_string(),
+        normalized: false,
+        min: Some(vec![0.0, 0.0, 0.0]),
+        max: Some(vec![0.0, 0.0, 0.0]),
+    });
+    let pos_acc = 0usize;
+    root.accessors.push(GltfAccessor {
+        buffer_view: rot_bv,
+        component_type: FLOAT,
+        count: 0,
+        accessor_type: "VEC4".to_string(),
+        normalized: false,
+        min: None,
+        max: None,
+    });
+    let rot_acc = 1usize;
+    root.accessors.push(GltfAccessor {
+        buffer_view: scale_bv,
+        component_type: FLOAT,
+        count: 0,
+        accessor_type: "VEC3".to_string(),
+        normalized: false,
+        min: None,
+        max: None,
+    });
+    let scale_acc = 2usize;
+    root.accessors.push(GltfAccessor {
+        buffer_view: op_bv,
+        component_type: FLOAT,
+        count: 0,
+        accessor_type: "SCALAR".to_string(),
+        normalized: false,
+        min: None,
+        max: None,
+    });
+    let op_acc = 3usize;
+    root.accessors.push(GltfAccessor {
+        buffer_view: dc_bv,
+        component_type: FLOAT,
+        count: 0,
+        accessor_type: "VEC3".to_string(),
+        normalized: false,
+        min: None,
+        max: None,
+    });
+    let dc_acc = 4usize;
+
+    let khr_attrs = serde_json::json!({
+        "POSITION": pos_acc,
+        "_ROTATION": rot_acc,
+        "_SCALE": scale_acc,
+        "_OPACITY": op_acc,
+        "_COLOR_DC": dc_acc,
+    });
+    let sh_degree = scene
+        .splats
+        .iter()
+        .map(|s| s.color.degree())
+        .max()
+        .unwrap_or(0)
+        .min(1);
+
+    root.meshes.push(serde_json::json!({
+        "primitives": [{
+            "extensions": {
+                KHR: {
+                    "attributes": khr_attrs,
+                    "shDegree": sh_degree,
+                },
+                KHR_SPZ: {
+                    "version": variant.version(),
+                    "bufferView": spz_view_idx,
+                    "splatCount": scene.splats.len(),
+                }
+            }
+        }]
+    }));
+
+    let (chunk_min, chunk_max) = chunk_bbox(scene.splats.as_slice());
+    let scene_bbox = if scene.splats.is_empty() {
+        ([0.0f32; 3], [0.0f32; 3])
+    } else {
+        (chunk_min, chunk_max)
+    };
+    root.extensions.insert(
+        KHR.to_string(),
+        serde_json::json!({
+            "splatCount": scene.splats.len(),
+            "bbox": { "min": scene_bbox.0, "max": scene_bbox.1 },
+            "shDegree": sh_degree,
+        }),
+    );
+
+    Ok((root, bin))
+}
+
 fn pad_to_4(buf: &mut Vec<u8>, pad_byte: u8) {
     while buf.len() % 4 != 0 {
         buf.push(pad_byte);
@@ -1202,7 +1391,10 @@ pub fn write_glb(scene: &SplatScene, path: &Path, opts: &WriteOptions) -> Result
     if opts.chunked {
         return Err(GltfError::GlbChunkedUnsupported);
     }
-    let (root, bin) = build_single_buffer_gltf(scene, opts.quantize)?;
+    let (root, bin) = match opts.compress {
+        Some(variant) => build_single_buffer_gltf_spz(scene, variant)?,
+        None => build_single_buffer_gltf(scene, opts.quantize)?,
+    };
     let json_str = serde_json::to_string(&root)?;
 
     // Chunk payloads padded to 4-byte alignment.
@@ -1321,6 +1513,34 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
         .and_then(|p| p.as_array())
         .and_then(|a| a.first())
         .ok_or_else(|| GltfError::Malformed("no primitives".to_string()))?;
+
+    // If the primitive declares the SPZ compression extension, the splat
+    // data lives in the referenced SPZ blob — base-extension accessors are
+    // zero-count placeholders. Decode via splatforge-spz and return early.
+    if let Some(spz_ext) = prim.get("extensions").and_then(|e| e.get(KHR_SPZ)) {
+        let bv_idx = spz_ext
+            .get("bufferView")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| GltfError::Malformed("SPZ extension missing bufferView".to_string()))?
+            as usize;
+        let bv = root
+            .buffer_views
+            .get(bv_idx)
+            .ok_or_else(|| GltfError::Malformed(format!("SPZ bufferView {bv_idx} out of range")))?;
+        if bv.buffer != 0 {
+            return Err(GltfError::Malformed(
+                "SPZ GLB only supports buffer 0".to_string(),
+            ));
+        }
+        if bin.len() < bv.byte_offset + bv.byte_length {
+            return Err(GltfError::Malformed(
+                "SPZ bufferView exceeds BIN chunk".to_string(),
+            ));
+        }
+        let blob = &bin[bv.byte_offset..bv.byte_offset + bv.byte_length];
+        return read_spz_bytes(blob).map_err(|e| GltfError::Spz(e.to_string()));
+    }
+
     let ext = prim
         .get("extensions")
         .and_then(|e| e.get(KHR))
@@ -1360,8 +1580,9 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
     let opacities = read_attr(op_acc, 1)?;
     let dc = read_attr(dc_acc, 3)?;
     let n = opacities.len();
+    // _COLOR_SH is SCALAR FLOAT with accessor.count = n*45 (per the KHR spec).
     let sh = if let Some(idx) = sh_acc {
-        Some(read_attr(idx, 45)?)
+        Some(read_attr(idx, 1)?)
     } else {
         None
     };

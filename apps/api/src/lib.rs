@@ -1,3 +1,10 @@
+#![allow(
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::manual_pattern_char_comparison,
+    clippy::question_mark,
+    clippy::too_many_arguments
+)]
 //! Library surface for `splatforge-api`.
 //!
 //! The crate is primarily a binary (`src/main.rs`), but exposing a thin
@@ -9,7 +16,12 @@
 //! no-double-charge invariant against a Stripe-mock server without
 //! spinning up the whole Axum app.
 
+pub mod audit;
 pub mod billing;
 pub mod checkout;
+pub mod license;
 pub mod modal_client;
+pub mod ratelimit;
+pub mod ratings;
+pub mod routes;
 pub mod store;

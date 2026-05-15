@@ -8,10 +8,13 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, SplatScene};
 use splatforge_gltf::{inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, WriteOpts};
-use splatforge_usd::{read_usda, read_usdc, write_usda, write_usdc, UsdWriteOpts};
 use splatforge_optimize::{preset, write_tileset, TilesetOpts};
 use splatforge_ply::{read_ply, write_ply};
 use splatforge_spz::{read_spz, write_spz};
+use splatforge_usd::{read_usda, read_usdc, write_usda, write_usdc, UsdWriteOpts};
+
+mod license;
+use license::{cmd_license_install, cmd_license_refresh, cmd_license_status, cmd_serve};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -60,13 +63,22 @@ enum Command {
         /// Emit chunked glTF.
         #[arg(long)]
         chunked: bool,
-        /// After the regular write, also emit zstd-compressed `.bin.zst`
-        /// versions of each buffer file. Halves the on-disk size of
-        /// quantized presets at zero quality cost. Served via HTTP with
-        /// `Content-Encoding: zstd` modern browsers decode transparently.
-        #[arg(long)]
-        compress: bool,
-        /// Output path; defaults to "<input>.optimized.gltf".
+        /// Compression mode for the output buffers.
+        ///   `zstd` — also emit zstd-compressed `.bin.zst` sidecars (legacy
+        ///   behavior of the bare `--compress` flag; halves the on-disk size
+        ///   of quantized presets at zero quality cost, served via HTTP with
+        ///   `Content-Encoding: zstd`).
+        ///   `spz`  — pack the scene as a single SPZ blob inside the GLB
+        ///   under the `KHR_gaussian_splatting_compression_spz` extension.
+        ///   Requires `--target glb`.
+        #[arg(long, value_name = "MODE", num_args = 0..=1, default_missing_value = "zstd")]
+        compress: Option<String>,
+        /// Output container: `gltf` (default) or `glb`. `glb` produces a
+        /// self-contained binary glTF; required for `--compress spz`.
+        #[arg(long, value_name = "FORMAT")]
+        target: Option<String>,
+        /// Output path; defaults to "<input>.optimized.gltf" (or `.glb` when
+        /// `--target glb` is set).
         #[arg(long, short = 'o')]
         out: Option<PathBuf>,
         /// Output DIRECTORY for multi-tile presets (`geospatial`). The
@@ -159,6 +171,49 @@ enum Command {
         #[arg(long, default_value_t = 0.03_f32)]
         threshold: f32,
     },
+    /// Score a single PLY with the v0.4 fidelity MLP. Predict-only —
+    /// the baseline PLY is optional (when omitted, the candidate is
+    /// compared against the canonical lossless-repack identity profile
+    /// baked into `splatforge-fidelity`). Emits a JSON `ScoreReport`.
+    FidelityScore {
+        /// Candidate PLY.
+        candidate: std::path::PathBuf,
+        /// Optional baseline PLY.
+        #[arg(long, short = 'b')]
+        baseline: Option<std::path::PathBuf>,
+        /// Pretty-print the JSON output.
+        #[arg(long)]
+        pretty: bool,
+    },
+    /// Manage the Pro on-prem license (install, status, refresh). The
+    /// license file is `splatforge.lic` — Ed25519-signed JSON minted by
+    /// the SplatForge API. Required to run `splatforge serve`.
+    License {
+        #[command(subcommand)]
+        cmd: LicenseCmd,
+    },
+    /// Run the on-prem SplatForge Pro server. Reads the license at
+    /// `~/.splatforge/license.lic` (override with `--license`), verifies
+    /// the embedded Ed25519 signature + offline-grace window, then binds
+    /// the optimize/serve HTTP surface inside the customer's VPC.
+    Serve {
+        /// Bind address.
+        #[arg(long, default_value = "0.0.0.0:8080")]
+        bind: String,
+        /// Path to the license file.
+        #[arg(long)]
+        license: Option<PathBuf>,
+        /// Heartbeat endpoint base URL (the SplatForge API). Heartbeats
+        /// are skipped entirely when `SPLATFORGE_NO_TELEMETRY=1` is set
+        /// in the environment.
+        #[arg(long, default_value = "https://splatforge-api.fly.dev")]
+        api_base: String,
+        /// Number of active seats reported in the heartbeat. Required by
+        /// the license enforcement path; the server refuses to start if
+        /// this exceeds the license's `seats` claim.
+        #[arg(long, default_value_t = 1)]
+        active_seats: u32,
+    },
     /// Validate an asset against a SplatForge-supported standard
     /// (KHR_gaussian_splatting today; OpenUSD when the USDC reader path
     /// is wired). Wraps `splatforge-khr-validate` for the glTF case.
@@ -180,6 +235,37 @@ enum CorpusCmd {
     Run {
         /// Suite name (e.g. "smoke").
         suite: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum LicenseCmd {
+    /// Install a license file by copying it to `~/.splatforge/license.lic`.
+    /// Verifies the signature before installing — refuses to clobber the
+    /// existing license if the new one is invalid.
+    Install {
+        /// Path to the `splatforge.lic` to install.
+        path: PathBuf,
+    },
+    /// Print the current license status (org, seats, plan, valid_until,
+    /// last_refresh, offline grace remaining). Exits 0 when valid (with
+    /// or without grace), 1 otherwise — so a customer cron can gate
+    /// other automation on `splatforge license status`.
+    Status {
+        /// Override the license path.
+        #[arg(long)]
+        license: Option<PathBuf>,
+    },
+    /// Hit `/v1/license/refresh` on the API, replace the on-disk license
+    /// if the API hands back a fresher one, and reset the `last_refresh`
+    /// sidecar so the offline-grace clock starts over.
+    Refresh {
+        /// Override the license path.
+        #[arg(long)]
+        license: Option<PathBuf>,
+        /// Override the API base URL.
+        #[arg(long, default_value = "https://splatforge-api.fly.dev")]
+        api_base: String,
     },
 }
 
@@ -205,6 +291,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             preset,
             chunked,
             compress,
+            target,
             out,
             output_dir,
             progress,
@@ -212,7 +299,8 @@ fn dispatch(cli: Cli) -> Result<()> {
             &input,
             &preset,
             chunked,
-            compress,
+            compress.as_deref(),
+            target.as_deref(),
             out.as_deref(),
             output_dir.as_deref(),
             progress,
@@ -254,9 +342,25 @@ fn dispatch(cli: Cli) -> Result<()> {
             out,
             threshold,
         } => cmd_fidelity(&candidate, &baseline, out.as_deref(), threshold),
-        Command::SpecCheck { input, spec, json } => {
-            cmd_spec_check(&input, spec.as_deref(), json)
-        }
+        Command::FidelityScore {
+            candidate,
+            baseline,
+            pretty,
+        } => cmd_fidelity_score(&candidate, baseline.as_deref(), pretty),
+        Command::License { cmd } => match cmd {
+            LicenseCmd::Install { path } => cmd_license_install(&path),
+            LicenseCmd::Status { license } => cmd_license_status(license.as_deref()),
+            LicenseCmd::Refresh { license, api_base } => {
+                cmd_license_refresh(license.as_deref(), &api_base)
+            }
+        },
+        Command::Serve {
+            bind,
+            license,
+            api_base,
+            active_seats,
+        } => cmd_serve(&bind, license.as_deref(), &api_base, active_seats),
+        Command::SpecCheck { input, spec, json } => cmd_spec_check(&input, spec.as_deref(), json),
     }
 }
 
@@ -360,17 +464,36 @@ fn emit_progress(frac: f32, stage: &str) {
     let _ = std::io::stdout().flush();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_optimize(
     input: &Path,
     preset_name: &str,
     chunked: bool,
-    compress: bool,
+    compress: Option<&str>,
+    target: Option<&str>,
     out: Option<&Path>,
     output_dir: Option<&Path>,
     progress: bool,
 ) -> Result<()> {
     if out.is_some() && output_dir.is_some() {
         return Err(anyhow!("--out and --output-dir are mutually exclusive"));
+    }
+    let target_glb = match target {
+        None | Some("gltf") => false,
+        Some("glb") => true,
+        Some(other) => return Err(anyhow!("unknown --target {other:?} (want gltf or glb)")),
+    };
+    let compress_mode: Option<&str> = match compress {
+        None => None,
+        Some("zstd") => Some("zstd"),
+        Some("spz") => Some("spz"),
+        Some("none") => None,
+        Some(other) => return Err(anyhow!("unknown --compress {other:?} (want zstd or spz)")),
+    };
+    if compress_mode == Some("spz") && !target_glb {
+        return Err(anyhow!(
+            "--compress spz requires --target glb (the extension is glb-embedded)"
+        ));
     }
     if preset_name == "geospatial" && output_dir.is_none() {
         return Err(anyhow!(
@@ -428,7 +551,11 @@ fn cmd_optimize(
             input.display(),
             report_t.tileset_json.display(),
             report_t.tiles.len(),
-            report_t.tiles.first().map(|t| t.geometric_error).unwrap_or(0.0),
+            report_t
+                .tiles
+                .first()
+                .map(|t| t.geometric_error)
+                .unwrap_or(0.0),
         );
         for t in &report_t.tiles {
             println!(
@@ -441,32 +568,49 @@ fn cmd_optimize(
         }
         return Ok(());
     }
+    let default_ext = if target_glb {
+        "optimized.glb"
+    } else {
+        "optimized.gltf"
+    };
     let out = out
         .map(PathBuf::from)
-        .unwrap_or_else(|| input.with_extension("optimized.gltf"));
+        .unwrap_or_else(|| input.with_extension(default_ext));
     // Per SPEC-0013, the web-targeted presets opt in to `KHR_mesh_quantization`
     // integer accessors so the glTF wire size lands close to the SPZ payload.
     // `lossless-repack` and `quality-max` keep f32 accessors so byte-identical
-    // round-trips remain possible.
-    let quantize = matches!(
-        preset_name,
-        "web-mobile"
-            | "web-desktop"
-            | "quest-browser"
-            | "visionos-preview"
-            | "thumbnail-preview"
-            | "size-min"
-    );
+    // round-trips remain possible. SPZ already compresses; we keep quantize=false
+    // on the SPZ path so the empty placeholder accessors stay FLOAT.
+    let quantize = compress_mode != Some("spz")
+        && matches!(
+            preset_name,
+            "web-mobile"
+                | "web-desktop"
+                | "quest-browser"
+                | "visionos-preview"
+                | "thumbnail-preview"
+                | "size-min"
+        );
+    let compress_variant = if compress_mode == Some("spz") {
+        Some(splatforge_gltf::SpzVariant::V2)
+    } else {
+        None
+    };
     let opts = WriteOpts {
         chunked,
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize,
+        compress: compress_variant,
     };
     if progress {
         emit_progress(0.92, "encoding-gltf");
     }
-    write_gltf(&scene, &out, &opts)?;
+    if target_glb {
+        write_glb(&scene, &out, &opts)?;
+    } else {
+        write_gltf(&scene, &out, &opts)?;
+    }
     if progress {
         emit_progress(0.98, "writing-report");
     }
@@ -482,7 +626,7 @@ fn cmd_optimize(
     if progress {
         emit_progress(1.00, "done");
     }
-    if compress {
+    if compress_mode == Some("zstd") {
         let (orig, comp) = compress_buffer_files(&out)?;
         let ratio = if comp > 0 {
             orig as f64 / comp as f64
@@ -514,16 +658,16 @@ fn compress_buffer_files(gltf_path: &Path) -> Result<(u64, u64)> {
     // because a deeper layout isn't part of the writer's contract.
     let roots = [parent.to_path_buf(), parent.join("buffers")];
     for root in roots.iter().filter(|p| p.is_dir()) {
-        for entry in std::fs::read_dir(root)
-            .with_context(|| format!("reading {}", root.display()))?
+        for entry in
+            std::fs::read_dir(root).with_context(|| format!("reading {}", root.display()))?
         {
             let entry = entry?;
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) != Some("bin") {
                 continue;
             }
-            let raw = std::fs::read(&path)
-                .with_context(|| format!("reading {}", path.display()))?;
+            let raw =
+                std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
             // Level 19 is zstd's near-max ratio. For ~100 MB of quantized
             // splat data, encoding is ~1-2 seconds — fine for an offline
             // optimize step. Drop to level 3 if benchmarking shows this
@@ -788,10 +932,7 @@ fn cmd_submit(
     }
     let up = Cmd::new("curl").args(&upload_args).output()?;
     if !up.status.success() {
-        anyhow::bail!(
-            "upload failed: {}",
-            String::from_utf8_lossy(&up.stderr)
-        );
+        anyhow::bail!("upload failed: {}", String::from_utf8_lossy(&up.stderr));
     }
     eprintln!("✓ upload complete");
 
@@ -819,10 +960,7 @@ fn cmd_submit(
         }
         let poll = Cmd::new("curl").args(&poll_args).output()?;
         if !poll.status.success() {
-            anyhow::bail!(
-                "poll failed: {}",
-                String::from_utf8_lossy(&poll.stderr)
-            );
+            anyhow::bail!("poll failed: {}", String::from_utf8_lossy(&poll.stderr));
         }
         let pj: serde_json::Value = serde_json::from_slice(&poll.stdout)?;
         let status = pj
@@ -932,6 +1070,18 @@ fn cmd_spec_check(input: &Path, spec: Option<&str>, json: bool) -> Result<()> {
         }
         other => anyhow::bail!("unknown spec: {other}"),
     }
+}
+
+fn cmd_fidelity_score(candidate: &Path, baseline: Option<&Path>, pretty: bool) -> Result<()> {
+    let report = splatforge_fidelity::score_ply(candidate, baseline)
+        .with_context(|| "splatforge-fidelity v0.4")?;
+    let json = if pretty {
+        serde_json::to_string_pretty(&report)?
+    } else {
+        serde_json::to_string(&report)?
+    };
+    println!("{json}");
+    Ok(())
 }
 
 #[cfg(test)]

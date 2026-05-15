@@ -68,7 +68,7 @@ use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
 use tracing::{info, instrument, warn};
 
-use crate::store::{JobStore, StoreError, TeamSignupRow};
+use crate::store::{JobStoreApi, StoreError, TeamSignupRow};
 
 /// Prefix every freshly-minted SplatForge API key starts with. Matches
 /// the WorkOS branch's `auth::KEY_PREFIX_LITERAL` so once that branch
@@ -157,7 +157,9 @@ pub struct CheckoutConfig {
 
 impl CheckoutConfig {
     pub fn from_env(public_site_url: String) -> Self {
-        let secret = std::env::var("STRIPE_SECRET_KEY").ok().filter(|s| !s.is_empty());
+        let secret = std::env::var("STRIPE_SECRET_KEY")
+            .ok()
+            .filter(|s| !s.is_empty());
         let live_mode = std::env::var("STRIPE_LIVE_MODE")
             .map(|v| matches!(v.as_str(), "true" | "1" | "yes"))
             .unwrap_or(false);
@@ -171,7 +173,9 @@ impl CheckoutConfig {
         }
         Self {
             stripe_secret: secret,
-            team_price_id: std::env::var("STRIPE_TEAM_PRICE_ID").ok().filter(|s| !s.is_empty()),
+            team_price_id: std::env::var("STRIPE_TEAM_PRICE_ID")
+                .ok()
+                .filter(|s| !s.is_empty()),
             public_site_url: public_site_url.trim_end_matches('/').to_string(),
             stripe_base_url: STRIPE_API_BASE.to_string(),
             live_mode,
@@ -550,10 +554,7 @@ pub async fn create_session(
     // mismatch and refuses. This is fail-closed (customer emails
     // support) which is the right side of the safety boundary.
     let _ = claim_token; // placeholder for the in-memory map plumb below
-    Ok(CreateSessionResponse {
-        url,
-        session_id,
-    })
+    Ok(CreateSessionResponse { url, session_id })
 }
 
 /// In-memory map from Stripe session id -> the claim_token we baked
@@ -641,7 +642,7 @@ pub async fn create_session_and_register(
 /// stops retrying.
 #[instrument(skip(store, pending_keys, pending_tokens, event))]
 pub async fn provision_from_session(
-    store: &JobStore,
+    store: &(dyn JobStoreApi + Send + Sync),
     pending_keys: &PendingKeyCache,
     pending_tokens: &PendingClaimTokens,
     event: &serde_json::Value,
@@ -652,8 +653,7 @@ pub async fn provision_from_session(
     let session = event
         .pointer("/data/object")
         .or_else(|| event.get("object").filter(|v| v.is_object()))
-        .or(Some(event))
-        .unwrap();
+        .unwrap_or(event);
 
     let session_id = session
         .get("id")
@@ -663,9 +663,7 @@ pub async fn provision_from_session(
         .get("customer")
         .and_then(|v| v.as_str())
         .ok_or_else(|| CheckoutError::BadRequest("event missing customer".to_string()))?;
-    let subscription_id = session
-        .get("subscription")
-        .and_then(|v| v.as_str());
+    let subscription_id = session.get("subscription").and_then(|v| v.as_str());
     let email = session
         .get("customer_email")
         .and_then(|v| v.as_str())
@@ -706,8 +704,7 @@ pub async fn provision_from_session(
     if !fresh {
         info!(
             session_id,
-            customer_id,
-            "team signup already provisioned; webhook retry — no key minted"
+            customer_id, "team signup already provisioned; webhook retry — no key minted"
         );
         return Ok(());
     }
@@ -748,7 +745,7 @@ pub async fn provision_from_session(
 ///      at the operator's whim" — refusing is the safe default.
 #[instrument(skip(store, pending_keys))]
 pub async fn reveal_key(
-    store: &JobStore,
+    store: &(dyn JobStoreApi + Send + Sync),
     pending_keys: &PendingKeyCache,
     req: RevealRequest,
 ) -> Result<RevealResponse, CheckoutError> {

@@ -19,13 +19,13 @@
 //! request-matching DSL, just an "increment a counter and reply 200".
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use splatforge_api::billing::{
     idempotency_key_for, BillingClient, KeyCustomerMap, SKU_REPACK_RUNS, SKU_REPACK_SECONDS,
 };
-use splatforge_api::store::JobStore;
+use splatforge_api::store::{DynJobStore, JobStore};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -66,7 +66,9 @@ fn idempotency_key_is_namespaced() {
     // events without colliding with anyone else's identifier.
     let id = Uuid::new_v4();
     assert!(idempotency_key_for(&id, SKU_REPACK_RUNS).starts_with("sf_splatforge_repack_runs_"));
-    assert!(idempotency_key_for(&id, SKU_REPACK_SECONDS).starts_with("sf_splatforge_repack_seconds_"));
+    assert!(
+        idempotency_key_for(&id, SKU_REPACK_SECONDS).starts_with("sf_splatforge_repack_seconds_")
+    );
 }
 
 /* ----------------------------------------------------------------------- */
@@ -116,7 +118,9 @@ async fn spawn_stripe_mock() -> (SocketAddr, Arc<AtomicUsize>) {
     let counter_clone = counter.clone();
     tokio::spawn(async move {
         loop {
-            let Ok((mut sock, _)) = listener.accept().await else { break };
+            let Ok((mut sock, _)) = listener.accept().await else {
+                break;
+            };
             let counter = counter_clone.clone();
             tokio::spawn(async move {
                 // Read until end-of-headers; for tests we don't need a full
@@ -145,7 +149,7 @@ async fn spawn_stripe_mock() -> (SocketAddr, Arc<AtomicUsize>) {
 
 #[tokio::test]
 async fn billing_emits_two_events_per_repack_with_seconds() {
-    let store = Arc::new(JobStore::in_memory().await.unwrap());
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.unwrap());
     let (addr, counter) = spawn_stripe_mock().await;
     let client = BillingClient::with_base_url(
         "sk_test_dummy".into(),
@@ -159,7 +163,11 @@ async fn billing_emits_two_events_per_repack_with_seconds() {
         .expect("record");
     // Two events expected: runs (1) + seconds (18). The seconds event
     // only fires because compute_seconds was Some.
-    assert_eq!(counter.load(Ordering::SeqCst), 2, "exactly two SKUs per run");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        2,
+        "exactly two SKUs per run"
+    );
 }
 
 #[tokio::test]
@@ -168,7 +176,7 @@ async fn billing_is_idempotent_across_retries() {
     // job_id must produce exactly two Stripe POSTs (one per SKU), not
     // four. This is the case the Modal callback path can hit when the
     // worker callback fires twice.
-    let store = Arc::new(JobStore::in_memory().await.unwrap());
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.unwrap());
     let (addr, counter) = spawn_stripe_mock().await;
     let client = BillingClient::with_base_url(
         "sk_test_dummy".into(),
@@ -193,7 +201,7 @@ async fn billing_is_idempotent_across_retries() {
 async fn billing_runs_only_when_no_seconds() {
     // Synchronous /repack dispatch path: bills the run SKU but doesn't
     // know elapsed time yet. Only the runs event should fire.
-    let store = Arc::new(JobStore::in_memory().await.unwrap());
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.unwrap());
     let (addr, counter) = spawn_stripe_mock().await;
     let client = BillingClient::with_base_url(
         "sk_test_dummy".into(),
@@ -212,7 +220,7 @@ async fn billing_runs_only_when_no_seconds() {
 async fn billing_free_tier_emits_no_events() {
     // customer_id = None → free tier → no Stripe calls at all. This is
     // the "free is free" contract from the deliverable.
-    let store = Arc::new(JobStore::in_memory().await.unwrap());
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.unwrap());
     let (addr, counter) = spawn_stripe_mock().await;
     let client = BillingClient::with_base_url(
         "sk_test_dummy".into(),
@@ -231,7 +239,7 @@ async fn billing_free_tier_emits_no_events() {
 async fn billing_distinct_jobs_emit_distinct_events() {
     // Sanity check: idempotency is per-(job_id, sku), not global. Two
     // different jobs in the same call sequence each emit their own events.
-    let store = Arc::new(JobStore::in_memory().await.unwrap());
+    let store: DynJobStore = Arc::new(JobStore::in_memory().await.unwrap());
     let (addr, counter) = spawn_stripe_mock().await;
     let client = BillingClient::with_base_url(
         "sk_test_dummy".into(),
@@ -248,5 +256,9 @@ async fn billing_distinct_jobs_emit_distinct_events() {
         .record_repack_job(b, Some("cus_aaa"), 2_000_000, 1000, Some(7))
         .await
         .unwrap();
-    assert_eq!(counter.load(Ordering::SeqCst), 4, "2 jobs * 2 SKUs = 4 events");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        4,
+        "2 jobs * 2 SKUs = 4 events"
+    );
 }

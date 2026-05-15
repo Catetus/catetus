@@ -1,0 +1,40 @@
+{
+  "version": "0.4.0-mlp22",
+  "bootstrap": true,
+  "bootstrap_n": 500,
+  "n_groups": 15,
+  "n_aug_per_group": 20,
+  "cv_ungrouped_r2": 0.9637603761128126,
+  "cv_ungrouped_rmse": 0.04310265856649652,
+  "cv_grouped_r2": -0.09670068122070341,
+  "cv_grouped_rmse": 0.23711350529931616,
+  "feature_names": [
+    "pos_centroid_drift",
+    "pos_extent_ratio",
+    "pos_std_ratio_xyz",
+    "pos_count_ratio",
+    "scale_mean_ratio",
+    "scale_std_ratio",
+    "scale_aniso_mean",
+    "scale_aniso_delta",
+    "opacity_mean",
+    "opacity_mean_delta",
+    "opacity_lowfrac",
+    "opacity_lowfrac_delta",
+    "color_mean_delta_r",
+    "color_mean_delta_g",
+    "color_mean_delta_b",
+    "color_std_ratio",
+    "sh_high_order_energy",
+    "rot_quat_w_mean",
+    "rot_quat_w_delta",
+    "density_local_p50",
+    "density_local_p95",
+    "density_local_ratio"
+  ],
+  "real_scenes_score": {
+    "bicycle_iter7000": 0.9007181525230408,
+    "bonsai_iter7000": 0.8414760828018188,
+    "stump_iter7000": 0.9647700190544128
+  }
+}

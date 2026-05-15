@@ -1,0 +1,29 @@
+{
+  "ply_path": "/Users/montabano1/Desktop/SplatForge/benches/scenes/real/bonsai_iter7000.ply",
+  "baseline_path": "/Users/montabano1/Desktop/SplatForge/benches/scenes/bonsai_mipnerf360_iter7k.ply",
+  "features": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    6.698635101318359,
+    0.0,
+    0.2714635133743286,
+    0.0,
+    0.37724876403808594,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.009436610154807568,
+    0.913241446018219,
+    0.0,
+    0.11146687716245651,
+    0.5778268575668335,
+    1.0
+  ],
+  "score": 0.8414760828018188
+}
