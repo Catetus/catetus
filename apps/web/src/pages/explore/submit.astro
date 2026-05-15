@@ -1,0 +1,214 @@
+---
+// /explore/submit — alpha submission CTA.
+//
+// Real upload flow is a Bet 6 follow-up. For the alpha we collect
+// submissions via email so we can sanity-check license + attribution
+// before a scene lands in the public index.
+import Base from "../../layouts/Base.astro";
+
+const title = "Submit your splat — SplatForge Explore";
+const description =
+  "Get your Gaussian-Splat scene listed in the public SplatForge Explore registry. Alpha submissions go through email.";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+const submitEmail = "submit@splatforge.dev";
+const mailto = `mailto:${submitEmail}?subject=${encodeURIComponent("Explore registry submission")}&body=${encodeURIComponent("Scene name:\nUpstream URL:\nLicense (CC0 / CC-BY / CC-BY-SA / MIT / Apache-2.0 / other):\nAttribution string:\nProfile (indoor / outdoor / product / portrait / foliage):\nSplat count (approx):\nAnything else we should know:\n")}`;
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/explore">Explore</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <div class="breadcrumb">
+    <a href="/explore">← All scenes</a>
+  </div>
+
+  <header class="submit-hero">
+    <div class="hero-eyebrow">Submit · alpha</div>
+    <h1 class="submit-title">Add your splat to the registry.</h1>
+    <p class="submit-sub">
+      The SplatForge Explore registry is a curated catalog of public Gaussian-Splat
+      scenes. For the alpha we accept submissions by email so we can verify license
+      and attribution before listing.
+    </p>
+    <div class="submit-ctas">
+      <a class="btn btn-primary" href={mailto}>
+        Email {submitEmail} →
+      </a>
+      <a class="btn" href={`${githubUrl}/blob/main/benches/seed-corpus/external-manifest.json`}>
+        PR external-manifest.json ↗
+      </a>
+    </div>
+  </header>
+
+  <section class="submit-section">
+    <h2 class="section-title">What we accept</h2>
+    <ul class="bullet-list">
+      <li>Licenses: <strong>CC0, CC-BY, CC-BY-SA, MIT, Apache-2.0</strong>. Research-open
+        licenses (Mip-NeRF 360, Deep Blending) are accepted but tagged.</li>
+      <li>Formats: <code>.ply</code>, <code>.splat</code>, or a SplatForge-optimized
+        <code>.glb</code>. If you've already run our optimizer, you'll get the
+        <code>KHR · pass</code> badge automatically.</li>
+      <li>Hosting: link out to your CDN, or PR a self-hosted asset into the SplatForge
+        public bucket. We don't re-mirror third-party splats without explicit permission.</li>
+    </ul>
+  </section>
+
+  <section class="submit-section">
+    <h2 class="section-title">What we need</h2>
+    <ol class="bullet-list">
+      <li><strong>Upstream URL</strong> (stable, public, downloadable).</li>
+      <li><strong>License</strong> (with link to the license text or dataset license page).</li>
+      <li><strong>Attribution string</strong> — exactly how you want credit shown.</li>
+      <li><strong>Profile label</strong> (indoor / outdoor / product / portrait / foliage / synthetic).</li>
+      <li><strong>Splat count</strong> (approx) so we can show a useful size estimate.</li>
+    </ol>
+  </section>
+
+  <section class="submit-section">
+    <h2 class="section-title">What happens next</h2>
+    <ol class="bullet-list">
+      <li>We verify the upstream URL and license.</li>
+      <li>We run KHR-spz conformance — passing splats get the <span class="badge badge-pass">pass</span>
+        badge, anything else gets <span class="badge badge-fail-expected">needs optimize</span>
+        with a one-click link to the optimizer.</li>
+      <li>Your entry lands in <code>benches/seed-corpus/external-manifest.json</code>
+        and rebuilds the registry on the next deploy.</li>
+    </ol>
+    <p class="submit-honest">
+      Honest note: alpha throughput is small — expect a few business days. When the
+      registry hits volume we'll open a proper upload flow with automated checks.
+    </p>
+  </section>
+
+  <footer class="site-footer">
+    <span>Explore · <a href="/explore">back to registry</a></span>
+    <span>Apache-2.0</span>
+  </footer>
+</Base>
+
+<style>
+  .breadcrumb { font-size: 13px; margin: -16px 0 24px; }
+  .breadcrumb a { color: var(--fg-dim); }
+
+  .submit-hero {
+    max-width: 680px;
+    padding: 8px 0 32px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 40px;
+  }
+  .hero-eyebrow {
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 18px;
+  }
+  .submit-title {
+    font-size: clamp(32px, 4.5vw, 48px);
+    font-weight: 700;
+    letter-spacing: -1px;
+    line-height: 1.05;
+    margin: 0 0 16px;
+  }
+  .submit-sub {
+    color: var(--fg-muted);
+    font-size: 17px;
+    line-height: 1.6;
+    margin: 0 0 24px;
+  }
+  .submit-ctas {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .submit-section {
+    max-width: 720px;
+    margin: 0 0 40px;
+  }
+  .submit-section .section-title {
+    color: var(--fg);
+    margin-bottom: 14px;
+    font-size: 22px;
+  }
+  .bullet-list {
+    color: var(--fg-muted);
+    line-height: 1.7;
+    margin: 0;
+    padding-left: 1.2em;
+  }
+  .bullet-list li { margin: 6px 0; }
+  .bullet-list code {
+    font-size: 12px;
+    background: var(--bg-elev);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .bullet-list strong { color: var(--fg); }
+
+  .submit-honest {
+    margin-top: 16px;
+    color: var(--fg-dim);
+    font-size: 13px;
+    line-height: 1.5;
+    font-style: italic;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--mono);
+    background: var(--bg-row);
+    border: 1px solid var(--line-strong);
+    color: var(--fg-muted);
+  }
+  .badge-pass { color: var(--good); border-color: rgba(52,211,153,0.4); }
+  .badge-fail-expected { color: var(--accent-warm); border-color: rgba(251,146,60,0.4); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 18px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    color: var(--fg);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: border-color 120ms, transform 120ms;
+  }
+  .btn:hover { border-color: var(--accent); text-decoration: none; transform: translateY(-1px); }
+  .btn-primary {
+    background: var(--accent-warm);
+    border-color: var(--accent-warm);
+    color: #1a0f00;
+  }
+  .btn-primary:hover {
+    background: var(--accent-warm-strong);
+    border-color: var(--accent-warm-strong);
+  }
+
+  .site-footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--fg-dim);
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
