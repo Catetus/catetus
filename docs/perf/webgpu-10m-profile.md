@@ -28,25 +28,36 @@
 
 ### With opacity-radius cull (B4b, on `main` since 2026-05-15 commit `3886d19`)
 
+**SYNTHETIC BENCH ONLY — B4b.1 real-scene validation showed the cull cull-
+rate collapses on real captures. The cull remains opt-in (`useCull: false`
+default) and is NOT a real-world fps win.** See §"B4b.1 reversal" below.
+
 | Splat count | Frame fps | cull+compact | project | sort_full | gather | Total GPU |
 |-------------|-----------|--------------|---------|-----------|--------|-----------|
-| 1 M         | **150.6** | 2.21 ms | 0.90 ms | 2.20 ms | 0.74 ms | 6.05 ms |
-| 10 M        | **6.46**  | 23.6 ms | 22.6 ms | **71.9 ms** | 35.8 ms | 153.9 ms |
+| 1 M (synth) | **150.6** | 2.21 ms | 0.90 ms | 2.20 ms | 0.74 ms | 6.05 ms |
+| 10 M (synth)| **6.46**  | 23.6 ms | 22.6 ms | **71.9 ms** | 35.8 ms | 153.9 ms |
 
-**Cull rates** on the synthetic bench scene: 1 M → 27 % survivors (73 %
-culled); 10 M → 59 % survivors (41 % culled). The synthetic scene is random
-gaussians inside the unit cube, so cull rates differ from real captures
-(real-scene validation is task B4b.1). The headline win:
+**Synthetic cull rates** (random gaussians in unit cube, untrained scales):
+1 M → 73 % culled; 10 M → 41 % culled. **Real cull rates** (B4b.1 with
+trained Inria 3DGS): bonsai → **0.28 %**, bicycle → **0.88 %** at τ=1/255.
+The real numbers collapse because trained 3DGS has median σ ≈ 0.6-1.3 px
+after the +0.3 diagonal regularization in `cs_cull` — so `r_max ≥ 0.5 px`
+is essentially always satisfied. The cull predicate works as designed on
+untrained scenes, just not on the production input we ship.
 
-- **1 M: 67 → 150.6 fps** (+125 %)
-- **10 M: 6.5 → 6.46 fps** (~0 % at 41 % cull, but 10 M *with cull* now matches the pre-fuse-regression baseline of 6.47 fps — the cull effectively "buys back" the regressions that had accumulated on main between PR #7's fuse and the post-revert state). At higher cull rates (real scenes typically cull 60-80 %) the 10 M number should land in the 12-20 fps range.
+### B4b.1 reversal (2026-05-15)
 
-Sort cost drop from 280 → 72 ms at 10 M (-76 %) on only 41 % survivors
-confirms scatter is **super-linear** in N. This is the key shape of the
-scatter bottleneck; it argues for *cull first, then optimize the
-remaining sort* — the inverse path (faster scatter kernel, same N) hits
-diminishing returns because the cache footprint scales worse than linearly
-above ~2-3 M elements.
+`useCull` stays `false` by default. Keep it opt-in for debug / synthetic /
+mid-training scenes. The "10 M → 6.46 fps" cull headline above is a
+synthetic-bench artifact and should NOT be cited externally as a
+production fps; the real-world default is the ~6.5 fps cull-OFF baseline.
+
+The deeper finding: scatter is still 95 % of sort cost at 10 M and sort
+is still 80 % of frame. The cull *would* have addressed this if real
+splats culled at the synthetic rate; since they don't, the remaining path
+to 60 fps @ 10 M is **LODGE-style hierarchical LOD** — render ~1-2 M
+splats per frame from the 10 M-splat scene by LOD selection, not by
+culling individual splats from a dense set. Tracked as B6.
 
 ### What B7.1 (atomic-free scatter) showed
 
