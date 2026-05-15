@@ -601,6 +601,8 @@ fn cmd_optimize(
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize,
+        quantize_rotation: false,
+        spec_version: Default::default(),
         compress: compress_variant,
     };
     if progress {
