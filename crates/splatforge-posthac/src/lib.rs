@@ -1,4 +1,6 @@
 #![deny(clippy::all)]
+#![allow(clippy::needless_range_loop)] // tight numeric loops with arithmetic indexing read clearer as range loops than iter-chains
+#![allow(clippy::doc_lazy_continuation)] // module docstrings use markdown-style list continuations that pre-date the lint
 //! PostHAC — hash-grid hyperprior range-coded entropy compression.
 //!
 //! See `specs/0014-posthac-io.md` (TBD) for the wire format. PostHAC sits as

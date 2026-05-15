@@ -12,7 +12,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use splatforge_posthac::*;
 use std::env;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::BufReader;
 use std::path::PathBuf;
 
 fn read_pthc(path: &PathBuf) -> (PostHacHeader, HyperpriorWeights, Vec<f32>, Vec<u32>) {
