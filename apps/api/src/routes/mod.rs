@@ -5,3 +5,5 @@
 //! presigned-URL re-issue) will follow the same shape.
 
 pub mod import;
+pub mod pricing;
+pub mod sdk_license;
