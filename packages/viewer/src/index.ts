@@ -61,3 +61,24 @@ export {
   SOA_BYTES_PER_SPLAT,
 } from './progressive/uploader.js';
 export type { ProgressiveUploaderInit } from './progressive/uploader.js';
+export {
+  parseLodgeManifest,
+  selectLodLevel,
+  chunksByCameraProximity,
+  sceneBboxCenter,
+  sceneBboxRadius,
+  LODGE_MANIFEST_VERSION,
+  LodgeChunkLoader,
+  decodePlyToSoa,
+} from './lodge/index.js';
+export type {
+  LodgeManifest,
+  LodgeLevelDescriptor,
+  LodgeChunkDescriptor,
+  LodgeAabb,
+  LodgeChunkLoaderOptions,
+  ChunkFetcher,
+  UploadablePipeline,
+  LoadLevelResult,
+  DecodedPlyChunk,
+} from './lodge/index.js';
