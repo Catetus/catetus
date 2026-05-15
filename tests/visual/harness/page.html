@@ -45,6 +45,9 @@
   // this, a preset that prunes geometry (e.g. floater_proxy × size-min)
   // shrinks its own bbox, reframes the camera, and the ΔE94 against the
   // baseline measures the reframing rather than the visual delta.
+  // SPEC-0062 (compute decode): toggle the WGSL compute-decode + GPU radix
+  // sort path. Default off so existing visual baselines stay stable.
+  const useComputeDecode = params.get('useComputeDecode') === '1';
   const cameraBboxRaw = params.get('cameraBbox');
   let cameraBbox = undefined;
   if (cameraBboxRaw) {
@@ -83,6 +86,7 @@
         deterministic: true,
         seed,
         ...(cameraBbox ? { cameraBbox } : {}),
+        ...(useComputeDecode ? { useComputeDecode: true } : {}),
       });
 
       viewer.on('warning', (e) => sf.warnings.push({ code: e.code, message: e.message }));

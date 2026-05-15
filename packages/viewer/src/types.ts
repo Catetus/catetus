@@ -91,6 +91,20 @@ export interface ViewerOptions {
    * camera so every preset is rendered from the same viewpoint.
    */
   cameraBbox?: { min: [number, number, number]; max: [number, number, number] };
+  /**
+   * Use the WGSL compute-decode + GPU radix-sort pipeline (queue #62) when on
+   * the WebGPU backend. Defaults to `false` — the CPU decode/sort path stays
+   * as the conservative default. Has no effect under the WebGL2 backend.
+   *
+   * The compute path moves dequantization, projection, depth-key generation,
+   * and back-to-front sorting entirely onto the GPU. This is the path that
+   * unlocks the v2 "30 GB scenes at 60 fps on mobile" target by eliminating
+   * the per-frame CPU→GPU vertex-buffer upload that dominates at >1M splats.
+   *
+   * Behaviour is deterministic for a fixed input + camera; the visual-
+   * regression harness in SPEC-0009 covers parity vs the CPU path.
+   */
+  useComputeDecode?: boolean;
 }
 
 /**
