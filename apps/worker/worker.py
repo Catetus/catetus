@@ -66,6 +66,13 @@ PRESET_DISPATCH_URLS = {
     "codec-gs-mixed": os.environ.get("SPLATFORGE_CODEC_GS_MIXED_URL"),
     "codec-gs-mixed-k5": os.environ.get("SPLATFORGE_CODEC_GS_MIXED_URL"),
     "fcgs-instant": os.environ.get("SPLATFORGE_FCGS_URL"),
+    # capture-and-compress lives in the private `splatforge-capture`
+    # Modal app: photos.zip → COLMAP (CPU) → 3DGS train (A100) → encode
+    # (default inner preset codec-gs-mixed) → upload. Same /enqueue
+    # contract as the other forwarded presets; the private app POSTs the
+    # terminal `{status, output_url}` back to the API's callback_url
+    # directly. URL plumbed at deploy time once the private app exists.
+    "capture-and-compress": os.environ.get("SPLATFORGE_CAPTURE_URL"),
 }
 
 image = (
@@ -490,13 +497,15 @@ def enqueue(payload: dict) -> dict:
         if not target:
             # Surface configuration gap synchronously so the API marks
             # the job Error with a clear message instead of waiting on
-            # a callback that will never arrive.
+            # a callback that will never arrive. Name the specific env
+            # var that the operator needs to set for this preset so the
+            # message is actionable in the API log.
+            env_var = _expected_env_var_for_preset(preset)
             return {
                 "queued": False,
                 "error": (
                     f"preset '{preset}' requires a dedicated Modal endpoint "
-                    "(SPLATFORGE_CODEC_GS_MIXED_URL or SPLATFORGE_FCGS_URL) "
-                    "but none is configured on this worker"
+                    f"({env_var}) but none is configured on this worker"
                 ),
             }
         return _forward_to_preset_app(target, payload)
@@ -509,6 +518,21 @@ def enqueue(payload: dict) -> dict:
         callback_url=str(payload["callback_url"]),
     )
     return {"queued": True, "error": None}
+
+
+def _expected_env_var_for_preset(preset: str) -> str:
+    """Map a dispatched preset to the env var an operator sets to wire
+    its private Modal endpoint. Used only by the "URL missing" error
+    path so the message can name the specific knob to flip. Keep this
+    table aligned with :data:`PRESET_DISPATCH_URLS` above.
+    """
+    mapping = {
+        "codec-gs-mixed": "SPLATFORGE_CODEC_GS_MIXED_URL",
+        "codec-gs-mixed-k5": "SPLATFORGE_CODEC_GS_MIXED_URL",
+        "fcgs-instant": "SPLATFORGE_FCGS_URL",
+        "capture-and-compress": "SPLATFORGE_CAPTURE_URL",
+    }
+    return mapping.get(preset, "SPLATFORGE_<PRESET>_URL")
 
 
 def _forward_to_preset_app(target_url: str, payload: dict) -> dict:
