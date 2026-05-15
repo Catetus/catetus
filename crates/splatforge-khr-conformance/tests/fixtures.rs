@@ -183,6 +183,70 @@ fn validate_returns_at_least_twenty_clauses() {
     );
 }
 
+#[test]
+fn spz_compressed_glb_passes_all_spz_clauses() {
+    // Fixture 11 is a real KHR_gaussian_splatting_compression_spz asset.
+    // Every SPZ-compression clause defined for that extension must pass.
+    let corpus = build_corpus();
+    let p = corpus.path().join("11_valid_spz_compressed.glb");
+    let report = validate_path(&p).expect("validate");
+    let fails: Vec<&splatforge_khr_conformance::ClauseResult> = report
+        .clauses
+        .iter()
+        .filter(|c| c.status == Status::Fail && c.id != "ACC_COLOR_SH")
+        .collect();
+    assert!(fails.is_empty(), "unexpected failures: {fails:?}");
+    for id in [
+        "SPZ_EXT_PRESENT",
+        "SPZ_VERSION",
+        "SPZ_BUFFERVIEW",
+        "SPZ_BLOB_MAGIC",
+        "SPZ_DECODED_COUNT",
+        "SPZ_DECLARED",
+        "SPZ_CONSISTENT",
+    ] {
+        assert_clause(&p, id, Status::Pass);
+    }
+}
+
+#[test]
+fn spz_compressed_missing_ext_used_fails_spz_declared() {
+    let corpus = build_corpus();
+    let p = corpus.path().join("12_invalid_spz_missing_ext_used.glb");
+    // The primitive declares SPZ but extensionsUsed does not — base
+    // SPZ_DECLARED catches this. The new SPZ_EXT_PRESENT still passes
+    // (it asks about the primitive-side declaration, which is present).
+    assert_clause(&p, "SPZ_DECLARED", Status::Fail);
+    assert_clause(&p, "SPZ_EXT_PRESENT", Status::Pass);
+}
+
+#[test]
+fn spz_compressed_wrong_magic_fails_blob_magic() {
+    let corpus = build_corpus();
+    let p = corpus.path().join("13_invalid_spz_wrong_magic.glb");
+    assert_clause(&p, "SPZ_BLOB_MAGIC", Status::Fail);
+    // Other SPZ structural clauses (version, bufferView present, etc.)
+    // should still pass — only the blob's first 4 bytes are wrong.
+    assert_clause(&p, "SPZ_VERSION", Status::Pass);
+    assert_clause(&p, "SPZ_EXT_PRESENT", Status::Pass);
+    assert_clause(&p, "SPZ_BUFFERVIEW", Status::Pass);
+}
+
+#[test]
+fn fixture_set_contains_thirteen_files() {
+    let corpus = build_corpus();
+    let mut count = 0usize;
+    for entry in std::fs::read_dir(corpus.path()).expect("read_dir") {
+        let entry = entry.expect("entry");
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.ends_with(".glb") || name.ends_with(".gltf") {
+            count += 1;
+        }
+    }
+    assert!(count >= 13, "expected >=13 fixtures, got {count}");
+}
+
 fn collect_files(root: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     let mut out: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     fn walk(

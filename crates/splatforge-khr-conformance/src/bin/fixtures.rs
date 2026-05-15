@@ -16,6 +16,9 @@
 //!   08_invalid_rotation_vec3.gltf      _ROTATION accessor is VEC3 instead of VEC4
 //!   09_invalid_position_no_minmax.gltf POSITION accessor missing min/max
 //!   10_invalid_count_mismatch.gltf     per-splat accessors disagree on count
+//!   11_valid_spz_compressed.glb        end-to-end KHR_gaussian_splatting_compression_spz
+//!   12_invalid_spz_missing_ext_used.glb primitive declares SPZ but extensionsUsed omits it
+//!   13_invalid_spz_wrong_magic.glb     SPZ blob's first four bytes are zeroed
 //!
 //! The generator is deterministic: the same input always produces the same
 //! bytes (no clocks, no entropy).
@@ -29,7 +32,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use splatforge_core::{Color, Splat, SplatScene};
-use splatforge_gltf::{write_glb, write_gltf, WriteOpts};
+use splatforge_gltf::{write_glb, write_gltf, SpzVariant, WriteOpts};
 
 fn deterministic_scene(n: usize, with_sh: bool) -> SplatScene {
     let mut scene = SplatScene::new();
@@ -123,40 +126,18 @@ fn main() {
         write_glb(&scene, &p, &WriteOpts::default()).expect("write 04");
     }
 
-    // 05: valid GLB that *also* declares KHR_gaussian_splatting_compression_spz.
-    //     This fixture is a structural test of the SPZ clauses — the actual
-    //     SPZ-compressed binary format is not yet RC. We declare the
-    //     extension on both extensionsUsed and the primitive so the validator
-    //     can prove the consistency check fires correctly.
+    // 05: valid GLB that declares KHR_gaussian_splatting_compression_spz with
+    //     a real SPZ blob produced by the splatforge-spz codec. Mirrors the
+    //     end-to-end path in fixture 11 but at the original 4-splat size so
+    //     the legacy stub-name (`05_valid_spz_stub.glb`) keeps working.
     {
-        // Reuse the baseline-glb pipeline, then rewrite its JSON chunk.
         let scene = deterministic_scene(4, false);
-        let staging = out_dir.join("05_staging.glb");
-        write_glb(&scene, &staging, &WriteOpts::default()).expect("write 05 staging");
-        let bytes = fs::read(&staging).expect("read 05 staging");
-        let _ = fs::remove_file(&staging);
-        let bytes = rewrite_glb_json(&bytes, |v| {
-            let used = v
-                .get_mut("extensionsUsed")
-                .and_then(|a| a.as_array_mut())
-                .expect("extensionsUsed array");
-            used.push(Value::String(
-                "KHR_gaussian_splatting_compression_spz".to_string(),
-            ));
-            let prim_ext = v
-                .get_mut("meshes")
-                .and_then(|m| m.get_mut(0))
-                .and_then(|m| m.get_mut("primitives"))
-                .and_then(|p| p.get_mut(0))
-                .and_then(|p| p.get_mut("extensions"))
-                .and_then(|e| e.as_object_mut())
-                .expect("primitive extensions");
-            prim_ext.insert(
-                "KHR_gaussian_splatting_compression_spz".to_string(),
-                serde_json::json!({ "bufferView": 0 }),
-            );
-        });
-        fs::write(out_dir.join("05_valid_spz_stub.glb"), bytes).expect("write 05");
+        let opts = WriteOpts {
+            compress: Some(SpzVariant::V2),
+            ..Default::default()
+        };
+        write_glb(&scene, &out_dir.join("05_valid_spz_stub.glb"), &opts)
+            .expect("write 05");
     }
 
     // 06: invalid GLB — extensionsUsed lacks KHR_gaussian_splatting.
@@ -214,7 +195,98 @@ fn main() {
     })
     .expect("write 10");
 
-    println!("wrote 10 fixtures to {}", out_dir.display());
+    // 11: valid GLB with the SPZ-compression extension end-to-end. Goes
+    // straight through the splatforge-gltf writer; no post-mutation needed.
+    {
+        let scene = deterministic_scene(8, false);
+        let p = out_dir.join("11_valid_spz_compressed.glb");
+        let opts = WriteOpts {
+            compress: Some(SpzVariant::V2),
+            ..Default::default()
+        };
+        write_glb(&scene, &p, &opts).expect("write 11");
+    }
+
+    // 12: invalid GLB — primitive declares the SPZ extension but the root
+    // `extensionsUsed` array does not list it. This drives SPZ_DECLARED ->
+    // Fail and SPZ_EXT_PRESENT -> Pass (since the primitive still has the
+    // block).
+    {
+        let scene = deterministic_scene(8, false);
+        let staging = out_dir.join("12_staging.glb");
+        let opts = WriteOpts {
+            compress: Some(SpzVariant::V2),
+            ..Default::default()
+        };
+        write_glb(&scene, &staging, &opts).expect("write 12 staging");
+        let bytes = fs::read(&staging).expect("read 12 staging");
+        let _ = fs::remove_file(&staging);
+        let bytes = rewrite_glb_json(&bytes, |v| {
+            let used = v
+                .get_mut("extensionsUsed")
+                .and_then(|a| a.as_array_mut())
+                .expect("extensionsUsed array");
+            used.retain(|x| x.as_str() != Some("KHR_gaussian_splatting_compression_spz"));
+        });
+        fs::write(out_dir.join("12_invalid_spz_missing_ext_used.glb"), bytes)
+            .expect("write 12");
+    }
+
+    // 13: invalid GLB — SPZ blob's leading 4 bytes (the magic) overwritten
+    // with zeros. Drives SPZ_BLOB_MAGIC -> Fail while every other clause
+    // passes.
+    {
+        let scene = deterministic_scene(8, false);
+        let staging = out_dir.join("13_staging.glb");
+        let opts = WriteOpts {
+            compress: Some(SpzVariant::V2),
+            ..Default::default()
+        };
+        write_glb(&scene, &staging, &opts).expect("write 13 staging");
+        let mut bytes = fs::read(&staging).expect("read 13 staging");
+        let _ = fs::remove_file(&staging);
+        // Locate the BIN chunk and zero its first 4 bytes. The BIN chunk
+        // sits immediately after the JSON chunk; locate it by walking
+        // chunks from offset 12.
+        zero_bin_chunk_prefix(&mut bytes);
+        fs::write(out_dir.join("13_invalid_spz_wrong_magic.glb"), bytes)
+            .expect("write 13");
+    }
+
+    println!("wrote 13 fixtures to {}", out_dir.display());
+}
+
+/// Zero the first 4 bytes of the BIN chunk in a GLB. Used by fixture 13 to
+/// invalidate the SPZ magic without touching the JSON chunk.
+fn zero_bin_chunk_prefix(bytes: &mut [u8]) {
+    assert_eq!(&bytes[..4], b"glTF");
+    let total = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+    let mut offset = 12usize;
+    while offset + 8 <= total {
+        let chunk_len = u32::from_le_bytes([
+            bytes[offset],
+            bytes[offset + 1],
+            bytes[offset + 2],
+            bytes[offset + 3],
+        ]) as usize;
+        let chunk_ty = u32::from_le_bytes([
+            bytes[offset + 4],
+            bytes[offset + 5],
+            bytes[offset + 6],
+            bytes[offset + 7],
+        ]);
+        let data_start = offset + 8;
+        let data_end = data_start + chunk_len;
+        if chunk_ty == 0x004E_4942 {
+            // "BIN\0"
+            for b in bytes[data_start..data_start + 4].iter_mut() {
+                *b = 0;
+            }
+            return;
+        }
+        offset = data_end;
+    }
+    panic!("BIN chunk not found");
 }
 
 /// Rewrite the JSON chunk of a GLB file, leaving the BIN chunk untouched.

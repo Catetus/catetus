@@ -2797,6 +2797,7 @@ dependencies = [
  "serde",
  "serde_json",
  "splatforge-core",
+ "splatforge-spz",
  "tempfile",
  "thiserror 1.0.69",
 ]

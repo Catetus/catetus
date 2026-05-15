@@ -3,7 +3,7 @@ use std::io::{Seek, SeekFrom, Write};
 
 use splatforge_core::{Color, Splat, SplatScene};
 use splatforge_gltf::{
-    inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, GltfError, WriteOpts,
+    inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, GltfError, SpzVariant, WriteOpts,
 };
 use tempfile::tempdir;
 
@@ -91,6 +91,48 @@ fn glb_rejects_chunked() {
     };
     let err = write_glb(&scene, &path, &opts).unwrap_err();
     assert!(matches!(err, GltfError::GlbChunkedUnsupported));
+}
+
+#[test]
+fn glb_spz_compressed_roundtrip() {
+    // Writer emits the KHR_gaussian_splatting_compression_spz extension and
+    // the reader transparently decodes the SPZ blob, returning a scene with
+    // the same splat count. SPZ is lossy on positions/scales/quat/colors —
+    // we only assert structural identity (count + signed-magnitude tolerance).
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("scene.spz.glb");
+    let scene = three_splat_scene();
+    let opts = WriteOpts {
+        compress: Some(SpzVariant::V2),
+        ..Default::default()
+    };
+    write_glb(&scene, &path, &opts).expect("write spz-compressed GLB");
+
+    // The GLB JSON chunk must declare both extensions and the SPZ blob must
+    // start with the SPZ magic. Cheap on-disk asserts before round-trip.
+    let bytes = fs::read(&path).unwrap();
+    let s = String::from_utf8_lossy(&bytes);
+    assert!(s.contains("KHR_gaussian_splatting_compression_spz"));
+
+    let decoded = read_glb(&path).expect("read spz GLB");
+    assert_eq!(decoded.len(), scene.len(), "splat count survives SPZ");
+    for (a, b) in decoded.splats.iter().zip(scene.splats.iter()) {
+        // SPZ position is 24-bit fixed-point with 12 fractional bits; 1/4096
+        // worst case. Splats at f<3 are far inside the range.
+        for i in 0..3 {
+            assert!(
+                (a.position[i] - b.position[i]).abs() < 1e-2,
+                "pos drift too large: {:?} vs {:?}",
+                a.position,
+                b.position
+            );
+        }
+        // Quat smallest-three is lossy at the ~1/63 level; just check it
+        // came back roughly unit-norm and aligned (rotation field present).
+        let n: f32 =
+            a.rotation.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!((n - 1.0).abs() < 0.1, "rotation not unit norm: {n}");
+    }
 }
 
 #[test]

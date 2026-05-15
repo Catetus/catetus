@@ -253,6 +253,153 @@ fn diff_missing_input_errors() {
 }
 
 #[test]
+fn optimize_target_glb_compress_spz_writes_self_contained_file() {
+    // End-to-end gate for the second Khronos extension shipped from this
+    // repo: `splatforge optimize --target glb --compress spz` MUST produce
+    // a single .glb file with both KHR_gaussian_splatting and
+    // KHR_gaussian_splatting_compression_spz declared, an SPZ-magic blob
+    // embedded in the BIN chunk, and `splatforge inspect` MUST succeed.
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("scene.ply");
+    write_tiny_ply(&ply);
+    let out_glb = dir.path().join("scene.optimized.glb");
+    let out = Command::cargo_bin("splatforge")
+        .unwrap()
+        .args([
+            "optimize",
+            ply.to_str().unwrap(),
+            "--preset",
+            "lossless-repack",
+            "--target",
+            "glb",
+            "--compress",
+            "spz",
+            "--out",
+            out_glb.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run optimize --target glb --compress spz");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out_glb.exists(), "GLB output missing");
+
+    let bytes = fs::read(&out_glb).unwrap();
+    let raw = String::from_utf8_lossy(&bytes);
+    assert!(
+        raw.contains("KHR_gaussian_splatting_compression_spz"),
+        "SPZ extension not declared in GLB JSON chunk"
+    );
+
+    // Walk to the BIN chunk and confirm it begins with the SPZ magic.
+    // GLB header is 12 bytes; first chunk is JSON; second chunk is BIN.
+    assert!(&bytes[..4] == b"glTF");
+    let json_len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
+    let bin_chunk_header = 20 + json_len; // 12 GLB hdr + 8 JSON chunk hdr + JSON
+    let bin_start = bin_chunk_header + 8; // BIN chunk hdr
+    let magic = &bytes[bin_start..bin_start + 4];
+    assert_eq!(
+        magic,
+        [0x47u8, 0x4e, 0x53, 0x50],
+        "SPZ magic missing from BIN chunk"
+    );
+
+    // The CLI's `inspect` subcommand should accept the file (we read back
+    // through splatforge-gltf's SPZ-aware decoder).
+    let inspect = Command::cargo_bin("splatforge")
+        .unwrap()
+        .args(["inspect", out_glb.to_str().unwrap()])
+        .output()
+        .expect("run inspect");
+    assert!(
+        inspect.status.success(),
+        "inspect failed: stderr={}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+}
+
+#[test]
+fn optimize_compress_spz_roundtrips_bonsai_real_fixture() {
+    // Larger e2e: round-trip the existing `bonsai_real` benchmark scene
+    // through `splatforge optimize --target glb --compress spz`. The PLY
+    // is ~274 MB and only present on developer machines + CI runners that
+    // pull the corpus; skip cleanly when missing.
+    let candidates = [
+        // Manifest's canonical name first; fall back to the per-version copy.
+        "benches/scenes/bonsai_mipnerf360_iter7k.ply",
+        "benches/scenes/real/bonsai_iter7000.ply",
+    ];
+    // Walk up from CARGO_MANIFEST_DIR to find the workspace root that owns
+    // benches/scenes. The CLI crate lives at crates/splatforge-cli, so
+    // root is two levels up.
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest
+        .ancestors()
+        .nth(2)
+        .expect("workspace root")
+        .to_path_buf();
+    let mut input: Option<std::path::PathBuf> = None;
+    for c in &candidates {
+        let p = workspace_root.join(c);
+        if p.exists() {
+            input = Some(p);
+            break;
+        }
+    }
+    let Some(input) = input else {
+        eprintln!(
+            "bonsai_real fixture not on disk under {} — skipping",
+            workspace_root.display()
+        );
+        return;
+    };
+
+    let dir = tempdir().unwrap();
+    let out_glb = dir.path().join("bonsai.optimized.glb");
+    let out = Command::cargo_bin("splatforge")
+        .unwrap()
+        .args([
+            "optimize",
+            input.to_str().unwrap(),
+            "--preset",
+            "lossless-repack",
+            "--target",
+            "glb",
+            "--compress",
+            "spz",
+            "--out",
+            out_glb.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run optimize on bonsai_real");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out_glb.exists(), "GLB output missing");
+
+    // GLB must declare both extensions, and inspect must succeed.
+    let bytes = fs::read(&out_glb).unwrap();
+    let raw = String::from_utf8_lossy(&bytes);
+    assert!(raw.contains("KHR_gaussian_splatting_compression_spz"));
+    assert!(raw.contains("KHR_gaussian_splatting"));
+
+    let inspect = Command::cargo_bin("splatforge")
+        .unwrap()
+        .args(["inspect", out_glb.to_str().unwrap()])
+        .output()
+        .expect("run inspect");
+    assert!(
+        inspect.status.success(),
+        "inspect failed: stderr={}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+}
+
+#[test]
 fn inspect_rejects_bogus_file() {
     let dir = tempdir().unwrap();
     let bad = dir.path().join("nope.ply");
