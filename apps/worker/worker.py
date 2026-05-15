@@ -134,10 +134,13 @@ def run_optimize(
             }
             return _callback(callback_url, payload)
 
-        # 3. Pack glTF + sidecar buffer(s) into a single .glb (binary glTF).
-        # A .glb concatenates the JSON manifest and binary chunks into one
-        # file, so the user can drag it straight into any KHR_gaussian_-
-        # splatting-capable viewer without worrying about missing sidecars.
+        # 3. Upload two artifacts:
+        #    - optimized.glb — self-contained binary glTF for the user to
+        #      download and load in any KHR_gaussian_splatting viewer.
+        #    - optimized.gltf — JSON manifest with absolute buffer URIs for
+        #      the splatforge web viewer, which lazy-streams chunks from URLs.
+        # The browser uses preview_url to render inline; the user downloads
+        # output_url to take it anywhere.
         try:
             glb_path = out_dir / "optimized.glb"
             _pack_glb(gltf_path, glb_path)
@@ -146,6 +149,7 @@ def run_optimize(
                 glb_path,
                 "model/gltf-binary",
             )
+            preview_url = _upload_gltf_with_absolute_buffers(job_id, gltf_path)
         except Exception as exc:  # noqa: BLE001
             return _callback(
                 callback_url,
@@ -155,7 +159,11 @@ def run_optimize(
         volume.commit()
         return _callback(
             callback_url,
-            {"status": "done", "output_url": output_url},
+            {
+                "status": "done",
+                "output_url": output_url,
+                "preview_url": preview_url,
+            },
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -171,6 +179,31 @@ def _download(url: str, dst: Path) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "splatforge-worker/0.1.1"})
     with urllib.request.urlopen(req, timeout=300) as response, dst.open("wb") as f:
         shutil.copyfileobj(response, f, length=4 * 1024 * 1024)
+
+
+def _upload_gltf_with_absolute_buffers(job_id: str, gltf_path: Path) -> str:
+    """Upload glTF + every sidecar, rewriting buffer URIs to absolute blob URLs.
+
+    Companion to `_pack_glb` for in-browser preview: the splatforge web
+    viewer expects a JSON manifest it can fetch, with each buffer URI an
+    absolute URL it can stream chunks from. Returns the manifest's URL.
+    """
+    manifest = json.loads(gltf_path.read_text(encoding="utf-8"))
+    base_dir = gltf_path.parent
+    for buf in manifest.get("buffers") or []:
+        uri = buf.get("uri")
+        if not uri or uri.startswith("data:") or uri.startswith("http"):
+            continue
+        sidecar = (base_dir / uri).resolve()
+        if not sidecar.exists():
+            raise RuntimeError(f"manifest references missing buffer: {uri}")
+        key = f"jobs/{job_id}/{uri}"
+        buf["uri"] = _upload_blob(key, sidecar, "application/octet-stream")
+    patched = base_dir / "optimized.preview.gltf"
+    patched.write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+    return _upload_blob(
+        f"jobs/{job_id}/optimized.gltf", patched, "model/gltf+json"
+    )
 
 
 def _pack_glb(gltf_path: Path, glb_path: Path) -> None:

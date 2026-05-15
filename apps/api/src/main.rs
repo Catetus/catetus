@@ -427,6 +427,7 @@ async fn build_job(
             source_url: Some(url),
             upload_size_bytes: None,
             output_url: None,
+            preview_url: None,
             webhook_url: req.webhook_url,
             batch_id,
             created_at,
@@ -460,6 +461,7 @@ async fn build_job(
             source_url: None,
             upload_size_bytes: None,
             output_url: None,
+            preview_url: None,
             webhook_url: req.webhook_url,
             batch_id,
             created_at,
@@ -698,13 +700,19 @@ async fn upload_job(
 ///
 /// Worker callback. Payload:
 /// ```json
-/// { "status": "done" | "error", "output_url": "https://...", "error": "..." }
+/// { "status": "done" | "error", "output_url": "https://...",
+///   "preview_url": "https://...", "error": "..." }
 /// ```
+/// `preview_url` is optional; when present it points to a .gltf JSON manifest
+/// (with absolute buffer URIs) for in-browser preview, while `output_url`
+/// points to the self-contained .glb users actually download.
 #[derive(Debug, Deserialize)]
 pub struct ResultPayload {
     pub status: String,
     #[serde(default)]
     pub output_url: Option<String>,
+    #[serde(default)]
+    pub preview_url: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
 }
@@ -728,6 +736,9 @@ async fn job_result(
             };
             job.status = JobStatus::Done;
             job.output_url = Some(url);
+            if let Some(preview) = body.preview_url {
+                job.preview_url = Some(preview);
+            }
             job.error = None;
             terminal = true;
         }

@@ -70,6 +70,18 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       </div>
       <div class="job-status-cta" data-job-status-cta></div>
     </div>
+
+    <div class="result-preview" data-result-preview hidden>
+      <canvas data-result-canvas class="result-canvas"></canvas>
+      <div class="result-actions">
+        <a class="btn btn-primary" data-result-download download>
+          <span aria-hidden="true">⬇</span>&nbsp;Download .glb
+        </a>
+        <button type="button" class="btn btn-secondary" data-result-reset>
+          Optimize another
+        </button>
+      </div>
+    </div>
   </div>
 
   <div class="try-footer">
@@ -155,6 +167,27 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     color: #fda4af;
     margin-top: 0.5rem;
   }
+  .result-preview {
+    margin-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    align-items: center;
+  }
+  .result-canvas {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    background: #0a0a0a;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: block;
+  }
+  .result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+  }
 </style>
 
 <script is:inline define:vars={{ apiBase, partnerHref }}>
@@ -168,6 +201,11 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     const statusMeta = document.querySelector("[data-job-status-meta]");
     const progress = document.querySelector("[data-job-progress]");
     const cta = document.querySelector("[data-job-status-cta]");
+    const preview = document.querySelector("[data-result-preview]");
+    const previewCanvas = document.querySelector("[data-result-canvas]");
+    const downloadLink = document.querySelector("[data-result-download]");
+    const resetBtn = document.querySelector("[data-result-reset]");
+    let viewerHandle = null;
     if (
       !(zone instanceof HTMLElement) ||
       !(input instanceof HTMLInputElement) ||
@@ -323,19 +361,73 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       } else if (s === "running") {
         setStatus("running", "processing", "optimizing");
       } else if (s === "done") {
-        setStatus("done", "done", "ready to download", 100);
-        if (job.output_url) {
-          const a = document.createElement("a");
-          a.href = job.output_url;
-          a.target = "_blank";
-          a.rel = "noopener";
-          a.className = "btn btn-primary";
-          a.textContent = "Download optimized.gltf →";
-          cta.appendChild(a);
-        }
+        setStatus("done", "done", "ready to view", 100);
+        void showPreview(job);
       } else if (s === "error") {
         fail(job.error || "optimize failed");
       }
+    }
+
+    async function showPreview(job) {
+      if (!(preview instanceof HTMLElement) || !(previewCanvas instanceof HTMLCanvasElement) || !(downloadLink instanceof HTMLAnchorElement)) {
+        return;
+      }
+      // Wire the download button (.glb is the single-file artifact users take elsewhere).
+      if (job.output_url) {
+        downloadLink.href = job.output_url;
+        const safeName = (job.filename || "optimized").replace(/\.[^.]*$/, "");
+        downloadLink.setAttribute("download", safeName + ".glb");
+      }
+      preview.hidden = false;
+      // Mount the splatforge viewer on the canvas using the preview manifest URL.
+      // The viewer streams chunks from the absolute buffer URIs baked into the manifest.
+      if (!job.preview_url) {
+        statusMeta.textContent = "(preview not available — download to view)";
+        return;
+      }
+      try {
+        const mod = await import(/* @vite-ignore */ "/viewer/index.js");
+        const rect = previewCanvas.getBoundingClientRect();
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        previewCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+        previewCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+        if (viewerHandle && typeof viewerHandle.dispose === "function") {
+          try { viewerHandle.dispose(); } catch (_) {}
+        }
+        const v = new mod.SplatForgeViewer({
+          canvas: previewCanvas,
+          src: job.preview_url,
+          cameraPath: "orbit-8",
+          budget: "web-mobile",
+          autoRotate: true,
+          autoRotateSpeed: 7,
+        });
+        v.on("firstRender", function () {
+          statusMeta.textContent = "live preview";
+        });
+        v.on("error", function (p) {
+          statusMeta.textContent = "preview failed (" + ((p && p.code) || "unknown") + ")";
+        });
+        await v.load();
+        viewerHandle = v;
+      } catch (err) {
+        statusMeta.textContent = "preview failed: " + ((err && err.message) || err);
+      }
+    }
+
+    function resetUploader() {
+      if (viewerHandle && typeof viewerHandle.dispose === "function") {
+        try { viewerHandle.dispose(); } catch (_) {}
+        viewerHandle = null;
+      }
+      if (preview instanceof HTMLElement) preview.hidden = true;
+      if (status instanceof HTMLElement) status.hidden = true;
+      headline.textContent = "Drop a splat or click to choose a file";
+      body.textContent = "Files stay local until you confirm. Supported formats below.";
+    }
+
+    if (resetBtn instanceof HTMLButtonElement) {
+      resetBtn.addEventListener("click", resetUploader);
     }
 
     function waitFor(jobId) {
