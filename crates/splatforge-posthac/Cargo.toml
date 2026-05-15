@@ -9,6 +9,7 @@ description = "PostHAC: hash-grid hyperprior range-coded entropy compression for
 
 [dependencies]
 splatforge-core = { workspace = true }
+splatforge-ply  = { workspace = true }
 byteorder       = { workspace = true }
 thiserror       = { workspace = true }
 constriction    = "0.4"
