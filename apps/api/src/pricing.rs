@@ -103,19 +103,28 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         "mgs-balanced" => (1.0, 0.012),
         "mgs-aggressive" => (1.5, 0.018),
         // CodecGS — feature-plane projection + standard video codec
-        // (HEVC at CRF 28). A4 spike 2026-05-15 reproduced the Lee et al.
-        // ICCV 2025 (arXiv:2501.03399) result: 26.2× compression on
-        // bonsai at attribute-RMSE 0.155 — DOMINATES MesonGS++ at the
-        // same scene (18.5× / 0.212). Browser-native hardware HEVC
-        // decode = zero runtime cost on the client. CPU encode is 8 s
-        // (ffmpeg HEVC), bounded by codec throughput.
-        // Anchor: bonsai 287 MB → ~8 s encode at CRF 28.
+        // (HEVC). A4 spike 2026-05-15 reproduced the Lee et al. ICCV 2025
+        // (arXiv:2501.03399) compression ratios (26.2× at CRF 28; 144.9×
+        // at AV1 CRF 38). A4.1 render-PSNR validation followed up and
+        // KILLED the CRF 28 / 38 tiers as production defaults — render-
+        // PSNR was 17.6 dB / 12.2 dB respectively (attribute-RMSE was
+        // misleading; not a proxy for render quality). A4.2 follow-up
+        // needed to find the 30 dB knee (likely CRF 14-18 ~ 5-10×).
+        // These presets remain reachable for debug / bandwidth-extreme
+        // use; default web preset stays 'web-mobile'.
+        // Anchor: bonsai 287 MB → ~8 s encode at CRF 28 (lossy).
         "codec-gs" => (4.0, 0.028),
-        // CodecGS at AV1 CRF 38 — maximum-compression variant. 144.9×
-        // on bonsai (matches paper's 146× claim) at attribute-RMSE 0.455
-        // (markedly worse quality; render-PSNR validation pending). Use
-        // when bandwidth is the absolute constraint.
         "codec-gs-extreme" => (4.0, 0.012),
+        // CodecGS stacked on v0.1 neural codec — A4.1 BUILT. Bicycle:
+        // 152× combined (896.8 → 5.9 MB) with 22.37 dB render-PSNR vs
+        // v0.1-trained baseline. v0.1's RD-loss training pushes splats
+        // into a more compressible distribution, so CodecGS at same CRF
+        // gets 76× vs only 31× on vanilla bicycle. Cost dominated by
+        // the v0.1 training step (~$0.30 Modal A100 per scene); the
+        // CodecGS post-process is cheap (~3-8 s CPU).
+        // Anchor: 15s GPU training base + 0.090 s/MB (v0.1) plus
+        // 4s base + 0.028 s/MB (CodecGS post-process), summed.
+        "codec-gs-stacked" => (19.0, 0.118),
         // Unknown / future preset: assume web-mobile shape so the
         // preview doesn't 400 on a new preset before the operator
         // tunes a curve for it.

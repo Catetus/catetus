@@ -605,6 +605,10 @@ fn cmd_optimize(
                 // metadata pointing at the .hevc / .av1 payload.
                 | "codec-gs"
                 | "codec-gs-extreme"
+                // Stacked: v0.1 neural codec training → CodecGS post-
+                // process. A4.1 BUILT 2026-05-15 on bicycle:
+                // 152× / 22.37 dB.
+                | "codec-gs-stacked"
         );
     let compress_variant = if compress_mode == Some("spz") {
         Some(splatforge_gltf::SpzVariant::V2)
