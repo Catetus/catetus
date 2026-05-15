@@ -1,18 +1,19 @@
 # `splatforge-api`
 
 Hosted optimize endpoint. Axum HTTP service that issues presigned upload URLs,
-enqueues optimize jobs against the Modal worker (`apps/worker`), and serves job
-status + result downloads.
+enqueues optimize jobs against the Modal worker (`apps/worker`), serves job
+status + result downloads, and routes paid-tier requests to the A100
+differentiable-repack worker.
 
-The actual splat work happens in the Python worker — this crate stays
-HTTP-light so it can run on any standard PaaS (or Modal's `web_endpoint`)
-without rewriting handlers.
+The actual splat work happens in the Python workers — this crate stays
+HTTP-light so it can run on any standard PaaS (Fly, Render, Railway,
+DigitalOcean) without rewriting handlers.
 
 ## Quick start (no external services)
 
-`splatforge-api` runs against in-memory state and stub backends when the
-storage and worker env vars are absent, so you can hit the routes from a fresh
-checkout without provisioning anything:
+`splatforge-api` runs against a local SQLite database and stub backends when
+the storage and worker env vars are absent, so you can hit the routes from a
+fresh checkout without provisioning anything:
 
 ```bash
 cargo run -p splatforge-api --release
@@ -32,74 +33,98 @@ configured" error so the API contract still exercises end-to-end.
 
 ## Routes
 
-| Method | Path                     | Purpose                                                |
-| ------ | ------------------------ | ------------------------------------------------------ |
-| GET    | `/healthz`               | liveness probe + version                               |
-| POST   | `/v1/jobs`               | create job + receive presigned upload URL              |
-| GET    | `/v1/jobs/:id`           | poll job status; result/error are populated on finish  |
-| POST   | `/v1/jobs/:id/upload`    | confirm the upload completed; enqueues the optimize    |
+| Method | Path                       | Purpose                                                          |
+| ------ | -------------------------- | ---------------------------------------------------------------- |
+| GET    | `/healthz`                 | liveness probe + version                                         |
+| POST   | `/v1/jobs`                 | create free-tier job (upload or URL-mode)                        |
+| POST   | `/v1/jobs/batch`           | create up to 100 jobs atomically with a shared `batch_id`        |
+| GET    | `/v1/jobs/:id`             | poll job status; result/error are populated on finish            |
+| POST   | `/v1/jobs/:id/upload`      | stream splat bytes through to Blob (proxy-upload mode)           |
+| POST   | `/v1/jobs/:id/repack`      | paid-tier: dispatch to A100 differentiable repack                |
+| POST   | `/v1/jobs/:id/result`      | worker → API callback; updates terminal status & fires webhooks  |
 
-The presign URL is returned from `POST /v1/jobs`; the client uploads the splat
-to it directly (`PUT`), then calls `POST /v1/jobs/:id/upload` so the API
-enqueues the job against the Modal worker. The worker's status webhook (TBD,
-SPEC-0014) updates the job to `succeeded` / `failed`.
+Free-tier jobs run the deterministic CPU optimize pipeline; paid-tier
+`/repack` calls dispatch to a separate Modal app that runs gsplat on an
+A100 to compress against a fixed byte budget. Repack requires the job to
+already be `Done` so we have a baseline render to validate against.
 
 ## Configuration
 
-All env vars are optional in dev (the service degrades to stub backends), but
-required in production:
+All env vars are optional in dev (the service degrades to stub backends),
+but `SPLATFORGE_API_KEYS` and the Modal URLs are required in production:
 
-| Variable                  | Purpose                                                    |
-| ------------------------- | ---------------------------------------------------------- |
-| `SPLATFORGE_API_BIND`     | bind address; default `0.0.0.0:8080`                       |
-| `SPLATFORGE_MODAL_URL`    | Modal worker `/enqueue` endpoint                           |
-| `BLOB_READ_WRITE_TOKEN`   | Vercel Blob write token; presigning calls require it       |
-| `RUST_LOG`                | tracing filter; default `splatforge_api=info,tower_http=info` |
+| Variable                       | Purpose                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| `SPLATFORGE_API_BIND`          | bind address; default `0.0.0.0:8080`                                     |
+| `SPLATFORGE_PUBLIC_BASE_URL`   | publicly reachable base URL; baked into worker callback URLs             |
+| `DATABASE_URL`                 | SQLite path; default `sqlite://data/jobs.db`                             |
+| `SPLATFORGE_API_KEYS`          | comma-separated bearer tokens for free-tier routes                        |
+| `SPLATFORGE_PAID_API_KEYS`     | bearer tokens additionally accepted on `/repack` (must subset API_KEYS)  |
+| `SPLATFORGE_MODAL_URL`         | Modal free-tier `/enqueue` endpoint                                      |
+| `SPLATFORGE_MODAL_REPACK_URL`  | Modal A100 `/enqueue` endpoint for `/repack`                             |
+| `BLOB_READ_WRITE_TOKEN`        | Vercel Blob write token; presigning calls require it                     |
+| `RUST_LOG`                     | tracing filter; default `splatforge_api=info,tower_http=info`            |
 
 ## Architecture
 
 ```
-            ┌───────────────┐  presign       ┌─────────────────┐
-client ────►│ splatforge-api│ ──────────────►│ Vercel Blob     │
-            │  (Axum, this) │                │  (uploads)      │
-            └──────┬────────┘                └─────────────────┘
-                   │ /enqueue                       ▲
-                   ▼                                │ pull
-            ┌─────────────────┐                     │
-            │ Modal worker    │ ────────────────────┘
-            │ (apps/worker)   │  pulls splat → runs splatforge CLI
+            ┌───────────────┐   /enqueue    ┌─────────────────┐
+client ────►│ splatforge-api│ ─────────────►│ Modal free-tier │
+            │  (Axum, this) │               │ (apps/worker)   │
+            └──────┬────────┘               └────────┬────────┘
+                   │ /enqueue                         │ callback
+                   ▼                                  ▼
+            ┌─────────────────┐    /repack    ┌──────────────────┐
+            │ Modal A100      │ ◄─────────────┤ /v1/jobs/:id/result
+            │ (diff-repack)   │               └──────────────────┘
             └─────────────────┘
+                                              ┌─────────────────┐
+                                              │ SQLite jobs.db  │
+                                              │ (persistent)    │
+                                              └─────────────────┘
 ```
 
-The job store is in-memory today (`store::JobStore`) — swapped for Postgres
-when we outgrow the single-instance deploy. The blob backend (`store::BlobBackend`)
-and modal client (`modal_client::ModalClient`) are trait-shaped so R2/S3 +
+Jobs persist to SQLite via sqlx; the surface in `store.rs` is the only
+place that depends on the concrete backend so swapping to Postgres later
+is a one-file change. The blob backend (`store::BlobBackend`) and modal
+client (`modal_client::ModalClient`) are trait-shaped so R2/S3 +
 self-hosted worker swaps don't touch the handler code.
 
 ## Tests
 
 ```bash
-cargo test -p splatforge-api --release
+cargo test -p splatforge-api
 ```
 
-No integration tests yet — the surface is small enough that the smoke-curl
-sequence above is the canonical correctness check. The trait surface in
-`store.rs` / `modal_client.rs` is unit-testable; tests land alongside the
-first non-stub backend implementation.
+In-memory SQLite is used for unit tests; the same `migrations/` directory
+is replayed so the schema under test matches production.
 
-## Deployment
+## Deployment (Fly.io)
 
-Two target environments today:
+```bash
+fly launch --no-deploy --config apps/api/fly.toml
+fly volumes create splatforge_api_data --size 10 --region iad
+fly secrets set \
+  SPLATFORGE_API_KEYS=key1,key2 \
+  SPLATFORGE_PAID_API_KEYS=paidkey1 \
+  SPLATFORGE_MODAL_URL=https://...modal.run/enqueue \
+  SPLATFORGE_MODAL_REPACK_URL=https://...modal.run/enqueue \
+  BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
+fly deploy
+```
 
-1. **DigitalOcean droplet** at `167.99.231.209` — preferred. Cross-compile for
-   `x86_64-unknown-linux-gnu`, install as a systemd unit, front with Caddy for
-   auto-TLS on `api.splatforge.dev`. Not yet wired up; SSH access pending.
+The Dockerfile expects the workspace context (path deps), so build from
+the repo root or use `--config apps/api/fly.toml --dockerfile apps/api/Dockerfile`.
 
-2. **Modal `web_endpoint`** — requires a thin Python wrapper around the Rust
-   binary. Less clean but lives next to the worker.
+## Smoke test
 
-Either way, set the env vars above and ensure the Vercel Blob token has
-`READ_WRITE` scope on the `splatforge-blobs` store.
+```bash
+API_URL=https://splatforge-api.fly.dev API_KEY=... ./scripts/smoke.sh
+```
+
+Creates a URL-mode job against a known-public splat, polls until terminal,
+fetches the resulting `.glb` and validates the GLB magic. Pass `PAID=1
+PAID_API_KEY=...` to also exercise `/repack`. Exits non-zero on any failure.
 
 See [`docs/architecture.md`](../../docs/architecture.md) for how this fits
 into the broader hosted pipeline.

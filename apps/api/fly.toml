@@ -1,0 +1,60 @@
+# Fly.io config for splatforge-api.
+#
+# Deploy: `fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile`
+# from the repo root. The Dockerfile expects the workspace context (path deps),
+# which is why both --config and --dockerfile point at apps/api.
+#
+# First-run setup:
+#   fly launch --no-deploy --config apps/api/fly.toml
+#   fly volumes create splatforge_api_data --size 10 --region iad
+#   fly secrets set \
+#     SPLATFORGE_API_KEYS=... \
+#     SPLATFORGE_PAID_API_KEYS=... \
+#     SPLATFORGE_MODAL_URL=https://...enqueue \
+#     SPLATFORGE_MODAL_REPACK_URL=https://...enqueue \
+#     BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
+#   fly deploy
+
+app = "splatforge-api"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SPLATFORGE_API_BIND = "0.0.0.0:8080"
+  SPLATFORGE_PUBLIC_BASE_URL = "https://splatforge-api.fly.dev"
+  RUST_LOG = "splatforge_api=info,tower_http=info"
+
+[[mounts]]
+  source = "splatforge_api_data"
+  destination = "/data"
+  # Survives restarts and migrations — losing this volume loses all
+  # in-flight job state. Snapshot before any volume operation.
+  initial_size = "10gb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Keep at least one machine warm so a cold callback from the Modal worker
+  # doesn't get stuck waiting on a wake-up. Modal callbacks have a 30s
+  # retry budget; a Fly cold boot can blow through that on a bad day.
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+  method = "get"
+  path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

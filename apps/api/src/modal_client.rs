@@ -21,16 +21,26 @@ pub enum ModalError {
     Rejected(String),
 }
 
-/// HTTP client targeted at the Modal worker's web endpoint.
+/// HTTP client targeted at the Modal worker's web endpoint(s). The free
+/// pipeline (CPU optimize) and the paid pipeline (A100 differentiable
+/// repack) are deployed as separate Modal apps so spot-pricing decisions,
+/// concurrency, and timeouts can differ. This client keeps both URLs side
+/// by side so callers don't have to plumb the choice through the request.
 pub struct ModalClient {
     base_url: Option<String>,
+    repack_url: Option<String>,
     http: reqwest::Client,
 }
 
 impl ModalClient {
-    pub fn new(base_url: Option<String>) -> Self {
+    pub fn new(base_url: Option<String>, repack_url: Option<String>) -> Self {
         Self {
             base_url,
+            repack_url,
+            // 30s for the synchronous /enqueue handshake. The actual work
+            // happens asynchronously on Modal — the worker calls back into
+            // /v1/jobs/:id/result when done, so the handshake just needs to
+            // confirm the function was spawned.
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
                 .build()
@@ -47,21 +57,12 @@ impl ModalClient {
         callback_url: &str,
     ) -> Result<EnqueueAck, ModalError> {
         let Some(base) = &self.base_url else {
-            // No worker configured — degrade gracefully so the API can still
-            // function in dev environments without Modal access.
             return Ok(EnqueueAck {
                 queued: false,
                 error: Some("modal worker not configured; job remains AwaitingUpload".to_string()),
             });
         };
-        // The Modal deploy publishes one URL per `fastapi_endpoint`. Treat
-        // `base` as the full `/enqueue` URL when it already names it, else
-        // append the path (back-compat with the older `https://host` form).
-        let url = if base.contains("enqueue") {
-            base.to_string()
-        } else {
-            format!("{}/enqueue", base.trim_end_matches('/'))
-        };
+        let url = resolve_endpoint(base);
         let payload = EnqueuePayload {
             job_id: job.id,
             preset: &job.preset,
@@ -70,11 +71,44 @@ impl ModalClient {
             size_bytes: job.size_bytes,
             label: job.label.as_deref(),
             callback_url,
+            params: None,
         };
+        self.post(&url, &payload).await
+    }
+
+    /// Dispatch a differentiable-repack run to the A100 worker. `params`
+    /// carries the per-job knobs (target byte budget, iteration count); the
+    /// rest of the envelope matches `/enqueue` so the worker can reuse the
+    /// same input fetch + callback plumbing.
+    pub async fn enqueue_repack(
+        &self,
+        job: &Job,
+        blob_url: &str,
+        callback_url: &str,
+        params: serde_json::Value,
+    ) -> Result<EnqueueAck, ModalError> {
+        let Some(base) = &self.repack_url else {
+            return Err(ModalError::NotConfigured);
+        };
+        let url = resolve_endpoint(base);
+        let payload = EnqueuePayload {
+            job_id: job.id,
+            preset: &job.preset,
+            blob_url,
+            filename: &job.filename,
+            size_bytes: job.size_bytes,
+            label: job.label.as_deref(),
+            callback_url,
+            params: Some(params),
+        };
+        self.post(&url, &payload).await
+    }
+
+    async fn post(&self, url: &str, payload: &EnqueuePayload<'_>) -> Result<EnqueueAck, ModalError> {
         let resp = self
             .http
-            .post(&url)
-            .json(&payload)
+            .post(url)
+            .json(payload)
             .send()
             .await
             .map_err(|e| ModalError::Request(e.to_string()))?;
@@ -91,6 +125,16 @@ impl ModalClient {
     }
 }
 
+/// Modal publishes one URL per `fastapi_endpoint`. Accept either the fully
+/// qualified `https://.../enqueue` form or the bare host form for back-compat.
+fn resolve_endpoint(base: &str) -> String {
+    if base.contains("enqueue") {
+        base.to_string()
+    } else {
+        format!("{}/enqueue", base.trim_end_matches('/'))
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct EnqueuePayload<'a> {
     job_id: uuid::Uuid,
@@ -101,6 +145,10 @@ struct EnqueuePayload<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<&'a str>,
     callback_url: &'a str,
+    /// Free-form worker-specific knobs. Repack uses
+    /// `{ "target_bytes": <u64>, "iterations": <u32> }`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    params: Option<serde_json::Value>,
 }
 
 /// Worker's reply to `/enqueue`. `queued=true` means the Modal Function has

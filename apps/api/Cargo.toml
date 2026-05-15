@@ -44,3 +44,15 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # Env config
 dotenvy = "0.15"
+
+# Persistent job store. SQLite is enough for the single-instance droplet
+# deploy; the surface in `store.rs` is the only place that depends on the
+# concrete backend so swapping to Postgres later is a one-file change.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "sqlite",
+    "chrono",
+    "uuid",
+    "macros",
+    "migrate",
+] }
