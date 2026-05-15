@@ -87,6 +87,17 @@ packages/viewer/dist-bench/
 tasks/todo.md
 /benches/scenes/bonsai_mipnerf360_iter7k.ply
 /benches/scenes/stump_mipnerf360_iter7k.ply
+# Cluster fly LOD staging symlinks point at benches/scenes/real/*.ply
+# (gitignored below). The symlinks themselves are recreated on every
+# pull via `benches/scenes/scripts/pull-cluster-fly.sh`.
+/benches/scenes/cluster_fly_s.ply
+/benches/scenes/cluster_fly_m.ply
+/benches/scenes/cluster_fly_l.ply
+/benches/scenes/cluster_fly_xl.ply
+/benches/scenes/cluster_fly_xxl.ply
+# Bench-run output artifacts (per-scene optimize outputs, analyze JSON).
+# These are reproducible from the committed manifest + a fresh pull.
+/tasks/cluster-fly-out/
 # Real scene PLYs are large (hundreds of MB) and pulled on demand by
 # `benches/scenes/scripts/pull-*.sh`. Keep the directory tracked so the
 # manifest.json hash + URL convention is reproducible.
