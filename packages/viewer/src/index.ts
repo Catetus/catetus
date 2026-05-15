@@ -40,3 +40,24 @@ export type {
   StreamerStats,
   Frustum,
 } from './streaming/index.js';
+export {
+  fetchProgressive,
+  parsePlyHeader,
+  MGS2_MAGIC,
+  MGS2_VERSION,
+  MGS2_PREFIX_LEN,
+} from './progressive/fetcher.js';
+export type {
+  ProgressiveEvent,
+  ProgressiveHeaderEvent,
+  ProgressiveChunkEvent,
+  ProgressiveDoneEvent,
+  PlyFieldOffsets,
+  FetchProgressiveOptions,
+} from './progressive/fetcher.js';
+export {
+  ProgressiveUploader,
+  buildSoaChunk,
+  SOA_BYTES_PER_SPLAT,
+} from './progressive/uploader.js';
+export type { ProgressiveUploaderInit } from './progressive/uploader.js';
