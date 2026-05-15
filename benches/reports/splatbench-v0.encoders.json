@@ -1,6 +1,6 @@
 {
   "schema": "splatforge.splatbench.encoders/0.1",
-  "generatedAt": "2026-05-15T12:09:35.819Z",
+  "generatedAt": "2026-05-15T14:14:52.581Z",
   "encoders": [
     "splat-transform"
   ],
@@ -30,6 +30,76 @@
           "wallSeconds": 85.177,
           "wallMs": 85195,
           "ratio": 16.53
+        }
+      }
+    },
+    {
+      "scene": "cluster_fly_l",
+      "inputBytes": 71263622,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 6870716,
+          "wallSeconds": 26.523,
+          "wallMs": 26544,
+          "ratio": 10.37
+        }
+      }
+    },
+    {
+      "scene": "cluster_fly_m",
+      "inputBytes": 34367146,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 4590282,
+          "wallSeconds": 15.056,
+          "wallMs": 15073,
+          "ratio": 7.49
+        }
+      }
+    },
+    {
+      "scene": "cluster_fly_s",
+      "inputBytes": 6049505,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 999086,
+          "wallSeconds": 3.463,
+          "wallMs": 3479,
+          "ratio": 6.06
+        }
+      }
+    },
+    {
+      "scene": "cluster_fly_xl",
+      "inputBytes": 147308014,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 11538622,
+          "wallSeconds": 50.623,
+          "wallMs": 50641,
+          "ratio": 12.77
+        }
+      }
+    },
+    {
+      "scene": "cluster_fly_xxl",
+      "inputBytes": 827606099,
+      "runs": {
+        "splat-transform": {
+          "ok": true,
+          "version": "2.1.1",
+          "outputBytes": 52428881,
+          "wallSeconds": 288.206,
+          "wallMs": 288228,
+          "ratio": 15.79
         }
       }
     },
