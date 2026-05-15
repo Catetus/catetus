@@ -4,21 +4,36 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "OpenUSD I/O for SplatForge — ParticleField3DGaussianSplat writer + USDA reader. Spec: SPEC-0011 + SPEC-0012."
+description = "OpenUSD I/O for SplatForge — ParticleField3DGaussianSplat writer + USDA + USDC binary. Spec: SPEC-0011 + SPEC-0012."
 
 [features]
-# Default feature surface is the lightweight USDA-only path so the crate
-# builds without the OpenUSD C++ toolchain installed. `usdc` brings in
-# the Pixar binary container; `streaming` covers SPEC-0012.
-default = []
+# `usdc` is on by default now that the binary writer round-trips against
+# Pixar's `usdcat`. The `usdcat-validation` feature gates the shell-out
+# test (it only passes when `usdcat` is on PATH).
+default = ["usdc"]
 usdc = []
 streaming = []
+usdcat-validation = []
 
 [dependencies]
 splatforge-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[[test]]
+name = "roundtrip"
+path = "tests/roundtrip.rs"
+
+[[test]]
+name = "usdc_roundtrip"
+path = "tests/usdc_roundtrip.rs"
+
+[[test]]
+name = "usdc_usdcat"
+path = "tests/usdc_usdcat.rs"
+required-features = ["usdcat-validation"]
