@@ -12,7 +12,9 @@ Each optimize invocation:
 
 1. Pulls the splat blob from a URL the API hands us (Vercel Blob today).
 2. Runs the pinned ``splatforge`` CLI inside this container's filesystem.
-3. Uploads the resulting glTF back to Vercel Blob.
+3. Uploads the resulting glTF (and any sidecar buffer files it references)
+   back to Vercel Blob, rewriting buffer URIs to absolute URLs so the
+   manifest is self-contained.
 4. POSTs ``{status: "done", output_url}`` to the API's ``callback_url`` so
    the caller can transition their job to ``Done`` without polling.
 
@@ -23,6 +25,7 @@ don't drift mid-flight.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -130,11 +133,13 @@ def run_optimize(
             }
             return _callback(callback_url, payload)
 
-        # 3. Upload the optimized artifact back to Vercel Blob. Same protocol
-        # the API uses for the inbound upload — PUT with bearer token.
-        output_key = f"jobs/{job_id}/optimized.gltf"
+        # 3. Upload the optimized artifact. The splatforge CLI emits a glTF
+        # manifest plus one or more sidecar files under `buffers/`. Upload
+        # every sidecar first, capture their final blob URLs, then rewrite
+        # the manifest's `buffers[].uri` fields to absolute URLs so the
+        # downloaded .gltf is self-contained (no missing-file surprise).
         try:
-            output_url = _upload_blob(output_key, gltf_path, "model/gltf+json")
+            output_url = _upload_gltf_bundle(job_id, gltf_path)
         except Exception as exc:  # noqa: BLE001
             return _callback(
                 callback_url,
@@ -160,6 +165,32 @@ def _download(url: str, dst: Path) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "splatforge-worker/0.1.1"})
     with urllib.request.urlopen(req, timeout=300) as response, dst.open("wb") as f:
         shutil.copyfileobj(response, f, length=4 * 1024 * 1024)
+
+
+def _upload_gltf_bundle(job_id: str, gltf_path: Path) -> str:
+    """Upload a glTF manifest + every sidecar buffer it references.
+
+    Returns the final URL of the patched manifest, whose buffer URIs have
+    been rewritten to absolute blob URLs. Self-contained: downloading the
+    .gltf is enough to render the scene anywhere.
+    """
+    manifest = json.loads(gltf_path.read_text(encoding="utf-8"))
+    base_dir = gltf_path.parent
+    buffers = manifest.get("buffers") or []
+    for buf in buffers:
+        uri = buf.get("uri")
+        if not uri or uri.startswith("data:") or uri.startswith("http"):
+            continue  # already inline / absolute, nothing to do
+        sidecar = (base_dir / uri).resolve()
+        if not sidecar.exists():
+            raise RuntimeError(f"manifest references missing buffer: {uri}")
+        key = f"jobs/{job_id}/{uri}"
+        buf["uri"] = _upload_blob(key, sidecar, "application/octet-stream")
+    # Write the patched manifest to a sibling file (don't mutate the
+    # original on disk — keeps idempotence in case the function retries).
+    patched = base_dir / "optimized.patched.gltf"
+    patched.write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+    return _upload_blob(f"jobs/{job_id}/optimized.gltf", patched, "model/gltf+json")
 
 
 def _upload_blob(key: str, path: Path, content_type: str) -> str:
