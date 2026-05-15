@@ -26,6 +26,8 @@ import { StatsOverlay } from './stats.js';
 import type { Renderer } from './renderer/base.js';
 import { isWebGPUAvailable, WebGPURenderer } from './renderer/webgpu.js';
 import { WebGL2Renderer } from './renderer/webgl2.js';
+import { fetchProgressive, type FetchProgressiveOptions } from './progressive/fetcher.js';
+import { ProgressiveUploader } from './progressive/uploader.js';
 import {
   StreamingTileset,
   type FrameReport,
@@ -166,6 +168,115 @@ export class SplatForgeViewer {
       await this.streamChunks(manifest);
       await this.runCameraPath(manifest);
       this.emitter.emit('complete', { type: 'complete' });
+      if (this.opts.autoRotate && !this.opts.deterministic) {
+        this.startAutoRotate();
+      }
+    } catch (err) {
+      const { code, message } = normalizeError(err);
+      this.emitter.emit('error', { type: 'error', code, message });
+      throw new Error(code);
+    }
+  }
+
+  /**
+   * Stream a `.mgs2` progressive bitstream from `url` and render it
+   * coarse-to-fine while bytes arrive.
+   *
+   * Each progressive batch becomes a synthetic SoA chunk (see
+   * `progressive/uploader.ts`) and is fed to the renderer's `uploadChunk`.
+   * The first batch lands well before the byte budget is exhausted, so a
+   * watchable preview appears at ~5 % of the bitstream and refines
+   * monotonically as additional bytes arrive.
+   *
+   * Camera path semantics differ from {@link load}: `loadProgressive`
+   * renders a single frame after every batch arrives (so observers see the
+   * scene grow), then optionally drives the configured `cameraPath` once
+   * the full bitstream has been received.
+   *
+   * @param url URL of the `.mgs2` bitstream.
+   * @param opts Optional batch-size override + AbortSignal forwarding to
+   *   {@link fetchProgressive}.
+   */
+  async loadProgressive(
+    url: string,
+    opts: FetchProgressiveOptions = {},
+  ): Promise<void> {
+    this.emitter.emit('loadStart', { type: 'loadStart' });
+    try {
+      const renderer = await this.pickRenderer();
+      this.renderer = renderer;
+      await renderer.init({ canvas: this.opts.canvas });
+
+      if (this.opts.stats) {
+        const parent = this.opts.canvas.parentElement;
+        if (parent) {
+          if (getComputedStyle(parent).position === 'static') {
+            parent.style.position = 'relative';
+          }
+          this.stats = new StatsOverlay({ anchor: parent });
+        }
+      }
+
+      let uploader: ProgressiveUploader | undefined;
+      let totalBatches = 0;
+      let manifest: Manifest | undefined;
+      const aspect = this.opts.canvas.width > 0
+        ? this.opts.canvas.width / Math.max(this.opts.canvas.height, 1)
+        : 16 / 9;
+
+      for await (const ev of fetchProgressive(url, opts)) {
+        if (ev.kind === 'header') {
+          // Synthesize a manifest-like record now — the bbox is unknown
+          // until the first batch lands; default to a unit cube and update
+          // as batches arrive.
+          manifest = {
+            splatCount: ev.nSplats,
+            bbox: { min: [-1, -1, -1], max: [1, 1, 1] },
+            chunks: [],
+            shDegree: 0,
+          };
+          this.cachedManifest = manifest;
+          this.emitter.emit('manifestLoaded', {
+            type: 'manifestLoaded',
+            chunkCount: 0, // unknown — batches are emitted as they arrive
+          });
+          uploader = new ProgressiveUploader({
+            renderer,
+            fieldOffsets: ev.fieldOffsets,
+            onBatchUploaded: (batchIndex, totalSplats) => {
+              this.emitter.emit('chunkLoaded', {
+                type: 'chunkLoaded',
+                chunkIndex: batchIndex,
+                byteLength: totalSplats, // proxy: cumulative splat count
+              });
+            },
+          });
+        } else if (ev.kind === 'chunk') {
+          if (!uploader) throw new Error('progressive_protocol: chunk before header');
+          uploader.addBatch(ev.bytes, ev.splatsAdded);
+          totalBatches += 1;
+          // Update the cached manifest's bbox to the cumulative union so
+          // any consumer using `cachedManifest.bbox` for framing sees the
+          // scene grow in screen-space rather than zooming on the origin.
+          if (manifest) {
+            manifest.bbox = uploader.currentBbox;
+          }
+          // Render a frame after every batch so the canvas reflects the
+          // growing scene.
+          const camera = orbitPose(this.cameraBboxFor(manifest!), 0, aspect);
+          await renderer.renderFrame(camera);
+          if (!this.firstRenderFired) {
+            this.firstRenderFired = true;
+            this.emitter.emit('firstRender', { type: 'firstRender' });
+          }
+        }
+        // 'done' event needs no action.
+      }
+      if (!uploader) throw new Error('progressive_protocol: stream ended before header');
+      // Run the configured camera path once the full bitstream is in.
+      if (manifest) await this.runCameraPath(manifest);
+      this.emitter.emit('complete', { type: 'complete' });
+      void totalBatches;
       if (this.opts.autoRotate && !this.opts.deterministic) {
         this.startAutoRotate();
       }
