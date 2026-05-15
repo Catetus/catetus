@@ -39,7 +39,7 @@
  * key resolve in scatter order, which is deterministic for a fixed dispatch.
  */
 
-import { DECODE_WGSL, RADIX_SORT_WGSL, SCAN_MULTIBLOCK_WGSL } from './shaders.generated.js';
+import { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL } from './shaders.generated.js';
 import { createRadixSortPipelines, RadixSort, type RadixSortPipelines } from './radix_sort.js';
 import type { ChunkDescriptor, SoaAttributeLayout } from '../manifest.js';
 
@@ -88,9 +88,14 @@ interface DecodePipelines {
   decodeBgl: GPUBindGroupLayout;
   projectBgl: GPUBindGroupLayout;
   gatherBgl: GPUBindGroupLayout;
+  /** Optional fused project+gather path (depth-only keygen + sorted-order project). */
+  keygen?: GPUComputePipeline;
+  projectGather?: GPUComputePipeline;
+  keygenBgl?: GPUBindGroupLayout;
+  projectGatherBgl?: GPUBindGroupLayout;
 }
 
-function createDecodePipelines(device: GPUDevice): DecodePipelines {
+function createDecodePipelines(device: GPUDevice, includeFused: boolean): DecodePipelines {
   const decodeMod = device.createShaderModule({ code: DECODE_WGSL });
   const decodeBgl = device.createBindGroupLayout({
     entries: [
@@ -129,7 +134,49 @@ function createDecodePipelines(device: GPUDevice): DecodePipelines {
     layout: device.createPipelineLayout({ bindGroupLayouts: [gatherBgl] }),
     compute: { module: gatherMod, entryPoint: 'cs_gather' },
   });
-  return { decode, project, gather, decodeBgl, projectBgl, gatherBgl };
+
+  if (!includeFused) {
+    return { decode, project, gather, decodeBgl, projectBgl, gatherBgl };
+  }
+
+  // -----------------------------------------------------------------
+  // Fused project+gather pipeline. See cs_project_gather.wgsl.
+  //
+  //   cs_keygen:           splats + camera → keys[] + indices[].
+  //                        Bindings: (0 splats, 1 keys, 2 indices, 3 uniforms).
+  //   cs_project_gather:   splats + sorted_indices[] + camera → instanceBuffer[].
+  //                        Bindings: (0 splats, 1 indices, 2 inst_out, 3 uniforms).
+  // -----------------------------------------------------------------
+  const fusedMod = device.createShaderModule({ code: PROJECT_GATHER_WGSL });
+  const keygenBgl = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+    ],
+  });
+  const projectGatherBgl = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+    ],
+  });
+  const keygen = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [keygenBgl] }),
+    compute: { module: fusedMod, entryPoint: 'cs_keygen' },
+  });
+  const projectGather = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [projectGatherBgl] }),
+    compute: { module: fusedMod, entryPoint: 'cs_project_gather' },
+  });
+
+  return {
+    decode, project, gather, decodeBgl, projectBgl, gatherBgl,
+    keygen, projectGather, keygenBgl, projectGatherBgl,
+  };
 }
 
 /* --------------------------------------------------------------------------- */
@@ -198,6 +245,16 @@ export interface ComputeDecodePipelineInit {
   device: GPUDevice;
   /** Maximum total splats across all chunks. Sizes the output buffers. */
   capacity: number;
+  /**
+   * Use the fused project+gather path: depth-only keygen → radix sort →
+   * direct-to-vertex projection in sorted order. Eliminates the per-frame
+   * 640 MB read+write of the `instUnsorted` scratch buffer at 10 M splats.
+   *
+   * Default: `true`. Set `false` to use the original separate cs_project +
+   * cs_gather path (kept as a deterministic fallback and reference for the
+   * parity test).
+   */
+  useFusedProject?: boolean;
 }
 
 /**
@@ -213,22 +270,28 @@ export interface ComputeDecodePipelineInit {
 export class ComputeDecodePipeline {
   readonly device: GPUDevice;
   readonly capacity: number;
+  /** True when the fused project+gather path is active. */
+  readonly useFusedProject: boolean;
   private readonly pipes: DecodePipelines;
   private readonly radixPipes: RadixSortPipelines;
   /** Canonical decoded-splat buffer. One per-splat record across all chunks. */
   private readonly splatsBuffer: GPUBuffer;
-  /** Unsorted instance buffer (project shader output). */
-  private readonly instUnsorted: GPUBuffer;
+  /** Unsorted instance buffer (project shader output). Only allocated in the non-fused path. */
+  private readonly instUnsorted: GPUBuffer | null;
   /** Sorted final instance buffer. Used as the vertex buffer by the renderer. */
   readonly instanceBuffer: GPUBuffer;
   /** Radix-sort runner. `keysA`/`valuesA` are scratch we write into in cs_project. */
   private readonly sorter: RadixSort;
   /** Project pass uniform buffer (view + viewProj + viewport + focal + count). */
   private readonly projectUniforms: GPUBuffer;
-  private readonly projectBindGroup: GPUBindGroup;
-  /** Gather pass uniform (count). */
-  private readonly gatherUniforms: GPUBuffer;
-  private readonly gatherBindGroup: GPUBindGroup;
+  /** Bind group for cs_project (non-fused only). */
+  private readonly projectBindGroup: GPUBindGroup | null;
+  /** Gather pass uniform (count). Non-fused only. */
+  private readonly gatherUniforms: GPUBuffer | null;
+  private readonly gatherBindGroup: GPUBindGroup | null;
+  /** Bind groups for the fused path (keygen + project_gather). */
+  private readonly keygenBindGroup: GPUBindGroup | null;
+  private readonly projectGatherBindGroup: GPUBindGroup | null;
   private readonly chunks: DecodedChunk[] = [];
   /** Splats already decoded (offset into `splatsBuffer`). */
   private decodedSplats = 0;
@@ -236,11 +299,9 @@ export class ComputeDecodePipeline {
   constructor(init: ComputeDecodePipelineInit) {
     this.device = init.device;
     this.capacity = init.capacity;
-    this.pipes = createDecodePipelines(this.device);
-    // Pass the multi-block scan WGSL so the radix sort uses the chained
-    // 3-kernel scan (parallelized across many workgroups) instead of the
-    // legacy single-workgroup scan. See `scan_multiblock.wgsl`.
-    this.radixPipes = createRadixSortPipelines(this.device, RADIX_SORT_WGSL, SCAN_MULTIBLOCK_WGSL);
+    this.useFusedProject = init.useFusedProject ?? true;
+    this.pipes = createDecodePipelines(this.device, this.useFusedProject);
+    this.radixPipes = createRadixSortPipelines(this.device, RADIX_SORT_WGSL);
 
     const decodedSize = Math.max(this.capacity * BYTES_PER_DECODED_SPLAT, BYTES_PER_DECODED_SPLAT);
     this.splatsBuffer = this.device.createBuffer({
@@ -248,10 +309,12 @@ export class ComputeDecodePipeline {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     const instSize = Math.max(this.capacity * FLOATS_PER_INSTANCE * 4, FLOATS_PER_INSTANCE * 4);
-    this.instUnsorted = this.device.createBuffer({
-      size: instSize,
-      usage: GPUBufferUsage.STORAGE,
-    });
+    // The 640-MB-at-10M scratch buffer is only needed for the non-fused path.
+    // In the fused path we write the final instance record directly from the
+    // project_gather kernel, so we skip the allocation entirely.
+    this.instUnsorted = this.useFusedProject
+      ? null
+      : this.device.createBuffer({ size: instSize, usage: GPUBufferUsage.STORAGE });
     this.instanceBuffer = this.device.createBuffer({
       size: instSize,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
@@ -263,33 +326,60 @@ export class ComputeDecodePipeline {
       size: 4 * (16 + 16 + 2 + 2 + 4), // 160 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.projectBindGroup = this.device.createBindGroup({
-      layout: this.pipes.projectBgl,
-      entries: [
-        { binding: 0, resource: { buffer: this.splatsBuffer } },
-        { binding: 1, resource: { buffer: this.instUnsorted } },
-        { binding: 2, resource: { buffer: this.sorter.keysA } },
-        { binding: 3, resource: { buffer: this.sorter.valuesA } },
-        { binding: 4, resource: { buffer: this.projectUniforms } },
-      ],
-    });
 
-    // 32 B minimum: WGSL Uniforms { count: u32, _pad: vec3<u32> } occupies
-    // 16 B but WebGPU pads uniform-buffer bindings up to the next power-of-2
-    // ≥ the struct size, with a 32 B minimum on most adapters.
-    this.gatherUniforms = this.device.createBuffer({
-      size: 32,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    this.gatherBindGroup = this.device.createBindGroup({
-      layout: this.pipes.gatherBgl,
-      entries: [
-        { binding: 0, resource: { buffer: this.instUnsorted } },
-        { binding: 1, resource: { buffer: this.sorter.valuesA } },
-        { binding: 2, resource: { buffer: this.instanceBuffer } },
-        { binding: 3, resource: { buffer: this.gatherUniforms } },
-      ],
-    });
+    if (!this.useFusedProject) {
+      this.projectBindGroup = this.device.createBindGroup({
+        layout: this.pipes.projectBgl,
+        entries: [
+          { binding: 0, resource: { buffer: this.splatsBuffer } },
+          { binding: 1, resource: { buffer: this.instUnsorted! } },
+          { binding: 2, resource: { buffer: this.sorter.keysA } },
+          { binding: 3, resource: { buffer: this.sorter.valuesA } },
+          { binding: 4, resource: { buffer: this.projectUniforms } },
+        ],
+      });
+      // 32 B minimum: WGSL Uniforms { count: u32, _pad: vec3<u32> } occupies
+      // 16 B but WebGPU pads uniform-buffer bindings up to the next power-of-2
+      // ≥ the struct size, with a 32 B minimum on most adapters.
+      this.gatherUniforms = this.device.createBuffer({
+        size: 32,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      this.gatherBindGroup = this.device.createBindGroup({
+        layout: this.pipes.gatherBgl,
+        entries: [
+          { binding: 0, resource: { buffer: this.instUnsorted! } },
+          { binding: 1, resource: { buffer: this.sorter.valuesA } },
+          { binding: 2, resource: { buffer: this.instanceBuffer } },
+          { binding: 3, resource: { buffer: this.gatherUniforms } },
+        ],
+      });
+      this.keygenBindGroup = null;
+      this.projectGatherBindGroup = null;
+    } else {
+      this.projectBindGroup = null;
+      this.gatherUniforms = null;
+      this.gatherBindGroup = null;
+      // Fused path: reuse the same projectUniforms buffer (matching struct).
+      this.keygenBindGroup = this.device.createBindGroup({
+        layout: this.pipes.keygenBgl!,
+        entries: [
+          { binding: 0, resource: { buffer: this.splatsBuffer } },
+          { binding: 1, resource: { buffer: this.sorter.keysA } },
+          { binding: 2, resource: { buffer: this.sorter.valuesA } },
+          { binding: 3, resource: { buffer: this.projectUniforms } },
+        ],
+      });
+      this.projectGatherBindGroup = this.device.createBindGroup({
+        layout: this.pipes.projectGatherBgl!,
+        entries: [
+          { binding: 0, resource: { buffer: this.splatsBuffer } },
+          { binding: 1, resource: { buffer: this.sorter.valuesA } },
+          { binding: 2, resource: { buffer: this.instanceBuffer } },
+          { binding: 3, resource: { buffer: this.projectUniforms } },
+        ],
+      });
+    }
   }
 
   /**
@@ -400,28 +490,51 @@ export class ComputeDecodePipeline {
     i32[36] = count;
     this.device.queue.writeBuffer(this.projectUniforms, 0, ab);
 
-    // Project pass.
+    const wgs = Math.ceil(count / 256);
+
+    if (this.useFusedProject) {
+      // Fused path:
+      //   1. cs_keygen        — depth-only key + identity index.
+      //   2. radix sort       — sorts (key, index) ascending by key.
+      //   3. cs_project_gather — re-projects in sorted order, writes
+      //                          instanceBuffer[i] directly. No 640 MB
+      //                          unsorted-scratch buffer touched.
+      {
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(this.pipes.keygen!);
+        pass.setBindGroup(0, this.keygenBindGroup!);
+        pass.dispatchWorkgroups(wgs);
+        pass.end();
+      }
+      this.sorter.encode(encoder, count);
+      {
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(this.pipes.projectGather!);
+        pass.setBindGroup(0, this.projectGatherBindGroup!);
+        pass.dispatchWorkgroups(wgs);
+        pass.end();
+      }
+      return;
+    }
+
+    // Non-fused (legacy) path: cs_project → radix sort → cs_gather.
+    // Kept as a fallback / parity reference.
     {
       const pass = encoder.beginComputePass();
       pass.setPipeline(this.pipes.project);
-      pass.setBindGroup(0, this.projectBindGroup);
-      pass.dispatchWorkgroups(Math.ceil(count / 256));
+      pass.setBindGroup(0, this.projectBindGroup!);
+      pass.dispatchWorkgroups(wgs);
       pass.end();
     }
-
-    // Radix sort over (key, value) = (depth-bits, splat-index). After this
-    // call, `sorter.valuesA` holds indices in back-to-front order.
     this.sorter.encode(encoder, count);
-
-    // Gather pass: write `instanceBuffer[i] = instUnsorted[sorted_indices[i]]`.
     {
       const u = new Uint32Array(8); // 32 bytes
       u[0] = count;
-      this.device.queue.writeBuffer(this.gatherUniforms, 0, u.buffer);
+      this.device.queue.writeBuffer(this.gatherUniforms!, 0, u.buffer);
       const pass = encoder.beginComputePass();
       pass.setPipeline(this.pipes.gather);
-      pass.setBindGroup(0, this.gatherBindGroup);
-      pass.dispatchWorkgroups(Math.ceil(count / 256));
+      pass.setBindGroup(0, this.gatherBindGroup!);
+      pass.dispatchWorkgroups(wgs);
       pass.end();
     }
   }
@@ -434,13 +547,13 @@ export class ComputeDecodePipeline {
     }
     this.chunks.length = 0;
     this.splatsBuffer.destroy();
-    this.instUnsorted.destroy();
+    this.instUnsorted?.destroy();
     this.instanceBuffer.destroy();
     this.projectUniforms.destroy();
-    this.gatherUniforms.destroy();
+    this.gatherUniforms?.destroy();
     this.sorter.destroy();
   }
 }
 
 export { createRadixSortPipelines, RadixSort } from './radix_sort.js';
-export { DECODE_WGSL, RADIX_SORT_WGSL, SCAN_MULTIBLOCK_WGSL } from './shaders.generated.js';
+export { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL } from './shaders.generated.js';
