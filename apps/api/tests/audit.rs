@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use splatforge_api::audit::{self, is_audited, route_template, ADMIN_AUDIT_DEFAULT_LIMIT};
 use splatforge_api::ratelimit::key_prefix;
-use splatforge_api::store::{DynJobStore, JobStore, JobStoreApi};
+use splatforge_api::store::{DynJobStore, JobStore};
 
 #[test]
 fn route_template_strips_uuid_segment() {

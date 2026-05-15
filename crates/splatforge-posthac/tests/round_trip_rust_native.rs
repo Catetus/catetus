@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 //! Rust-native round-trip: feed Rust predict_all() into BOTH encode and
 //! decode and verify bit-exact symbol recovery.
 //!

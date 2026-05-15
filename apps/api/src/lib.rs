@@ -1,3 +1,10 @@
+#![allow(
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::manual_pattern_char_comparison,
+    clippy::question_mark,
+    clippy::too_many_arguments
+)]
 //! Library surface for `splatforge-api`.
 //!
 //! The crate is primarily a binary (`src/main.rs`), but exposing a thin

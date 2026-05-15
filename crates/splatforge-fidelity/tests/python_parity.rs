@@ -1,3 +1,4 @@
+#![allow(clippy::doc_lazy_continuation, clippy::manual_memcpy)]
 //! Python ↔ Rust round-trip parity test.
 //!
 //! Fixture `tests/data/parity_fixture.json` is produced by the private repo's

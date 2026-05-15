@@ -97,7 +97,9 @@ impl JobStatus {
 /// surface the SKU without consulting the routing layer.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum Tier {
+    #[default]
     Free,
     Paid,
 }
@@ -115,12 +117,6 @@ impl Tier {
             "paid" => Tier::Paid,
             _ => return None,
         })
-    }
-}
-
-impl Default for Tier {
-    fn default() -> Self {
-        Tier::Free
     }
 }
 

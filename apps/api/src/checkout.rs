@@ -653,8 +653,7 @@ pub async fn provision_from_session(
     let session = event
         .pointer("/data/object")
         .or_else(|| event.get("object").filter(|v| v.is_object()))
-        .or(Some(event))
-        .unwrap();
+        .unwrap_or(event);
 
     let session_id = session
         .get("id")

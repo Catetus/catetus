@@ -464,6 +464,7 @@ fn emit_progress(frac: f32, stage: &str) {
     let _ = std::io::stdout().flush();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_optimize(
     input: &Path,
     preset_name: &str,
@@ -1071,6 +1072,18 @@ fn cmd_spec_check(input: &Path, spec: Option<&str>, json: bool) -> Result<()> {
     }
 }
 
+fn cmd_fidelity_score(candidate: &Path, baseline: Option<&Path>, pretty: bool) -> Result<()> {
+    let report = splatforge_fidelity::score_ply(candidate, baseline)
+        .with_context(|| "splatforge-fidelity v0.4")?;
+    let json = if pretty {
+        serde_json::to_string_pretty(&report)?
+    } else {
+        serde_json::to_string(&report)?
+    };
+    println!("{json}");
+    Ok(())
+}
+
 #[cfg(test)]
 mod diff_tests {
     use super::*;
@@ -1090,16 +1103,4 @@ mod diff_tests {
         std::env::remove_var("SPLATFORGE_DIFF_HELPER");
         let _ = std::fs::remove_file(&dir);
     }
-}
-
-fn cmd_fidelity_score(candidate: &Path, baseline: Option<&Path>, pretty: bool) -> Result<()> {
-    let report = splatforge_fidelity::score_ply(candidate, baseline)
-        .with_context(|| "splatforge-fidelity v0.4")?;
-    let json = if pretty {
-        serde_json::to_string_pretty(&report)?
-    } else {
-        serde_json::to_string(&report)?
-    };
-    println!("{json}");
-    Ok(())
 }

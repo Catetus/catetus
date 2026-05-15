@@ -1,3 +1,10 @@
+#![allow(
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::manual_pattern_char_comparison,
+    clippy::question_mark,
+    clippy::too_many_arguments
+)]
 //! `splatforge-api` — hosted optimize endpoint.
 //!
 //! Public surface for the design-partner program. Responsibilities:
@@ -1142,7 +1149,7 @@ fn validate_source_url(url: &str) -> Result<(), ApiError> {
     // sanity check.
     let after_scheme = &url["https://".len()..];
     let host = after_scheme
-        .split(|c: char| c == '/' || c == ':' || c == '?' || c == '#')
+        .split(['/', ':', '?', '#'])
         .next()
         .unwrap_or("");
     if host.is_empty() {

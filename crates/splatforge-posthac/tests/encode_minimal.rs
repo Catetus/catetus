@@ -2,7 +2,6 @@
 //! Must produce the same input symbols if Python encoder + Rust decoder
 //! use identical constriction Gaussian models.
 
-use byteorder::{LittleEndian, ReadBytesExt};
 use constriction::stream::model::{DefaultLeakyQuantizer, LeakyQuantizer};
 use constriction::stream::queue::{DefaultRangeDecoder, DefaultRangeEncoder};
 use constriction::stream::{Decode, Encode};

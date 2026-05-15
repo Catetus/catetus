@@ -182,10 +182,7 @@ pub fn parse_luma_share(share_url: &str) -> Result<String, ImportError> {
             detail: "expected /capture/<id> or /embed/<id>".into(),
         })?;
     // First path segment, stripping query / fragment.
-    let id = after_kind
-        .split(|c: char| c == '/' || c == '?' || c == '#')
-        .next()
-        .unwrap_or("");
+    let id = after_kind.split(['/', '?', '#']).next().unwrap_or("");
     if id.is_empty() {
         return Err(ImportError::InvalidShareUrl {
             provider: "luma",
@@ -216,7 +213,7 @@ pub fn validate_luma_asset_url(asset_url: &str) -> Result<(), ImportError> {
         });
     }
     let host = asset_url["https://".len()..]
-        .split(|c: char| c == '/' || c == ':' || c == '?' || c == '#')
+        .split(['/', ':', '?', '#'])
         .next()
         .unwrap_or("")
         .to_ascii_lowercase();
@@ -262,10 +259,7 @@ pub fn parse_polycam_share(share_url: &str) -> Result<String, ImportError> {
             provider: "polycam",
             detail: "expected /capture/<id>".into(),
         })?;
-    let id = after_kind
-        .split(|c: char| c == '/' || c == '?' || c == '#')
-        .next()
-        .unwrap_or("");
+    let id = after_kind.split(['/', '?', '#']).next().unwrap_or("");
     if id.is_empty() {
         return Err(ImportError::InvalidShareUrl {
             provider: "polycam",
@@ -304,7 +298,7 @@ pub fn validate_polycam_asset_url(asset_url: &str) -> Result<(), ImportError> {
         });
     }
     let host = asset_url["https://".len()..]
-        .split(|c: char| c == '/' || c == ':' || c == '?' || c == '#')
+        .split(['/', ':', '?', '#'])
         .next()
         .unwrap_or("")
         .to_ascii_lowercase();
@@ -341,10 +335,7 @@ pub fn parse_scaniverse_share(share_url: &str) -> Result<String, ImportError> {
             provider: "scaniverse",
             detail: "expected /scan/<id>".into(),
         })?;
-    let id = after_kind
-        .split(|c: char| c == '/' || c == '?' || c == '#')
-        .next()
-        .unwrap_or("");
+    let id = after_kind.split(['/', '?', '#']).next().unwrap_or("");
     if id.is_empty() {
         return Err(ImportError::InvalidShareUrl {
             provider: "scaniverse",
