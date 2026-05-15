@@ -230,7 +230,41 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       }
     }
 
-    async function createJob(filename, sizeBytes) {
+    // R2 direct upload: ask our Vercel Function for a presigned PUT URL,
+    // stream the file body directly to Cloudflare R2 (no Vercel hop, no
+    // mixed-content block), then hand the resulting GET URL to the
+    // optimize API as `source_url`. This bypasses every payload-size
+    // bottleneck and avoids egress fees on downloads.
+    async function requestUploadUrl(file) {
+      const r = await fetch("/api/upload-url", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type || "application/octet-stream",
+          size: file.size,
+        }),
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error("POST /api/upload-url " + r.status + " — " + text);
+      }
+      return await r.json();
+    }
+
+    async function uploadToR2(uploadUrl, file, contentType) {
+      const r = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "content-type": contentType },
+        body: file,
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error("PUT R2 " + r.status + " — " + text);
+      }
+    }
+
+    async function createJob(filename, sizeBytes, sourceUrl) {
       const r = await fetch(apiBase + "/v1/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -238,24 +272,12 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
           preset: "web-mobile",
           filename: filename,
           size_bytes: sizeBytes,
+          source_url: sourceUrl,
         }),
       });
       if (!r.ok) {
         const text = await r.text();
         throw new Error("POST /v1/jobs " + r.status + " — " + text);
-      }
-      return await r.json();
-    }
-
-    async function uploadBytes(jobId, file) {
-      const r = await fetch(apiBase + "/v1/jobs/" + jobId + "/upload", {
-        method: "POST",
-        headers: { "content-type": "application/octet-stream" },
-        body: file,
-      });
-      if (!r.ok) {
-        const text = await r.text();
-        throw new Error("POST /v1/jobs/" + jobId + "/upload " + r.status + " — " + text);
       }
       return await r.json();
     }
@@ -274,7 +296,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       if (s === "awaiting-upload") {
         setStatus("uploading", "uploading", "preparing");
       } else if (s === "uploading") {
-        setStatus("uploading", "uploading", "streaming to Vercel Blob");
+        setStatus("uploading", "uploading", "API fetching from R2");
       } else if (s === "queued") {
         setStatus("queued", "queued", "modal cold-start in flight");
       } else if (s === "running") {
@@ -341,11 +363,19 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       try {
         const reachable = await ping();
         if (!reachable) throw new Error("/healthz did not return ok");
-        const job = await createJob(file.name, file.size);
+        // 1. Get a presigned R2 PUT URL.
+        setStatus("uploading", "uploading", "signing upload URL");
+        const signed = await requestUploadUrl(file);
+        // 2. Stream the file body directly to R2 (no proxy).
+        const sizeKb = Math.round(file.size / 1024);
+        setStatus("uploading", "uploading",
+                  "streaming " + sizeKb + " KB to R2");
+        await uploadToR2(signed.uploadUrl, file, signed.contentType);
+        // 3. Hand the matching GET URL to the optimize API.
+        setStatus("uploading", "uploading", "creating job");
+        const job = await createJob(file.name, file.size, signed.sourceUrl);
         headline.textContent = "Optimizing " + file.name;
         body.innerHTML = "Job " + job.id;
-        setStatus("uploading", "uploading", "streaming " + Math.round(file.size / 1024) + " KB");
-        await uploadBytes(job.id, file);
         await waitFor(job.id);
       } catch (err) {
         headline.textContent = "Something went wrong.";
