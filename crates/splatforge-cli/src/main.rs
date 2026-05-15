@@ -9,7 +9,9 @@ use clap::{Parser, Subcommand};
 use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, Splat, SplatScene};
 use splatforge_gltf::{inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, WriteOpts};
 use splatforge_optimize::{preset, write_tileset, TilesetOpts};
-use splatforge_ply::{read_ply, write_ply};
+use splatforge_ply::{
+    decode_progressive_file, encode_progressive_file, read_mgs2_header, read_ply, write_ply,
+};
 use splatforge_spz::{read_spz, write_spz};
 use splatforge_usd::{read_usda, read_usdc, write_usda, write_usdc, UsdWriteOpts};
 
@@ -237,6 +239,18 @@ enum Command {
         #[arg(long, short = 'o')]
         out: PathBuf,
     },
+    /// Progressive `.mgs2` bitstream codec (Phase 1).
+    ///
+    /// Encodes an Inria-style 3DGS PLY into a byte-streamable bitstream
+    /// where the first bytes hold the highest-importance splats
+    /// (`opacity × det(scale)^(2/3)`), and the remaining bytes the rest
+    /// in descending importance order. A partial download is a valid
+    /// (lower-quality) PLY. See `docs/perf/progressive-bitstream-spec.md`
+    /// for the format and the D1 streaming preset for the product surface.
+    Progressive {
+        #[command(subcommand)]
+        cmd: ProgressiveCmd,
+    },
     /// Validate an asset against a SplatForge-supported standard
     /// (KHR_gaussian_splatting today; OpenUSD when the USDC reader path
     /// is wired). Wraps `splatforge-khr-validate` for the glTF case.
@@ -249,6 +263,45 @@ enum Command {
         /// Emit a JSON report instead of human-readable lines.
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ProgressiveCmd {
+    /// Encode an Inria 3DGS PLY into a `.mgs2` progressive bitstream.
+    /// Output is byte-streamable: a partial download is itself a valid
+    /// (coarse) Inria-3DGS PLY when run through `progressive decode`.
+    Encode {
+        /// Input PLY (binary little-endian Inria 3DGS).
+        #[arg(long, short = 'i')]
+        input: PathBuf,
+        /// Output `.mgs2` path.
+        #[arg(long, short = 'o')]
+        output: PathBuf,
+    },
+    /// Decode a `.mgs2` (possibly truncated) into a valid PLY.
+    ///
+    /// Pass `--partial-bytes N` to simulate "only the first N bytes of
+    /// the bitstream were downloaded" — the writer emits a PLY
+    /// containing every splat that fully fits in the cut, in
+    /// descending-importance order. Without `--partial-bytes` the
+    /// full bitstream is decoded.
+    Decode {
+        /// Input `.mgs2` path.
+        #[arg(long, short = 'i')]
+        input: PathBuf,
+        /// Output PLY path.
+        #[arg(long, short = 'o')]
+        output: PathBuf,
+        /// Decode only the first N bytes (simulates a partial download).
+        #[arg(long)]
+        partial_bytes: Option<u64>,
+    },
+    /// Print the parsed `.mgs2` header summary (no payload decode).
+    Info {
+        /// Input `.mgs2` path.
+        #[arg(long, short = 'i')]
+        input: PathBuf,
     },
 }
 
@@ -385,7 +438,84 @@ fn dispatch(cli: Cli) -> Result<()> {
         } => cmd_serve(&bind, license.as_deref(), &api_base, active_seats),
         Command::SpecCheck { input, spec, json } => cmd_spec_check(&input, spec.as_deref(), json),
         Command::MortonPermute { input, out } => cmd_morton_permute(&input, &out),
+        Command::Progressive { cmd } => match cmd {
+            ProgressiveCmd::Encode { input, output } => cmd_progressive_encode(&input, &output),
+            ProgressiveCmd::Decode {
+                input,
+                output,
+                partial_bytes,
+            } => cmd_progressive_decode(&input, &output, partial_bytes),
+            ProgressiveCmd::Info { input } => cmd_progressive_info(&input),
+        },
     }
+}
+
+fn cmd_progressive_encode(input: &Path, output: &Path) -> Result<()> {
+    let t0 = std::time::Instant::now();
+    let in_bytes = std::fs::metadata(input)
+        .with_context(|| format!("stat {}", input.display()))?
+        .len();
+    encode_progressive_file(input, output)
+        .with_context(|| format!("encoding {} -> {}", input.display(), output.display()))?;
+    let out_bytes = std::fs::metadata(output)?.len();
+    let elapsed = t0.elapsed();
+    println!(
+        "progressive encode: {} ({} B) -> {} ({} B) in {:.2} s",
+        input.display(),
+        in_bytes,
+        output.display(),
+        out_bytes,
+        elapsed.as_secs_f64()
+    );
+    Ok(())
+}
+
+fn cmd_progressive_decode(
+    input: &Path,
+    output: &Path,
+    partial_bytes: Option<u64>,
+) -> Result<()> {
+    let t0 = std::time::Instant::now();
+    decode_progressive_file(input, output, partial_bytes).with_context(|| {
+        format!(
+            "decoding {} -> {} (partial_bytes={:?})",
+            input.display(),
+            output.display(),
+            partial_bytes,
+        )
+    })?;
+    let out_bytes = std::fs::metadata(output)?.len();
+    let elapsed = t0.elapsed();
+    println!(
+        "progressive decode: {} -> {} ({} B) partial_bytes={:?} in {:.2} s",
+        input.display(),
+        output.display(),
+        out_bytes,
+        partial_bytes,
+        elapsed.as_secs_f64(),
+    );
+    Ok(())
+}
+
+fn cmd_progressive_info(input: &Path) -> Result<()> {
+    let bytes = std::fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+    let h = read_mgs2_header(&bytes)
+        .map_err(|e| anyhow!("reading mgs2 header from {}: {e}", input.display()))?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "file": input.display().to_string(),
+            "file_bytes": bytes.len(),
+            "version": h.version,
+            "flags": h.flags,
+            "n_splats": h.n_splats,
+            "record_size": h.record_size,
+            "ply_header_bytes": h.ply_header.len(),
+            "payload_offset": h.payload_offset,
+            "payload_len": h.payload_len,
+        }))?
+    );
+    Ok(())
 }
 
 /// Reorder splats in `scene` by 16-bit-per-axis 3D Morton code of their

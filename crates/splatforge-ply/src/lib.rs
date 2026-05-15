@@ -11,6 +11,13 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use splatforge_core::{Color, CoordinateSystem, Splat, SplatScene, TemporalMode};
 use thiserror::Error;
 
+pub mod progressive;
+pub use progressive::{
+    decode_progressive, decode_progressive_file, encode_progressive, encode_progressive_file,
+    importance_scores_from_ply, read_mgs2_header, Mgs2Header, MGS2_MAGIC, MGS2_PREFIX_LEN,
+    MGS2_VERSION,
+};
+
 /// All errors produced by PLY ingest.
 #[derive(Debug, Error)]
 pub enum PlyError {
