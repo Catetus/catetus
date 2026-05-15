@@ -2029,6 +2029,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hmac",
+ "rand 0.8.6",
  "reqwest",
  "serde",
  "serde_json",
@@ -2185,6 +2186,19 @@ dependencies = [
  "serde",
  "serde_json",
  "splatforge-core",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "splatforge-usd-conformance"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "splatforge-core",
+ "splatforge-usd",
  "tempfile",
  "thiserror 1.0.69",
 ]

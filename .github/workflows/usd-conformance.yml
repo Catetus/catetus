@@ -1,0 +1,55 @@
+name: usd-conformance
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/splatforge-usd-conformance/**"
+      - "crates/splatforge-usd/**"
+      - "crates/splatforge-core/**"
+      - ".github/workflows/usd-conformance.yml"
+  pull_request:
+    paths:
+      - "crates/splatforge-usd-conformance/**"
+      - "crates/splatforge-usd/**"
+      - "crates/splatforge-core/**"
+      - ".github/workflows/usd-conformance.yml"
+
+jobs:
+  conformance:
+    name: ParticleField3DGaussianSplat conformance suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      # Build the validator and the fixture generator, then run the suite.
+      - name: cargo build
+        run: cargo build -p splatforge-usd-conformance --release
+
+      - name: cargo clippy
+        run: cargo clippy -p splatforge-usd-conformance --all-targets -- -D warnings
+
+      - name: cargo test (regenerates the corpus + asserts every clause)
+        run: cargo test -p splatforge-usd-conformance --release
+
+      # Re-validate the committed fixture corpus to catch drift between
+      # the generator and the bytes checked into the repo.
+      - name: validate committed fixtures
+        run: |
+          set -euo pipefail
+          for f in crates/splatforge-usd-conformance/fixtures/*.usda \
+                   crates/splatforge-usd-conformance/fixtures/*.usdc; do
+            echo "--- $f"
+            if [[ "$f" == *invalid* ]]; then
+              # Negative fixtures MUST fail (exit code 1).
+              if ./target/release/splatforge-usd-validate "$f" --quiet; then
+                echo "::error::expected $f to fail validation but it passed"
+                exit 1
+              fi
+            else
+              ./target/release/splatforge-usd-validate "$f" --quiet
+            fi
+          done

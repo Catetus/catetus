@@ -70,3 +70,9 @@ sha2 = "0.10"
 hex = "0.4"
 subtle = "2.5"
 
+# Cryptographically-strong randomness for minting Team-tier API keys
+# (sf_live_<24 alphanumeric>) and the per-session claim_token used to
+# gate /v1/checkout/reveal. `thread_rng().sample_iter(Alphanumeric)` is
+# the same source the WorkOS branch's auth.rs uses, so the contract
+# carries forward byte-for-byte once that branch merges.
+rand = "0.8"

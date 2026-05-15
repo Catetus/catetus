@@ -10,5 +10,6 @@
 //! spinning up the whole Axum app.
 
 pub mod billing;
+pub mod checkout;
 pub mod modal_client;
 pub mod store;

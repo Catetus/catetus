@@ -130,6 +130,37 @@ pub struct JobStore {
     pool: SqlitePool,
 }
 
+/// One row of the per-pair rating summary returned by
+/// `JobStore::summarize_ratings`. Surfaced verbatim through
+/// `GET /v1/ratings/summary` so the v0.4 training pipeline can pull
+/// numbers without re-running the aggregation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RatingSummaryRow {
+    pub scene_id: String,
+    pub left_preset: String,
+    pub right_preset: String,
+    pub left_wins: i64,
+    pub right_wins: i64,
+    pub ties: i64,
+    pub total: i64,
+}
+
+/// One row of the `team_signups` ledger. Returned by
+/// `JobStore::get_team_signup_by_session` so the checkout module can
+/// gate `/v1/checkout/reveal` on the `claim_token` + `key_revealed_at`
+/// pair without re-running the query.
+#[derive(Debug, Clone)]
+pub struct TeamSignupRow {
+    pub claim_token: String,
+    pub key_prefix: String,
+    pub key_hash: String,
+    pub stripe_customer_id: String,
+    pub email: String,
+    /// `Some(rfc3339)` if the plaintext has already been revealed —
+    /// the `/reveal` endpoint MUST refuse the second hit.
+    pub key_revealed_at: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("sqlite: {0}")]
@@ -334,6 +365,198 @@ impl JobStore {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Idempotently record a Team-tier Stripe Checkout completion.
+    ///
+    /// `INSERT … ON CONFLICT(stripe_session_id) DO NOTHING` is the
+    /// no-double-issuance gate: a Stripe webhook retry that lands a
+    /// second time finds the row already present, gets `Ok(false)`, and
+    /// skips the (one-time-only) plaintext-key minting. The first call
+    /// owns the (`key_prefix`, `key_hash`) pair and the plaintext that
+    /// will be revealed exactly once at `/welcome`.
+    ///
+    /// Returns `Ok(true)` if this row is freshly inserted (the caller
+    /// should also cache the plaintext for the reveal endpoint);
+    /// `Ok(false)` if a row already existed for this session.
+    pub async fn claim_team_signup(
+        &self,
+        stripe_session_id: &str,
+        stripe_customer_id: &str,
+        stripe_subscription_id: Option<&str>,
+        email: &str,
+        claim_token: &str,
+        key_prefix: &str,
+        key_hash: &str,
+        seats: u32,
+    ) -> Result<bool, StoreError> {
+        let row_id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let res = sqlx::query(
+            r#"
+            INSERT INTO team_signups
+                (id, stripe_session_id, stripe_customer_id, stripe_subscription_id,
+                 email, claim_token, key_prefix, key_hash, seats, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ON CONFLICT(stripe_session_id) DO NOTHING
+            "#,
+        )
+        .bind(row_id)
+        .bind(stripe_session_id)
+        .bind(stripe_customer_id)
+        .bind(stripe_subscription_id)
+        .bind(email)
+        .bind(claim_token)
+        .bind(key_prefix)
+        .bind(key_hash)
+        .bind(seats as i64)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() == 1)
+    }
+
+    /// Look up a team signup by Stripe Checkout Session id. Returns
+    /// `(claim_token, key_prefix, key_hash, customer_id, key_revealed_at, email)`.
+    /// The full row is exposed via a tuple instead of a struct because
+    /// only the checkout module touches it; the public surface is
+    /// `/v1/checkout/reveal`'s response shape.
+    pub async fn get_team_signup_by_session(
+        &self,
+        stripe_session_id: &str,
+    ) -> Result<Option<TeamSignupRow>, StoreError> {
+        let row = sqlx::query(
+            r#"
+            SELECT claim_token, key_prefix, key_hash, stripe_customer_id, email, key_revealed_at
+            FROM team_signups
+            WHERE stripe_session_id = ?1
+            "#,
+        )
+        .bind(stripe_session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else { return Ok(None) };
+        Ok(Some(TeamSignupRow {
+            claim_token: row.try_get("claim_token")?,
+            key_prefix: row.try_get("key_prefix")?,
+            key_hash: row.try_get("key_hash")?,
+            stripe_customer_id: row.try_get("stripe_customer_id")?,
+            email: row.try_get("email")?,
+            key_revealed_at: row.try_get("key_revealed_at")?,
+        }))
+    }
+
+    /// Mark the plaintext as revealed. Returns `Ok(true)` if this call
+    /// flipped the column (the caller is the legitimate first reveal);
+    /// `Ok(false)` if the row was already revealed (the caller MUST
+    /// refuse to return the plaintext — this is the "plaintext shown
+    /// exactly once" invariant the deliverable names).
+    pub async fn mark_team_signup_revealed(
+        &self,
+        stripe_session_id: &str,
+    ) -> Result<bool, StoreError> {
+        let now = Utc::now().to_rfc3339();
+        let res = sqlx::query(
+            r#"
+            UPDATE team_signups
+            SET key_revealed_at = ?2
+            WHERE stripe_session_id = ?1 AND key_revealed_at IS NULL
+            "#,
+        )
+        .bind(stripe_session_id)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() == 1)
+    }
+
+    /// Insert one human pairwise rating from `splatforge.com/rate`. The
+    /// caller is expected to have already enforced the 100/hour cap via
+    /// `count_recent_ratings`; this method just writes. Returns the
+    /// freshly-assigned auto-increment id so the handler can echo it
+    /// back to the page (useful for the "your last vote is in" toast).
+    pub async fn insert_rating(
+        &self,
+        scene_id: &str,
+        left_preset: &str,
+        right_preset: &str,
+        winner: &str,
+        respondent_hash: &str,
+    ) -> Result<i64, StoreError> {
+        let now = Utc::now().to_rfc3339();
+        let res = sqlx::query(
+            r#"
+            INSERT INTO ratings (scene_id, left_preset, right_preset, winner, respondent_hash, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+        )
+        .bind(scene_id)
+        .bind(left_preset)
+        .bind(right_preset)
+        .bind(winner)
+        .bind(respondent_hash)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.last_insert_rowid())
+    }
+
+    /// Count ratings posted by this respondent in the trailing `window`.
+    /// Used to enforce the 100/hour rate limit. Stored as RFC3339 strings,
+    /// so the threshold is computed in Rust and compared lexicographically
+    /// — that ordering matches numeric ordering for RFC3339 dates as long
+    /// as the format is consistent (which it is, because we generate all
+    /// rows with `Utc::now().to_rfc3339()`).
+    pub async fn count_recent_ratings(
+        &self,
+        respondent_hash: &str,
+        window: chrono::Duration,
+    ) -> Result<i64, StoreError> {
+        let threshold = (Utc::now() - window).to_rfc3339();
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM ratings WHERE respondent_hash = ?1 AND created_at >= ?2",
+        )
+        .bind(respondent_hash)
+        .bind(threshold)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Aggregated rating counts for the v0.4 training pipeline. One row
+    /// per (scene, left_preset, right_preset) pair with the winner
+    /// breakdown. The aggregator deliberately preserves left/right
+    /// ordering (rather than normalizing to a canonical pair) so
+    /// downstream analysis can detect side-bias before the
+    /// Bradley-Terry fit ingests these.
+    pub async fn summarize_ratings(&self) -> Result<Vec<RatingSummaryRow>, StoreError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT scene_id, left_preset, right_preset,
+                   SUM(CASE WHEN winner = 'left'  THEN 1 ELSE 0 END) AS left_wins,
+                   SUM(CASE WHEN winner = 'right' THEN 1 ELSE 0 END) AS right_wins,
+                   SUM(CASE WHEN winner = 'tie'   THEN 1 ELSE 0 END) AS ties,
+                   COUNT(*) AS total
+            FROM ratings
+            GROUP BY scene_id, left_preset, right_preset
+            ORDER BY scene_id, left_preset, right_preset
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            out.push(RatingSummaryRow {
+                scene_id: row.try_get("scene_id")?,
+                left_preset: row.try_get("left_preset")?,
+                right_preset: row.try_get("right_preset")?,
+                left_wins: row.try_get::<i64, _>("left_wins")?,
+                right_wins: row.try_get::<i64, _>("right_wins")?,
+                ties: row.try_get::<i64, _>("ties")?,
+                total: row.try_get::<i64, _>("total")?,
+            });
+        }
+        Ok(out)
     }
 
     /// All jobs in a batch, ordered by insertion. Used by the batch-status
