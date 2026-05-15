@@ -1,16 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "$comment": [
-    "We deploy the Astro static site over HTTPS, but the splat-optimize API",
-    "currently runs on an HTTP-only host (DigitalOcean droplet at",
-    "splatforge-api.fly.dev:8080). Browsers block mixed-content HTTP fetches from",
-    "HTTPS pages, so the upload UI silently fails with /healthz did not",
-    "return ok.",
-    "",
-    "Fix: rewrite /api/* on this HTTPS origin to the HTTP backend. The",
-    "browser only ever sees same-origin HTTPS requests; Vercel does the",
-    "HTTP egress server-side, which is allowed."
-  ],
   "rewrites": [
     {
       "source": "/api/healthz",
