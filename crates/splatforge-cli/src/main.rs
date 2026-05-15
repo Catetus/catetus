@@ -599,6 +599,12 @@ fn cmd_optimize(
                 // by the codec itself, glTF emission stays in int range.
                 | "mgs-balanced"
                 | "mgs-aggressive"
+                // CodecGS presets — feature-plane + standard video codec
+                // (HEVC / AV1). Splat attributes are quantized to fit
+                // the codec's input range; glTF wrapper carries the
+                // metadata pointing at the .hevc / .av1 payload.
+                | "codec-gs"
+                | "codec-gs-extreme"
         );
     let compress_variant = if compress_mode == Some("spz") {
         Some(splatforge_gltf::SpzVariant::V2)
