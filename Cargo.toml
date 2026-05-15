@@ -54,3 +54,38 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+# -----------------------------------------------------------------------------
+# Distribution config — consumed by `cargo dist` (>=0.27) and read by the
+# hand-written `.github/workflows/release.yml` matrix as the source of truth
+# for which (binary, target) pairs we ship. Keep these lists in sync with:
+#   - `distrib/homebrew/splatforge.rb`  (the formula's `bin.install ...`)
+#   - `distrib/npm/install.js`          (the postinstall manifest lookup)
+#   - `.github/workflows/release.yml`   (the strategy matrix)
+# -----------------------------------------------------------------------------
+[workspace.metadata.dist]
+# Pinned for reproducibility; bump deliberately.
+cargo-dist-version = "0.27.0"
+# The three user-facing binaries. Internal `*-fixtures` binaries are
+# intentionally NOT shipped — they're for test/regen flows only.
+bins = ["splatforge", "splatforge-khr-validate", "splatforge-usd-validate"]
+# Cross-compilation targets. macOS arm64+x86_64, Linux glibc x86_64+arm64,
+# Windows x86_64. Linux uses glibc (not musl) for now — splatforge-cli pulls
+# in tiny_http + zstd which compile on either, but glibc-x86_64 is the
+# default GH-runner shape and we don't want to maintain a musl bootstrap.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+unix-archive = ".tar.gz"
+windows-archive = ".zip"
+include = ["LICENSE", "README.md", "CHANGELOG.md"]
+# `installers = ["shell", "powershell", "homebrew", "npm"]` would have cargo-dist
+# generate everything; we instead hand-author the homebrew + npm side under
+# `distrib/` so they survive an eventual cargo-dist removal.
+installers = []
+ci = ["github"]
+pr-run-mode = "skip"
