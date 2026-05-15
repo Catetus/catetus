@@ -3,14 +3,8 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": [
-      "@webgpu/types"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["@webgpu/types"],
     "strict": true,
     "outDir": "dist-bench",
     "rootDir": ".",
@@ -19,14 +13,6 @@
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "include": [
-    "bench/**/*.ts",
-    "src/**/*.ts"
-  ],
-  "exclude": [
-    "src/__tests__/**/*",
-    "src/streaming/**/*",
-    "node_modules",
-    "dist"
-  ]
+  "include": ["bench/**/*.ts", "src/**/*.ts"],
+  "exclude": ["src/__tests__/**/*", "src/streaming/**/*", "node_modules", "dist"]
 }
