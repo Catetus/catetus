@@ -261,6 +261,7 @@ pub fn write_tileset(
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize: opts.quantize_glb,
+        ..Default::default()
     };
 
     // Emit one GLB per LOD level. We name them by their original BuildLOD

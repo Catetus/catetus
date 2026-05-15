@@ -462,6 +462,7 @@ fn cmd_optimize(
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize,
+        ..Default::default()
     };
     if progress {
         emit_progress(0.92, "encoding-gltf");

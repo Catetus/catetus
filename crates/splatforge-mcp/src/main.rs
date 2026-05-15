@@ -870,6 +870,7 @@ fn tool_optimize(args: &Value) -> ToolResult {
         chunk_target_splats: 100_000,
         lod_fractions: vec![1.0],
         quantize,
+        ..Default::default()
     };
     if let Err(e) = write_gltf(&scene, &out_path, &opts) {
         return tool_error(format!("write glTF: {e}"));

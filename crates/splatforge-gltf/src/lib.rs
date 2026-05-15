@@ -17,6 +17,35 @@ use thiserror::Error;
 /// Alias to keep both naming conventions working.
 pub type WriteOptions = WriteOpts;
 
+/// Which revision of `KHR_gaussian_splatting` the writer should target.
+///
+/// The Khronos Release Candidate landed on 2026-04-15 (commit
+/// `63770cc7`) and reshaped the on-wire schema in three breaking ways:
+///
+/// 1. Attribute keys are namespaced (`KHR_gaussian_splatting:ROTATION`
+///    instead of the pre-RC `_ROTATION`), and `attributes` moved from
+///    inside the extension object to the primitive level next to
+///    `mode` / `indices`.
+/// 2. The primitive now MUST declare `mode = 0` (POINTS) and the
+///    extension blob MUST carry string `kernel` + `colorSpace`.
+/// 3. Spherical-harmonic coefficients are emitted as one VEC3 FLOAT
+///    accessor per coefficient (`SH_DEGREE_l_COEF_n`) instead of a
+///    single SCALAR-of-45 buffer; the DC color lives at
+///    `SH_DEGREE_0_COEF_0`.
+///
+/// `Pre2026` keeps the historical `_ROTATION` / `_COLOR_DC` layout for
+/// backwards-compatibility round-tripping; new output should use the
+/// `RcMay2026` default so it passes `splatforge-khr-conformance` and the
+/// upstream Khronos validator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpecVersion {
+    /// Khronos RC text at commit `63770cc7` (2026-04-15) — the default.
+    #[default]
+    RcMay2026,
+    /// Pre-RC layout used by SplatForge v0.x and the legacy web viewer.
+    Pre2026,
+}
+
 /// glTF I/O errors.
 #[derive(Debug, Error)]
 pub enum GltfError {
@@ -56,12 +85,22 @@ pub struct WriteOpts {
     /// Optional LOD splat-fraction levels.
     pub lod_fractions: Vec<f32>,
     /// Enable `KHR_mesh_quantization` integer accessors for the small,
-    /// quantization-friendly attributes (POSITION → u16, _SCALE/_OPACITY/_COLOR_DC
-    /// → u8). See SPEC-0013 for the wire format and rationale.
+    /// quantization-friendly attributes (POSITION → u16, SCALE/OPACITY → u8,
+    /// and — under `SpecVersion::Pre2026` only — the legacy `_COLOR_DC` u8
+    /// path). See SPEC-0013 for the wire format and rationale.
     ///
     /// Defaults to `false` so the lossless / quality-max paths stay byte-stable.
     /// The `splatforge optimize` CLI flips this on for the web-targeted presets.
     pub quantize: bool,
+    /// When `quantize` is true and this is true, ROTATION is emitted as a
+    /// normalized signed SHORT (`5122 / VEC4 / normalized`) per the RC
+    /// quaternion-quantization table. Validators accept normalized signed
+    /// BYTE or SHORT; SHORT is the safer default. Only takes effect when
+    /// `quantize` is also set; no-op under `SpecVersion::Pre2026` for
+    /// byte-stability reasons.
+    pub quantize_rotation: bool,
+    /// Target revision of `KHR_gaussian_splatting`. See [`SpecVersion`].
+    pub spec_version: SpecVersion,
 }
 
 impl Default for WriteOpts {
@@ -71,6 +110,8 @@ impl Default for WriteOpts {
             chunk_target_splats: 100_000,
             lod_fractions: vec![1.0],
             quantize: false,
+            quantize_rotation: false,
+            spec_version: SpecVersion::default(),
         }
     }
 }
@@ -174,6 +215,57 @@ const KHR_QUANT: &str = "KHR_mesh_quantization";
 const FLOAT: u32 = 5126;
 const UBYTE: u32 = 5121;
 const USHORT: u32 = 5123;
+/// Signed SHORT (`5122`). Used for RC quaternion quantization
+/// (`KHR_gaussian_splatting:ROTATION` with `normalized: true`).
+const SHORT: u32 = 5122;
+
+/// Per-spec attribute key for one of the five required per-splat attributes.
+/// `POSITION` is core-glTF and never namespaced; the rest pick up the
+/// `KHR_gaussian_splatting:` prefix under `SpecVersion::RcMay2026` and the
+/// legacy underscore-prefix names under `SpecVersion::Pre2026`.
+fn attr_name(spec: SpecVersion, base: AttrKind) -> &'static str {
+    match (spec, base) {
+        (_, AttrKind::Position) => "POSITION",
+        (SpecVersion::RcMay2026, AttrKind::Rotation) => "KHR_gaussian_splatting:ROTATION",
+        (SpecVersion::RcMay2026, AttrKind::Scale) => "KHR_gaussian_splatting:SCALE",
+        (SpecVersion::RcMay2026, AttrKind::Opacity) => "KHR_gaussian_splatting:OPACITY",
+        (SpecVersion::RcMay2026, AttrKind::ColorDc) => {
+            // RC: DC color lives in the SH degree-0 slot, as a VEC3 FLOAT
+            // accessor. There is no separate "_COLOR_DC".
+            "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0"
+        }
+        (SpecVersion::Pre2026, AttrKind::Rotation) => "_ROTATION",
+        (SpecVersion::Pre2026, AttrKind::Scale) => "_SCALE",
+        (SpecVersion::Pre2026, AttrKind::Opacity) => "_OPACITY",
+        (SpecVersion::Pre2026, AttrKind::ColorDc) => "_COLOR_DC",
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AttrKind {
+    Position,
+    Rotation,
+    Scale,
+    Opacity,
+    /// DC term of the colour SH. In RC, this is `SH_DEGREE_0_COEF_0`;
+    /// in pre-RC, the historical `_COLOR_DC`.
+    ColorDc,
+}
+
+/// Number of SH coefficients per degree (1, 3, 5, 7) — matches the RC text
+/// and `splatforge-khr-conformance::sh_coef_count`.
+const SH_COEFS_PER_DEGREE: [usize; 4] = [1, 3, 5, 7];
+
+/// Number of *non-DC* SH coefficients packed in `Color::Sh::coeffs` after
+/// the leading three DC entries. Our PLY pipeline always materialises a
+/// 48-scalar coeffs vector (3 DC + 45 trailing), regardless of the
+/// effective degree, so degrees 1..3 carry (3+5+7)*3 = 45 scalars total.
+const NON_DC_SH_SCALARS: usize = 45;
+
+/// RC name for `SH_DEGREE_l_COEF_n` (always namespaced).
+fn sh_attr_name(l: u8, n: u8) -> String {
+    format!("KHR_gaussian_splatting:SH_DEGREE_{l}_COEF_{n}")
+}
 
 fn add_view_acc(
     root: &mut GltfRoot,
@@ -230,8 +322,91 @@ fn set_accessor_minmax(root: &mut GltfRoot, acc: usize, mn: [f32; 3], mx: [f32; 
     }
 }
 
+/// Holds every per-splat accessor index for a single chunk after the writer
+/// has emitted them. `sh_coef_accs` is one entry per SH coefficient (degrees
+/// 1..=top_sh_degree, in (l, n) order) under `SpecVersion::RcMay2026`, or a
+/// single index pointing at the legacy SCALAR-of-45 buffer under
+/// `SpecVersion::Pre2026`.
+#[derive(Debug, Clone)]
+struct ChunkAccessors {
+    pos: usize,
+    rot: usize,
+    scale: usize,
+    opacity: usize,
+    /// DC color. Under RC, this is `SH_DEGREE_0_COEF_0`; under pre-RC, `_COLOR_DC`.
+    color_dc: usize,
+    /// SH coefficient accessors (excluding DC).
+    /// * RC: one entry per coef, paired with `(l, n)`.
+    /// * Pre-RC: at most one entry, `(l, n)` is `(0, 0)` and unused.
+    sh_coefs: Vec<((u8, u8), usize)>,
+    /// Highest SH degree carried by the chunk (`0` when no SH).
+    sh_degree: u8,
+}
+
+/// Per-attribute byte sizes for a single splat, given a spec version and
+/// quantization plan. Used by both the binary packer and accessor emitter so
+/// they never drift.
+#[derive(Debug, Clone, Copy)]
+struct ChunkLayout {
+    spec: SpecVersion,
+    quantize: bool,
+    /// When true and `quantize` is set, ROTATION is emitted as a normalized
+    /// signed SHORT (`5122 / VEC4 / normalized`).
+    quantize_rotation: bool,
+    /// Highest SH degree the chunk contains (0 = none).
+    sh_degree: u8,
+}
+
+impl ChunkLayout {
+    fn position_bytes(&self) -> usize {
+        if self.quantize {
+            6
+        } else {
+            12
+        }
+    }
+    fn rotation_bytes(&self) -> usize {
+        if self.quantize && self.quantize_rotation {
+            8 // VEC4 i16
+        } else {
+            16 // VEC4 f32
+        }
+    }
+    fn scale_bytes(&self) -> usize {
+        if self.quantize {
+            3
+        } else {
+            12
+        }
+    }
+    fn opacity_bytes(&self) -> usize {
+        if self.quantize {
+            1
+        } else {
+            4
+        }
+    }
+    /// DC color size. Under RC, DC must remain VEC3 FLOAT to satisfy
+    /// `ACC_SH_COEF`; pre-RC keeps the historical u8-normalized path.
+    fn dc_bytes(&self) -> usize {
+        match self.spec {
+            SpecVersion::RcMay2026 => 12, // VEC3 FLOAT — non-negotiable per RC.
+            SpecVersion::Pre2026 => {
+                if self.quantize {
+                    3
+                } else {
+                    12
+                }
+            }
+        }
+    }
+}
+
+/// Emit every per-splat accessor for `chunk` into `root`, returning the
+/// indices in `ChunkAccessors` order. The byte stride exactly matches the
+/// output of `pack_chunk_with` for the same `layout`.
 #[allow(clippy::too_many_arguments)]
-fn emit_quantized_accessors(
+fn emit_chunk_accessors(
     root: &mut GltfRoot,
     buffer_idx: usize,
     n: usize,
@@ -239,63 +414,185 @@ fn emit_quantized_accessors(
     pos_max: &[f32; 3],
     scale_min: &[f32; 3],
     scale_max: &[f32; 3],
-    has_sh: bool,
-) -> (usize, usize, usize, usize, usize, Option<usize>) {
+    layout: ChunkLayout,
+) -> ChunkAccessors {
     let mut offset = 0usize;
-    // POSITION — u16 normalized VEC3, padded to 4-byte alignment.
-    let pos_acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 6, "VEC3", USHORT);
-    if let Some(a) = root.accessors.get_mut(pos_acc) {
-        a.normalized = true;
-        a.min = Some(pos_min.to_vec());
-        a.max = Some(pos_max.to_vec());
-    }
-    offset = align_up(offset, 4);
 
-    // _ROTATION — FLOAT VEC4.
-    let rot_acc = add_view_acc(root, buffer_idx, &mut offset, n, n * 16, "VEC4");
-
-    // _SCALE — u8 normalized VEC3.
-    let scale_acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 3, "VEC3", UBYTE);
-    if let Some(a) = root.accessors.get_mut(scale_acc) {
-        a.normalized = true;
-        a.min = Some(scale_min.to_vec());
-        a.max = Some(scale_max.to_vec());
-    }
-    offset = align_up(offset, 4);
-
-    // _OPACITY — u8 normalized scalar.
-    let op_acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n, "SCALAR", UBYTE);
-    if let Some(a) = root.accessors.get_mut(op_acc) {
-        a.normalized = true;
-        a.min = Some(vec![0.0]);
-        a.max = Some(vec![1.0]);
-    }
-    offset = align_up(offset, 4);
-
-    // _COLOR_DC — u8 normalized VEC3 in [0, 1].
-    let dc_acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 3, "VEC3", UBYTE);
-    if let Some(a) = root.accessors.get_mut(dc_acc) {
-        a.normalized = true;
-        a.min = Some(vec![0.0, 0.0, 0.0]);
-        a.max = Some(vec![1.0, 1.0, 1.0]);
-    }
-    offset = align_up(offset, 4);
-
-    // _COLOR_SH — FLOAT SCALAR (45 per splat) when present.
-    let sh_acc_opt = if has_sh {
-        Some(add_view_acc(
-            root,
-            buffer_idx,
-            &mut offset,
-            n,
-            n * 45 * 4,
-            "SCALAR",
-        ))
+    // POSITION.
+    let pos = if layout.quantize {
+        let acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 6, "VEC3", USHORT);
+        if let Some(a) = root.accessors.get_mut(acc) {
+            a.normalized = true;
+            a.min = Some(pos_min.to_vec());
+            a.max = Some(pos_max.to_vec());
+        }
+        offset = align_up(offset, 4);
+        acc
     } else {
-        None
+        let acc = add_view_acc(root, buffer_idx, &mut offset, n, n * 12, "VEC3");
+        set_accessor_minmax(root, acc, *pos_min, *pos_max);
+        acc
     };
 
-    (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt)
+    // ROTATION.
+    let rot = if layout.quantize && layout.quantize_rotation {
+        // Normalized signed SHORT per the RC quaternion-quantization table:
+        // each component lives in [-1, 1] and is reconstructed as max(q/32767, -1).
+        let acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 8, "VEC4", SHORT);
+        if let Some(a) = root.accessors.get_mut(acc) {
+            a.normalized = true;
+        }
+        offset = align_up(offset, 4);
+        acc
+    } else {
+        add_view_acc(root, buffer_idx, &mut offset, n, n * 16, "VEC4")
+    };
+
+    // SCALE.
+    let scale = if layout.quantize {
+        let acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 3, "VEC3", UBYTE);
+        if let Some(a) = root.accessors.get_mut(acc) {
+            a.normalized = true;
+            a.min = Some(scale_min.to_vec());
+            a.max = Some(scale_max.to_vec());
+        }
+        offset = align_up(offset, 4);
+        acc
+    } else {
+        add_view_acc(root, buffer_idx, &mut offset, n, n * 12, "VEC3")
+    };
+
+    // OPACITY.
+    let opacity = if layout.quantize {
+        let acc = add_view_acc_typed(root, buffer_idx, &mut offset, n, n, "SCALAR", UBYTE);
+        if let Some(a) = root.accessors.get_mut(acc) {
+            a.normalized = true;
+            a.min = Some(vec![0.0]);
+            a.max = Some(vec![1.0]);
+        }
+        offset = align_up(offset, 4);
+        acc
+    } else {
+        add_view_acc(root, buffer_idx, &mut offset, n, n * 4, "SCALAR")
+    };
+
+    // DC color. Under RC, must be VEC3 FLOAT to satisfy ACC_SH_COEF — the
+    // validator requires every SH coefficient accessor (DC included) to be
+    // VEC3 FLOAT, so we ignore `quantize` for the DC under RC.
+    let color_dc = match layout.spec {
+        SpecVersion::RcMay2026 => add_view_acc(root, buffer_idx, &mut offset, n, n * 12, "VEC3"),
+        SpecVersion::Pre2026 => {
+            if layout.quantize {
+                let acc =
+                    add_view_acc_typed(root, buffer_idx, &mut offset, n, n * 3, "VEC3", UBYTE);
+                if let Some(a) = root.accessors.get_mut(acc) {
+                    a.normalized = true;
+                    a.min = Some(vec![0.0, 0.0, 0.0]);
+                    a.max = Some(vec![1.0, 1.0, 1.0]);
+                }
+                offset = align_up(offset, 4);
+                acc
+            } else {
+                add_view_acc(root, buffer_idx, &mut offset, n, n * 12, "VEC3")
+            }
+        }
+    };
+
+    // SH coefficient accessors.
+    let mut sh_coefs: Vec<((u8, u8), usize)> = Vec::new();
+    if layout.sh_degree > 0 {
+        match layout.spec {
+            SpecVersion::RcMay2026 => {
+                // One VEC3 FLOAT accessor per coefficient at degrees 1..=top.
+                for l in 1..=layout.sh_degree {
+                    for n_idx in 0..SH_COEFS_PER_DEGREE[l as usize] as u8 {
+                        let acc = add_view_acc(root, buffer_idx, &mut offset, n, n * 12, "VEC3");
+                        sh_coefs.push(((l, n_idx), acc));
+                    }
+                }
+            }
+            SpecVersion::Pre2026 => {
+                // Legacy: one SCALAR FLOAT accessor of 45 entries per splat.
+                let acc =
+                    add_view_acc(root, buffer_idx, &mut offset, n, n * NON_DC_SH_SCALARS * 4, "SCALAR");
+                sh_coefs.push(((0, 0), acc));
+            }
+        }
+    }
+
+    ChunkAccessors {
+        pos,
+        rot,
+        scale,
+        opacity,
+        color_dc,
+        sh_coefs,
+        sh_degree: layout.sh_degree,
+    }
+}
+
+/// Build the per-primitive JSON object that goes into `meshes[…].primitives`.
+/// Encodes the spec-version-specific structural choices in one place: under
+/// `RcMay2026` the attributes live on the primitive (next to `mode`) and the
+/// extension blob carries `kernel` + `colorSpace`; under `Pre2026` the
+/// historical SplatForge layout is preserved.
+fn build_primitive(spec: SpecVersion, accs: &ChunkAccessors) -> serde_json::Value {
+    let mut attrs = serde_json::Map::new();
+    attrs.insert(
+        attr_name(spec, AttrKind::Position).to_string(),
+        serde_json::json!(accs.pos),
+    );
+    attrs.insert(
+        attr_name(spec, AttrKind::Rotation).to_string(),
+        serde_json::json!(accs.rot),
+    );
+    attrs.insert(
+        attr_name(spec, AttrKind::Scale).to_string(),
+        serde_json::json!(accs.scale),
+    );
+    attrs.insert(
+        attr_name(spec, AttrKind::Opacity).to_string(),
+        serde_json::json!(accs.opacity),
+    );
+    attrs.insert(
+        attr_name(spec, AttrKind::ColorDc).to_string(),
+        serde_json::json!(accs.color_dc),
+    );
+    match spec {
+        SpecVersion::RcMay2026 => {
+            for ((l, n), idx) in &accs.sh_coefs {
+                attrs.insert(sh_attr_name(*l, *n), serde_json::json!(idx));
+            }
+            serde_json::json!({
+                "mode": 0, // POINTS
+                "attributes": serde_json::Value::Object(attrs),
+                "extensions": {
+                    KHR: {
+                        "kernel": "ellipse",
+                        "colorSpace": "srgb_rec709_display",
+                        "projection": "perspective",
+                        "sortingMethod": "cameraDistance",
+                        "shDegree": accs.sh_degree,
+                    }
+                }
+            })
+        }
+        SpecVersion::Pre2026 => {
+            // Legacy: attributes live inside the extension and `_COLOR_SH`
+            // is a single SCALAR-of-45 accessor.
+            if let Some(((_l, _n), idx)) = accs.sh_coefs.first() {
+                attrs.insert("_COLOR_SH".to_string(), serde_json::json!(idx));
+            }
+            serde_json::json!({
+                "extensions": {
+                    KHR: {
+                        "attributes": serde_json::Value::Object(attrs),
+                        "shDegree": accs.sh_degree,
+                    }
+                }
+            })
+        }
+    }
 }
 
 /// Write a scene as `<dir>/scene.gltf` plus one or more `.bin` files under
@@ -348,10 +645,12 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
     for (chunk_idx, chunk) in chunks.iter().enumerate() {
         let (chunk_min, chunk_max) = chunk_bbox(chunk);
         let (scale_min, scale_max) = chunk_scale_bbox(chunk);
-        let layout = if opts.quantize {
-            QuantizeLayout::quantized()
-        } else {
-            QuantizeLayout::float_only()
+        let chunk_sh_degree: u8 = chunk.iter().map(|s| s.color.degree()).max().unwrap_or(0);
+        let layout = ChunkLayout {
+            spec: opts.spec_version,
+            quantize: opts.quantize,
+            quantize_rotation: opts.quantize_rotation,
+            sh_degree: chunk_sh_degree,
         };
         let buf_bytes = pack_chunk_with(chunk, &layout, &chunk_min, &chunk_max);
         let buf_name = format!("buffers/chunk_{chunk_idx:04}.bin");
@@ -363,42 +662,17 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
             uri: Some(buf_name.clone()),
         });
 
-        // accessors: POSITION, _ROTATION, _SCALE, _OPACITY, _COLOR_DC, optional _COLOR_SH
         let n = chunk.len();
-        let (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt) = if opts.quantize {
-            emit_quantized_accessors(
-                &mut root,
-                buffer_idx,
-                n,
-                &chunk_min,
-                &chunk_max,
-                &scale_min,
-                &scale_max,
-                chunk.iter().any(|s| matches!(s.color, Color::Sh { .. })),
-            )
-        } else {
-            let mut offset = 0usize;
-            let pos_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
-            let rot_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 16, "VEC4");
-            let scale_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
-            let op_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 4, "SCALAR");
-            let dc_acc = add_view_acc(&mut root, buffer_idx, &mut offset, n, n * 12, "VEC3");
-            set_accessor_minmax(&mut root, pos_acc, chunk_min, chunk_max);
-            let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
-            let sh_acc_opt = if has_sh {
-                Some(add_view_acc(
-                    &mut root,
-                    buffer_idx,
-                    &mut offset,
-                    n,
-                    n * 45 * 4,
-                    "SCALAR",
-                ))
-            } else {
-                None
-            };
-            (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt)
-        };
+        let accs = emit_chunk_accessors(
+            &mut root,
+            buffer_idx,
+            n,
+            &chunk_min,
+            &chunk_max,
+            &scale_min,
+            &scale_max,
+            layout,
+        );
 
         if !chunk.is_empty() {
             for i in 0..3 {
@@ -412,33 +686,7 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
             total_splat_count += n;
         }
 
-        // SH attribute mapping: only present when any splat carried SH.
-        let has_sh = sh_acc_opt.is_some();
-        let mut khr_attrs = serde_json::json!({
-            "POSITION": pos_acc,
-            "_ROTATION": rot_acc,
-            "_SCALE": scale_acc,
-            "_OPACITY": op_acc,
-            "_COLOR_DC": dc_acc,
-        });
-        let mut sh_degree = 0u8;
-        if let Some(sh_acc) = sh_acc_opt {
-            khr_attrs
-                .as_object_mut()
-                .unwrap()
-                .insert("_COLOR_SH".to_string(), serde_json::json!(sh_acc));
-            sh_degree = chunk.iter().map(|s| s.color.degree()).max().unwrap_or(0);
-        }
-        let _ = has_sh;
-
-        primitives.push(serde_json::json!({
-            "extensions": {
-                KHR: {
-                    "attributes": khr_attrs,
-                    "shDegree": sh_degree,
-                }
-            }
-        }));
+        primitives.push(build_primitive(opts.spec_version, &accs));
 
         if opts.chunked {
             // Per-chunk record. `uri` mirrors `buffers[buffer_idx].uri` so JS
@@ -506,24 +754,6 @@ pub fn write_gltf(scene: &SplatScene, path: &Path, opts: &WriteOpts) -> Result<(
     Ok(())
 }
 
-/// Per-attribute quantization plan for a chunk. When `quantize` is false on
-/// the writer, all fields default to FLOAT and the bbox/max fields are unused.
-#[derive(Debug, Clone)]
-struct QuantizeLayout {
-    /// True when any attribute is integer-quantized; controls byte alignment +
-    /// `KHR_mesh_quantization` extension declaration.
-    enabled: bool,
-}
-
-impl QuantizeLayout {
-    fn float_only() -> Self {
-        Self { enabled: false }
-    }
-    fn quantized() -> Self {
-        Self { enabled: true }
-    }
-}
-
 /// Round `x` up to the next multiple of `align`. `align` must be a power of two.
 #[inline]
 fn align_up(x: usize, align: usize) -> usize {
@@ -558,6 +788,21 @@ fn dequantize_u8(q: u8, lo: f32, hi: f32) -> f32 {
     lo + t * (hi - lo)
 }
 
+/// Encode one f32 in `[-1, 1]` as a signed SHORT (`i16`) using the
+/// `KHR_mesh_quantization` / glTF 2.0 normalized-signed reconstruction
+/// `f = max(c / 32767.0, -1.0)`. The RC quaternion table specifies this
+/// exact formula for `KHR_gaussian_splatting:ROTATION` accessors.
+#[inline]
+fn quantize_i16(v: f32) -> i16 {
+    let t = v.clamp(-1.0, 1.0);
+    (t * 32767.0).round().clamp(-32768.0, 32767.0) as i16
+}
+
+#[inline]
+fn dequantize_i16(q: i16) -> f32 {
+    (q as f32 / 32767.0).max(-1.0)
+}
+
 /// Compute per-axis min/max of `scale` over the chunk. Returns `[0,0,0]` /
 /// `[1,1,1]` for an empty chunk so the dequantized range remains well defined.
 fn chunk_scale_bbox(chunk: &[Splat]) -> ([f32; 3], [f32; 3]) {
@@ -587,36 +832,89 @@ fn chunk_scale_bbox(chunk: &[Splat]) -> ([f32; 3], [f32; 3]) {
 
 fn pack_chunk_with(
     chunk: &[Splat],
-    layout: &QuantizeLayout,
+    layout: &ChunkLayout,
     pos_min: &[f32; 3],
     pos_max: &[f32; 3],
 ) -> Vec<u8> {
     let n = chunk.len();
-    let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
-    let coeffs_per_splat = if has_sh { 45 } else { 0 };
+    let (scale_min, scale_max) = chunk_scale_bbox(chunk);
 
-    if !layout.enabled {
-        // FLOAT path — unchanged from v0.1.x.
-        let cap = n * (12 + 16 + 12 + 4 + 12 + coeffs_per_splat * 4);
-        let mut out = Vec::with_capacity(cap);
+    let mut out: Vec<u8> = Vec::with_capacity(
+        n * (layout.position_bytes()
+            + layout.rotation_bytes()
+            + layout.scale_bytes()
+            + layout.opacity_bytes()
+            + layout.dc_bytes()),
+    );
+
+    // POSITION.
+    if layout.quantize {
+        for s in chunk {
+            for i in 0..3 {
+                let q = quantize_u16(s.position[i], pos_min[i], pos_max[i]);
+                out.write_u16::<LittleEndian>(q).unwrap();
+            }
+        }
+        pad_to(&mut out, 4);
+    } else {
         for s in chunk {
             for v in s.position {
                 out.write_f32::<LittleEndian>(v).unwrap();
             }
         }
+    }
+
+    // ROTATION.
+    if layout.quantize && layout.quantize_rotation {
+        for s in chunk {
+            for v in s.rotation {
+                out.write_i16::<LittleEndian>(quantize_i16(v)).unwrap();
+            }
+        }
+        pad_to(&mut out, 4);
+    } else {
         for s in chunk {
             for v in s.rotation {
                 out.write_f32::<LittleEndian>(v).unwrap();
             }
         }
+    }
+
+    // SCALE.
+    if layout.quantize {
+        for s in chunk {
+            for i in 0..3 {
+                out.push(quantize_u8(s.scale[i], scale_min[i], scale_max[i]));
+            }
+        }
+        pad_to(&mut out, 4);
+    } else {
         for s in chunk {
             for v in s.scale {
                 out.write_f32::<LittleEndian>(v).unwrap();
             }
         }
+    }
+
+    // OPACITY.
+    if layout.quantize {
+        for s in chunk {
+            out.push(quantize_u8(s.opacity, 0.0, 1.0));
+        }
+        pad_to(&mut out, 4);
+    } else {
         for s in chunk {
             out.write_f32::<LittleEndian>(s.opacity).unwrap();
         }
+    }
+
+    // DC color. Under RC, always VEC3 FLOAT; under pre-RC, u8 normalized
+    // when `quantize` is set, else VEC3 FLOAT.
+    let dc_as_float = match layout.spec {
+        SpecVersion::RcMay2026 => true,
+        SpecVersion::Pre2026 => !layout.quantize,
+    };
+    if dc_as_float {
         for s in chunk {
             let dc = match &s.color {
                 Color::Rgb(c) => *c,
@@ -626,99 +924,70 @@ fn pack_chunk_with(
                 out.write_f32::<LittleEndian>(v).unwrap();
             }
         }
-        if has_sh {
-            for s in chunk {
-                match &s.color {
-                    Color::Sh { coeffs, .. } => {
-                        for i in 0..45 {
-                            let v = if i + 3 < coeffs.len() {
-                                coeffs[i + 3]
-                            } else {
-                                0.0
-                            };
-                            out.write_f32::<LittleEndian>(v).unwrap();
-                        }
-                    }
-                    Color::Rgb(_) => {
-                        for _ in 0..45 {
-                            out.write_f32::<LittleEndian>(0.0).unwrap();
+    } else {
+        for s in chunk {
+            let dc = match &s.color {
+                Color::Rgb(c) => *c,
+                Color::Sh { coeffs, .. } => [coeffs[0], coeffs[1], coeffs[2]],
+            };
+            for v in dc {
+                out.push(quantize_u8(v, 0.0, 1.0));
+            }
+        }
+        pad_to(&mut out, 4);
+    }
+
+    // SH coefficients (degrees 1..=top).
+    if layout.sh_degree > 0 {
+        match layout.spec {
+            SpecVersion::RcMay2026 => {
+                // Per-coefficient VEC3 FLOAT accessors. Walk (l, n) in the
+                // same order as `emit_chunk_accessors`, and for each pull
+                // the 3-scalar slice from the splat's coeffs vector. Our
+                // pipeline lays coeffs as `[DC.r, DC.g, DC.b, c1_0.r,
+                // c1_0.g, c1_0.b, c1_1.r, ...]` — i.e. interleaved per
+                // coefficient, RGB-major. That matches the RC's
+                // per-coefficient VEC3 layout, just sliced.
+                let coef_count: usize = SH_COEFS_PER_DEGREE[1..=layout.sh_degree as usize]
+                    .iter()
+                    .sum();
+                for (coef_idx, _) in (0..coef_count).enumerate() {
+                    for s in chunk {
+                        match &s.color {
+                            Color::Sh { coeffs, .. } => {
+                                // DC occupies coeffs[0..3]; coefficient
+                                // `coef_idx` (0-based among non-DC) lives at
+                                // `3 + coef_idx*3 .. 3 + coef_idx*3 + 3`.
+                                let base = 3 + coef_idx * 3;
+                                for k in 0..3 {
+                                    let v = coeffs.get(base + k).copied().unwrap_or(0.0);
+                                    out.write_f32::<LittleEndian>(v).unwrap();
+                                }
+                            }
+                            Color::Rgb(_) => {
+                                for _ in 0..3 {
+                                    out.write_f32::<LittleEndian>(0.0).unwrap();
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
-        return out;
-    }
-
-    // KHR_mesh_quantization path. Each bufferView's byteOffset must align with
-    // both its component size and the 4-byte buffer-wide alignment glTF
-    // validators expect for binary buffers.
-    let (scale_min, scale_max) = chunk_scale_bbox(chunk);
-    let mut out: Vec<u8> = Vec::new();
-
-    // POSITION — u16 normalized VEC3, padded to a multiple of 4 bytes per splat
-    // is unnecessary because we put each attribute in its own bufferView, but
-    // we DO pad the running offset to 4 bytes before the next bufferView.
-    for s in chunk {
-        for i in 0..3 {
-            let q = quantize_u16(s.position[i], pos_min[i], pos_max[i]);
-            out.write_u16::<LittleEndian>(q).unwrap();
-        }
-    }
-    pad_to(&mut out, 4);
-
-    // _ROTATION — stays FLOAT VEC4.
-    for s in chunk {
-        for v in s.rotation {
-            out.write_f32::<LittleEndian>(v).unwrap();
-        }
-    }
-
-    // _SCALE — u8 normalized VEC3.
-    for s in chunk {
-        for i in 0..3 {
-            let q = quantize_u8(s.scale[i], scale_min[i], scale_max[i]);
-            out.push(q);
-        }
-    }
-    pad_to(&mut out, 4);
-
-    // _OPACITY — u8 normalized scalar.
-    for s in chunk {
-        let q = quantize_u8(s.opacity, 0.0, 1.0);
-        out.push(q);
-    }
-    pad_to(&mut out, 4);
-
-    // _COLOR_DC — u8 normalized VEC3 (DC lives in [0, 1]).
-    for s in chunk {
-        let dc = match &s.color {
-            Color::Rgb(c) => *c,
-            Color::Sh { coeffs, .. } => [coeffs[0], coeffs[1], coeffs[2]],
-        };
-        for v in dc {
-            out.push(quantize_u8(v, 0.0, 1.0));
-        }
-    }
-    pad_to(&mut out, 4);
-
-    // _COLOR_SH — stays FLOAT (45 scalars per splat) when present.
-    if has_sh {
-        for s in chunk {
-            match &s.color {
-                Color::Sh { coeffs, .. } => {
-                    for i in 0..45 {
-                        let v = if i + 3 < coeffs.len() {
-                            coeffs[i + 3]
-                        } else {
-                            0.0
-                        };
-                        out.write_f32::<LittleEndian>(v).unwrap();
-                    }
-                }
-                Color::Rgb(_) => {
-                    for _ in 0..45 {
-                        out.write_f32::<LittleEndian>(0.0).unwrap();
+            SpecVersion::Pre2026 => {
+                // Legacy: single SCALAR-of-45 buffer.
+                for s in chunk {
+                    match &s.color {
+                        Color::Sh { coeffs, .. } => {
+                            for i in 0..NON_DC_SH_SCALARS {
+                                let v = coeffs.get(i + 3).copied().unwrap_or(0.0);
+                                out.write_f32::<LittleEndian>(v).unwrap();
+                            }
+                        }
+                        Color::Rgb(_) => {
+                            for _ in 0..NON_DC_SH_SCALARS {
+                                out.write_f32::<LittleEndian>(0.0).unwrap();
+                            }
+                        }
                     }
                 }
             }
@@ -800,10 +1069,123 @@ fn decode_accessor(bytes: &[u8], acc: &GltfAccessor, comps: usize) -> Result<Vec
             }
             Ok(out)
         }
+        SHORT => {
+            // Signed SHORT — used for the RC normalized quaternion encoding.
+            if bytes.len() < total * 2 {
+                return Err(GltfError::Malformed("i16 accessor under-sized".to_string()));
+            }
+            let mut out = Vec::with_capacity(total);
+            for i in 0..total {
+                let c = &bytes[i * 2..i * 2 + 2];
+                let q = i16::from_le_bytes([c[0], c[1]]);
+                let v = if acc.normalized {
+                    dequantize_i16(q)
+                } else {
+                    q as f32
+                };
+                out.push(v);
+            }
+            Ok(out)
+        }
         other => Err(GltfError::Malformed(format!(
             "unsupported componentType {other}"
         ))),
     }
+}
+
+/// Indices of the per-splat accessors discovered on read, regardless of
+/// whether the source asset used the pre-RC or RC attribute schema. SH
+/// coefficients are flattened back into the legacy 45-scalar layout under
+/// `non_dc_sh`: 15 coefficients × 3 channels, in `(degree, n, channel)`
+/// order, matching `Color::Sh::coeffs[3..]`.
+#[derive(Debug, Clone)]
+struct ResolvedAttrs {
+    spec: SpecVersion,
+    pos: usize,
+    rot: usize,
+    scale: usize,
+    opacity: usize,
+    dc: usize,
+    /// One entry per non-DC SH coefficient (RC) or one entry pointing at
+    /// the legacy SCALAR-of-45 accessor (pre-RC); empty when no SH.
+    non_dc_sh: Vec<usize>,
+}
+
+fn resolve_attrs(
+    primitive: &serde_json::Value,
+) -> Result<ResolvedAttrs, GltfError> {
+    // RC: attributes live on the primitive directly (next to `mode` /
+    // `indices`). Pre-RC: attributes are inside the KHR extension blob.
+    let prim_attrs = primitive.get("attributes").and_then(|a| a.as_object());
+    let ext_attrs = primitive
+        .get("extensions")
+        .and_then(|e| e.get(KHR))
+        .and_then(|k| k.get("attributes"))
+        .and_then(|a| a.as_object());
+
+    // Sniff for RC by looking at where ROTATION lives. Either object can
+    // contain `POSITION`; we discriminate on the namespaced ROTATION key.
+    let in_prim = prim_attrs
+        .map(|m| m.contains_key("KHR_gaussian_splatting:ROTATION"))
+        .unwrap_or(false);
+    let in_ext = ext_attrs.map(|m| m.contains_key("_ROTATION")).unwrap_or(false);
+
+    let (spec, attrs) = if in_prim {
+        (SpecVersion::RcMay2026, prim_attrs.unwrap())
+    } else if in_ext {
+        (SpecVersion::Pre2026, ext_attrs.unwrap())
+    } else if let Some(p) = prim_attrs {
+        // Spec hint missing — assume RC since it's the default forward.
+        (SpecVersion::RcMay2026, p)
+    } else if let Some(p) = ext_attrs {
+        (SpecVersion::Pre2026, p)
+    } else {
+        return Err(GltfError::Malformed("no attributes".to_string()));
+    };
+
+    let get_idx = |name: &str| -> Option<usize> {
+        attrs.get(name).and_then(|v| v.as_u64()).map(|n| n as usize)
+    };
+
+    let pos = get_idx(attr_name(spec, AttrKind::Position)).ok_or(GltfError::MissingExtension)?;
+    let rot = get_idx(attr_name(spec, AttrKind::Rotation)).ok_or(GltfError::MissingExtension)?;
+    let scale = get_idx(attr_name(spec, AttrKind::Scale)).ok_or(GltfError::MissingExtension)?;
+    let opacity = get_idx(attr_name(spec, AttrKind::Opacity)).ok_or(GltfError::MissingExtension)?;
+    let dc = get_idx(attr_name(spec, AttrKind::ColorDc)).ok_or(GltfError::MissingExtension)?;
+
+    let mut non_dc_sh = Vec::new();
+    match spec {
+        SpecVersion::RcMay2026 => {
+            // Walk degrees 1..=3; stop at the first missing degree-l 0th
+            // coefficient (matches `SH_DEGREES_FULL`).
+            for l in 1u8..=3 {
+                let coef_count = SH_COEFS_PER_DEGREE[l as usize];
+                if get_idx(&sh_attr_name(l, 0)).is_none() {
+                    break;
+                }
+                for n in 0..coef_count as u8 {
+                    if let Some(idx) = get_idx(&sh_attr_name(l, n)) {
+                        non_dc_sh.push(idx);
+                    }
+                }
+            }
+        }
+        SpecVersion::Pre2026 => {
+            if let Some(idx) = get_idx("_COLOR_SH") {
+                non_dc_sh.push(idx);
+            }
+        }
+    }
+
+    Ok(ResolvedAttrs {
+        spec,
+        pos,
+        rot,
+        scale,
+        opacity,
+        dc,
+        non_dc_sh,
+    })
 }
 
 fn chunk_bbox(chunk: &[Splat]) -> ([f32; 3], [f32; 3]) {
@@ -841,32 +1223,14 @@ fn read_gltf_str(raw: &str, base_dir: &Path) -> Result<SplatScene, GltfError> {
     if !root.extensions_used.iter().any(|e| e == KHR) {
         return Err(GltfError::MissingExtension);
     }
-    let mesh = root
+    let prim_val = root
         .meshes
         .first()
-        .ok_or_else(|| GltfError::Malformed("no meshes".to_string()))?;
-    let prim = mesh
-        .get("primitives")
+        .and_then(|m| m.get("primitives"))
         .and_then(|p| p.as_array())
         .and_then(|a| a.first())
         .ok_or_else(|| GltfError::Malformed("no primitives".to_string()))?;
-    let ext = prim
-        .get("extensions")
-        .and_then(|e| e.get(KHR))
-        .ok_or(GltfError::MissingExtension)?;
-    let attrs = ext
-        .get("attributes")
-        .ok_or_else(|| GltfError::Malformed("no attributes".to_string()))?;
-
-    let get_idx = |name: &str| -> Option<usize> {
-        attrs.get(name).and_then(|v| v.as_u64()).map(|n| n as usize)
-    };
-    let pos_acc = get_idx("POSITION").ok_or(GltfError::MissingExtension)?;
-    let rot_acc = get_idx("_ROTATION").ok_or(GltfError::MissingExtension)?;
-    let scale_acc = get_idx("_SCALE").ok_or(GltfError::MissingExtension)?;
-    let op_acc = get_idx("_OPACITY").ok_or(GltfError::MissingExtension)?;
-    let dc_acc = get_idx("_COLOR_DC").ok_or(GltfError::MissingExtension)?;
-    let sh_acc = get_idx("_COLOR_SH");
+    let attrs = resolve_attrs(prim_val)?;
 
     // Load buffer bytes.
     let mut buffers_bytes: Vec<Vec<u8>> = Vec::with_capacity(root.buffers.len());
@@ -889,24 +1253,61 @@ fn read_gltf_str(raw: &str, base_dir: &Path) -> Result<SplatScene, GltfError> {
         decode_accessor(bytes, acc, comps)
     };
 
-    let positions = read_attr(pos_acc, 3)?;
-    let rotations = read_attr(rot_acc, 4)?;
-    let scales = read_attr(scale_acc, 3)?;
-    let opacities = read_attr(op_acc, 1)?;
-    let dc = read_attr(dc_acc, 3)?;
+    decode_resolved(&attrs, &read_attr)
+}
+
+/// Materialise a `SplatScene` from a `ResolvedAttrs` plus a closure that
+/// decodes an accessor index into a flat `Vec<f32>`. Shared by both the
+/// `.gltf` and `.glb` readers so the spec-version reconciliation stays in
+/// one place.
+fn decode_resolved<F>(attrs: &ResolvedAttrs, read_attr: &F) -> Result<SplatScene, GltfError>
+where
+    F: Fn(usize, usize) -> Result<Vec<f32>, GltfError>,
+{
+    let positions = read_attr(attrs.pos, 3)?;
+    let rotations = read_attr(attrs.rot, 4)?;
+    let scales = read_attr(attrs.scale, 3)?;
+    let opacities = read_attr(attrs.opacity, 1)?;
+    let dc = read_attr(attrs.dc, 3)?;
     let n = opacities.len();
-    let sh = if let Some(idx) = sh_acc {
-        Some(read_attr(idx, 45)?)
-    } else {
-        None
-    };
+
+    // Flatten SH back into the 45-scalar interleaved layout that `Color::Sh`
+    // expects (3 DC + 45 trailing = 48 floats).
+    let mut sh_flat: Option<Vec<f32>> = None;
+    if !attrs.non_dc_sh.is_empty() {
+        let mut flat = vec![0.0f32; n * NON_DC_SH_SCALARS];
+        match attrs.spec {
+            SpecVersion::RcMay2026 => {
+                // attrs.non_dc_sh: one accessor per (l, n) coefficient.
+                for (coef_idx, &acc_idx) in attrs.non_dc_sh.iter().enumerate() {
+                    let v = read_attr(acc_idx, 3)?;
+                    for i in 0..n {
+                        let dst = i * NON_DC_SH_SCALARS + coef_idx * 3;
+                        let src = i * 3;
+                        if dst + 3 <= flat.len() && src + 3 <= v.len() {
+                            flat[dst..dst + 3].copy_from_slice(&v[src..src + 3]);
+                        }
+                    }
+                }
+            }
+            SpecVersion::Pre2026 => {
+                // Single SCALAR-of-45 accessor.
+                let v = read_attr(attrs.non_dc_sh[0], NON_DC_SH_SCALARS)?;
+                let len = flat.len();
+                if v.len() >= len {
+                    flat.copy_from_slice(&v[..len]);
+                }
+            }
+        }
+        sh_flat = Some(flat);
+    }
 
     let mut splats = Vec::with_capacity(n);
     for i in 0..n {
-        let color = if let Some(ref sh) = sh {
+        let color = if let Some(ref sh) = sh_flat {
             let mut coeffs = Vec::with_capacity(48);
             coeffs.extend_from_slice(&dc[i * 3..i * 3 + 3]);
-            coeffs.extend_from_slice(&sh[i * 45..i * 45 + 45]);
+            coeffs.extend_from_slice(&sh[i * NON_DC_SH_SCALARS..(i + 1) * NON_DC_SH_SCALARS]);
             Color::Sh { degree: 3, coeffs }
         } else {
             Color::Rgb([dc[i * 3], dc[i * 3 + 1], dc[i * 3 + 2]])
@@ -1033,7 +1434,9 @@ pub fn inspect_gltf(path: &Path) -> Result<InspectReport, GltfError> {
                 .unwrap_or(0) as usize;
         }
     } else {
-        // Walk accessors to find _OPACITY count as splat count.
+        // Walk accessors to find OPACITY count as splat count. Honour both
+        // the RC (namespaced, attributes-on-primitive) and pre-RC (underscore,
+        // attributes-in-extension) layouts.
         if let Some(prim) = value
             .get("meshes")
             .and_then(|m| m.as_array())
@@ -1042,19 +1445,27 @@ pub fn inspect_gltf(path: &Path) -> Result<InspectReport, GltfError> {
             .and_then(|p| p.as_array())
             .and_then(|p| p.first())
         {
-            if let Some(idx) = prim
+            let prim_attrs = prim.get("attributes");
+            let ext_attrs = prim
                 .get("extensions")
                 .and_then(|e| e.get(KHR))
-                .and_then(|e| e.get("attributes"))
-                .and_then(|a| a.get("_OPACITY"))
-                .and_then(|v| v.as_u64())
-            {
-                if let Some(acc) = value
-                    .get("accessors")
-                    .and_then(|a| a.as_array())
-                    .and_then(|a| a.get(idx as usize))
-                {
-                    splat_count = acc.get("count").and_then(|c| c.as_u64()).unwrap_or(0) as usize;
+                .and_then(|e| e.get("attributes"));
+            let candidates: [(Option<&serde_json::Value>, &str); 2] = [
+                (prim_attrs, "KHR_gaussian_splatting:OPACITY"),
+                (ext_attrs, "_OPACITY"),
+            ];
+            for (attrs, key) in candidates {
+                let Some(attrs) = attrs else { continue };
+                if let Some(idx) = attrs.get(key).and_then(|v| v.as_u64()) {
+                    if let Some(acc) = value
+                        .get("accessors")
+                        .and_then(|a| a.as_array())
+                        .and_then(|a| a.get(idx as usize))
+                    {
+                        splat_count =
+                            acc.get("count").and_then(|c| c.as_u64()).unwrap_or(0) as usize;
+                        break;
+                    }
                 }
             }
         }
@@ -1083,20 +1494,22 @@ const GLB_BIN: u32 = 0x004E_4942; // "BIN\0"
 /// URI, which is the GLB-embedded buffer.
 fn build_single_buffer_gltf(
     scene: &SplatScene,
-    quantize: bool,
+    opts: &WriteOpts,
 ) -> Result<(GltfRoot, Vec<u8>), GltfError> {
     let chunk: &[Splat] = scene.splats.as_slice();
     let (chunk_min, chunk_max) = chunk_bbox(chunk);
     let (scale_min, scale_max) = chunk_scale_bbox(chunk);
-    let layout = if quantize {
-        QuantizeLayout::quantized()
-    } else {
-        QuantizeLayout::float_only()
+    let sh_degree: u8 = chunk.iter().map(|s| s.color.degree()).max().unwrap_or(0);
+    let layout = ChunkLayout {
+        spec: opts.spec_version,
+        quantize: opts.quantize,
+        quantize_rotation: opts.quantize_rotation,
+        sh_degree,
     };
     let buf_bytes = pack_chunk_with(chunk, &layout, &chunk_min, &chunk_max);
 
     let mut extensions_used = vec![KHR.to_string()];
-    if quantize {
+    if opts.quantize {
         extensions_used.push(KHR_QUANT.to_string());
     }
     let mut root = GltfRoot {
@@ -1117,59 +1530,19 @@ fn build_single_buffer_gltf(
     };
 
     let n = chunk.len();
-    let has_sh = chunk.iter().any(|s| matches!(s.color, Color::Sh { .. }));
-    let (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt) = if quantize {
-        emit_quantized_accessors(
-            &mut root, 0, n, &chunk_min, &chunk_max, &scale_min, &scale_max, has_sh,
-        )
-    } else {
-        let mut offset = 0usize;
-        let pos_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
-        let rot_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 16, "VEC4");
-        let scale_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
-        let op_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 4, "SCALAR");
-        let dc_acc = add_view_acc(&mut root, 0, &mut offset, n, n * 12, "VEC3");
-        set_accessor_minmax(&mut root, pos_acc, chunk_min, chunk_max);
-        let sh_acc_opt = if has_sh {
-            Some(add_view_acc(
-                &mut root,
-                0,
-                &mut offset,
-                n,
-                n * 45 * 4,
-                "SCALAR",
-            ))
-        } else {
-            None
-        };
-        (pos_acc, rot_acc, scale_acc, op_acc, dc_acc, sh_acc_opt)
-    };
-
-    let mut khr_attrs = serde_json::json!({
-        "POSITION": pos_acc,
-        "_ROTATION": rot_acc,
-        "_SCALE": scale_acc,
-        "_OPACITY": op_acc,
-        "_COLOR_DC": dc_acc,
-    });
-    let mut sh_degree = 0u8;
-    if let Some(sh_acc) = sh_acc_opt {
-        khr_attrs
-            .as_object_mut()
-            .ok_or_else(|| GltfError::Malformed("attrs not object".to_string()))?
-            .insert("_COLOR_SH".to_string(), serde_json::json!(sh_acc));
-        sh_degree = chunk.iter().map(|s| s.color.degree()).max().unwrap_or(0);
-    }
+    let accs = emit_chunk_accessors(
+        &mut root,
+        0,
+        n,
+        &chunk_min,
+        &chunk_max,
+        &scale_min,
+        &scale_max,
+        layout,
+    );
 
     root.meshes.push(serde_json::json!({
-        "primitives": [{
-            "extensions": {
-                KHR: {
-                    "attributes": khr_attrs,
-                    "shDegree": sh_degree,
-                }
-            }
-        }]
+        "primitives": [build_primitive(opts.spec_version, &accs)]
     }));
 
     let scene_bbox = if chunk.is_empty() {
@@ -1202,7 +1575,7 @@ pub fn write_glb(scene: &SplatScene, path: &Path, opts: &WriteOptions) -> Result
     if opts.chunked {
         return Err(GltfError::GlbChunkedUnsupported);
     }
-    let (root, bin) = build_single_buffer_gltf(scene, opts.quantize)?;
+    let (root, bin) = build_single_buffer_gltf(scene, opts)?;
     let json_str = serde_json::to_string(&root)?;
 
     // Chunk payloads padded to 4-byte alignment.
@@ -1312,32 +1685,14 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
     if !root.extensions_used.iter().any(|e| e == KHR) {
         return Err(GltfError::MissingExtension);
     }
-    let mesh = root
+    let prim_val = root
         .meshes
         .first()
-        .ok_or_else(|| GltfError::Malformed("no meshes".to_string()))?;
-    let prim = mesh
-        .get("primitives")
+        .and_then(|m| m.get("primitives"))
         .and_then(|p| p.as_array())
         .and_then(|a| a.first())
         .ok_or_else(|| GltfError::Malformed("no primitives".to_string()))?;
-    let ext = prim
-        .get("extensions")
-        .and_then(|e| e.get(KHR))
-        .ok_or(GltfError::MissingExtension)?;
-    let attrs = ext
-        .get("attributes")
-        .ok_or_else(|| GltfError::Malformed("no attributes".to_string()))?;
-
-    let get_idx = |name: &str| -> Option<usize> {
-        attrs.get(name).and_then(|v| v.as_u64()).map(|n| n as usize)
-    };
-    let pos_acc = get_idx("POSITION").ok_or(GltfError::MissingExtension)?;
-    let rot_acc = get_idx("_ROTATION").ok_or(GltfError::MissingExtension)?;
-    let scale_acc = get_idx("_SCALE").ok_or(GltfError::MissingExtension)?;
-    let op_acc = get_idx("_OPACITY").ok_or(GltfError::MissingExtension)?;
-    let dc_acc = get_idx("_COLOR_DC").ok_or(GltfError::MissingExtension)?;
-    let sh_acc = get_idx("_COLOR_SH");
+    let attrs = resolve_attrs(prim_val)?;
 
     let read_attr = |acc_idx: usize, comps: usize| -> Result<Vec<f32>, GltfError> {
         let acc = &root.accessors[acc_idx];
@@ -1354,46 +1709,5 @@ fn read_glb_json(raw: &str, bin: &[u8]) -> Result<SplatScene, GltfError> {
         decode_accessor(bytes, acc, comps)
     };
 
-    let positions = read_attr(pos_acc, 3)?;
-    let rotations = read_attr(rot_acc, 4)?;
-    let scales = read_attr(scale_acc, 3)?;
-    let opacities = read_attr(op_acc, 1)?;
-    let dc = read_attr(dc_acc, 3)?;
-    let n = opacities.len();
-    let sh = if let Some(idx) = sh_acc {
-        Some(read_attr(idx, 45)?)
-    } else {
-        None
-    };
-
-    let mut splats = Vec::with_capacity(n);
-    for i in 0..n {
-        let color = if let Some(ref sh) = sh {
-            let mut coeffs = Vec::with_capacity(48);
-            coeffs.extend_from_slice(&dc[i * 3..i * 3 + 3]);
-            coeffs.extend_from_slice(&sh[i * 45..i * 45 + 45]);
-            Color::Sh { degree: 3, coeffs }
-        } else {
-            Color::Rgb([dc[i * 3], dc[i * 3 + 1], dc[i * 3 + 2]])
-        };
-        splats.push(Splat {
-            position: [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]],
-            rotation: [
-                rotations[i * 4],
-                rotations[i * 4 + 1],
-                rotations[i * 4 + 2],
-                rotations[i * 4 + 3],
-            ],
-            scale: [scales[i * 3], scales[i * 3 + 1], scales[i * 3 + 2]],
-            opacity: opacities[i],
-            color,
-        });
-    }
-    Ok(SplatScene {
-        splats,
-        coordinate_system: CoordinateSystem::default(),
-        semantic_labels: None,
-        temporal_mode: TemporalMode::Static,
-        lods: None,
-    })
+    decode_resolved(&attrs, &read_attr)
 }
