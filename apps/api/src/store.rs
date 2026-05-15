@@ -67,6 +67,12 @@ pub struct Job {
     /// alongside `output_url` by the worker callback when applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_url: Option<String>,
+    /// Worker-emitted step name during the `Running` phase. The worker
+    /// posts intermediate updates with `phase` like "fetching", "optimizing",
+    /// "packaging" so the UI can show what's happening instead of a single
+    /// opaque "running" badge for the entire job duration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     /// Webhook the API fires when this job reaches a terminal state (Done
     /// or Error). Lets callers run a 40-tile batch without polling 40
     /// endpoints. POST body is the Job JSON.
