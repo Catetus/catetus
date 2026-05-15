@@ -1,0 +1,49 @@
+name: 'SplatForge Optimize'
+description: 'Submit changed Gaussian splats to SplatForge Cloud, gate the PR on a fidelity report, and post a badge comment.'
+author: 'SplatForge'
+branding:
+  icon: 'box'
+  color: 'purple'
+
+inputs:
+  api-url:
+    description: 'SplatForge Cloud API base URL.'
+    required: false
+    default: 'https://splatforge-api.fly.dev'
+  api-key:
+    description: 'Bearer token for SplatForge Cloud. Pass via secrets.SPLATFORGE_API_KEY.'
+    required: true
+  preset:
+    description: 'Optimize preset: lossless-repack | web-mobile | size-min.'
+    required: false
+    default: 'web-mobile'
+  target:
+    description: 'Optional path or glob (relative to repo root) to run against. Defaults to changed .ply/.splat/.spz files in the PR.'
+    required: false
+    default: ''
+  regression-threshold:
+    description: 'Minimum compression ratio (output/input) the PR must NOT exceed. E.g. 0.6 = output must be <= 60% of input. Set 1.0 to disable.'
+    required: false
+    default: '1.0'
+  comment:
+    description: 'Whether to post / update a sticky PR comment with the fidelity badge.'
+    required: false
+    default: 'true'
+  timeout-seconds:
+    description: 'Per-job polling timeout in seconds.'
+    required: false
+    default: '270'
+
+outputs:
+  fidelity-score:
+    description: 'Aggregate fidelity score across optimized scenes (0-100, higher is better). Best-effort until the Cloud /v1/jobs/:id/report endpoint ships PSNR/SSIM.'
+  compression-ratio:
+    description: 'Mean output-to-input byte ratio across optimized scenes (0-1, lower is better).'
+  output-url:
+    description: 'JSON array of output .glb URLs (one per scene).'
+  report-url:
+    description: 'URL to the human-readable fidelity report rendered in the PR comment.'
+
+runs:
+  using: 'node20'
+  main: 'src/index.js'
