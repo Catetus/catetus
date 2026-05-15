@@ -113,3 +113,7 @@ apps/api/data/
 
 # Blender add-on build artifacts — CI rebuilds these on every push.
 integrations/blender/dist/*.zip
+
+# novel-5 morton pre-permute bench scratch (large .bin scenes)
+/.bench-scenes/
+
