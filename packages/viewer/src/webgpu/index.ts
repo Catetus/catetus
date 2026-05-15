@@ -42,6 +42,7 @@
 import { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL } from './shaders.generated.js';
 import { createRadixSortPipelines, RadixSort, type RadixSortPipelines } from './radix_sort.js';
 import { createCullPipelines, CullPipeline } from './cull.js';
+import { WSRPipeline, WSR_DEFAULT_BG_WEIGHT } from './wsr.js';
 import type { ChunkDescriptor, SoaAttributeLayout } from '../manifest.js';
 
 /** Floats per per-instance render record. Mirrors `FLOATS_PER_INSTANCE` in webgpu.ts. */
@@ -293,6 +294,29 @@ export interface ComputeDecodePipelineInit {
    * Default: 0.3.
    */
   dilation?: number;
+  /**
+   * Enable the Weighted Sum Rendering (WSR) order-independent path.
+   *
+   * When `true`, `encode()` dispatches `WSRPipeline.encode` (clear →
+   * scatter-accumulate → resolve) instead of the sorted alpha-blend path
+   * (`cs_keygen → radix_sort → cs_project_gather`). PR1 ships the path
+   * behind this flag (default `false`); PR5 flips the default. See
+   * `docs/perf/wsr-integration-spec.md` for the rationale.
+   *
+   * Note: B8 PR2 (2026-05-15) measured WSR at 0.29 fps + 17 dB PSNR on
+   * bonsai due to CAS-loop contention on overlapping pixels — the path
+   * is feature-flagged off and not production-viable until either
+   * Chrome ships `float32-blendable` (Option A) or tile-prefix-sum
+   * scatter (workgroup-shared accumulation) is implemented.
+   *
+   * Requires `wsrMaxWidth` / `wsrMaxHeight` to size the per-pixel
+   * accumulator buffers. Defaults to 1920 × 1080 when unset.
+   */
+  useWSR?: boolean;
+  /** Max viewport width for the WSR accumulator. Defaults to 1920. */
+  wsrMaxWidth?: number;
+  /** Max viewport height for the WSR accumulator. Defaults to 1080. */
+  wsrMaxHeight?: number;
 }
 
 /**
@@ -336,6 +360,19 @@ export class ComputeDecodePipeline {
   readonly cull: CullPipeline | null;
   /** True when useCull was requested at construction. */
   readonly useCull: boolean;
+  /** Optional WSR pipeline. Allocated when useWSR=true. */
+  readonly wsr: WSRPipeline | null;
+  /** True when useWSR was requested at construction. */
+  readonly useWSR: boolean;
+  /**
+   * Scene-wide WSR depth-weight scale. Initialised host-side from the scene
+   * bounding box (`2 × mean_scene_depth`); the renderer or the unit test
+   * sets this before the first `encode()` call. PR1 default keeps the
+   * heuristic in safe territory for sub-cube synthetic scenes.
+   */
+  wsrSigma = 2.0;
+  /** WSR background color + weight `w_B`. PR1 default = (black, 1e-4). */
+  wsrBgColor: [number, number, number, number] = [0, 0, 0, WSR_DEFAULT_BG_WEIGHT];
   private readonly chunks: DecodedChunk[] = [];
   /** Splats already decoded (offset into `splatsBuffer`). */
   private decodedSplats = 0;
@@ -467,6 +504,25 @@ export class ComputeDecodePipeline {
     } else {
       this.cull = null;
     }
+
+    // -----------------------------------------------------------------
+    // Optional WSR pipeline. Allocates the per-pixel accumulator + output
+    // buffers (sized to wsrMaxWidth × wsrMaxHeight). The compute kernels
+    // own the splatsBuffer read-only; the legacy sorted path stays
+    // available on the same ComputeDecodePipeline instance for parity
+    // testing.
+    // -----------------------------------------------------------------
+    this.useWSR = init.useWSR ?? false;
+    if (this.useWSR) {
+      this.wsr = new WSRPipeline({
+        device: this.device,
+        maxWidth: init.wsrMaxWidth ?? 1920,
+        maxHeight: init.wsrMaxHeight ?? 1080,
+        splatsBuffer: this.splatsBuffer,
+      });
+    } else {
+      this.wsr = null;
+    }
   }
 
   /**
@@ -566,6 +622,15 @@ export class ComputeDecodePipeline {
     const count = this.decodedSplats;
     if (count === 0) return;
 
+    // WSR path (PR1 feature flag). Skips keygen/radix/gather entirely and
+    // produces the final rgba8unorm-packed frame in `wsr.outputBuffer`. The
+    // sorted alpha-blend instanceBuffer path is bypassed; the caller (the
+    // renderer or the unit test) reads `wsr.outputBuffer` instead.
+    if (this.useWSR && this.wsr) {
+      this.encodeWSR(encoder, view, viewProj, focal, viewport);
+      return;
+    }
+
     // Pack project uniforms: 2 mat4 + viewport + focal + count.
     const ab = new ArrayBuffer(160);
     const f32 = new Float32Array(ab);
@@ -624,6 +689,54 @@ export class ComputeDecodePipeline {
       pass.dispatchWorkgroups(wgs);
       pass.end();
     }
+  }
+
+  /**
+   * Weighted Sum Rendering encode path (PR1).
+   *
+   * Records `clear → scatter-accumulate → resolve` into the caller's encoder.
+   * Skips the keygen / radix-sort / gather kernels entirely — WSR is order-
+   * independent, so the sort cost (30.15 ms / 58 % of frame at 3.62 M splats
+   * per the real-scene bench) is reclaimed.
+   *
+   * The final rgba8unorm-packed frame lands in `this.wsr.outputBuffer`. The
+   * renderer is expected to `copyBufferToTexture` from there to the canvas
+   * texture; the unit test in `wsr.test.ts` instead reads the buffer back via
+   * a staging copy and asserts the bytes are finite-positive non-zero.
+   *
+   * **Path-choice rationale (per spec § 5 "Two-Pass vs One-Pass"):** the spec
+   * recommends Option A (fragment-shader rasterization with ROP additive blend
+   * on rgba32float + r32float MRT). We instead use Option B (compute scatter
+   * with CAS-loop atomic float-add on `array<atomic<u32>>` buffers) because
+   * the `float32-blendable` device feature required by Option A is not in any
+   * shipped WebGPU 1.0 implementation as of 2026-05 (Chrome canary only).
+   * The B7.1 EXECUTION-LOG measurement (2026-05-15) established that on the
+   * laptop 4090 the scatter path is DRAM-write-bound, not atomic-bound, at
+   * 10 M splats — the CAS-loop's amortized iteration count is ≤ 2 even under
+   * heavy contention. Option B is the portable, measured-equivalent choice
+   * for PR1; we re-evaluate if `float32-blendable` ships in stable channels
+   * before PR5 flips WSR to default.
+   */
+  encodeWSR(
+    encoder: GPUCommandEncoder,
+    view: Float32Array,
+    viewProj: Float32Array,
+    focal: [number, number],
+    viewport: [number, number],
+  ): void {
+    if (!this.wsr) throw new Error('encodeWSR requires useWSR=true');
+    const count = this.decodedSplats;
+    if (count === 0) return;
+    this.wsr.encode(
+      encoder,
+      view,
+      viewProj,
+      focal,
+      viewport,
+      count,
+      this.wsrSigma,
+      this.wsrBgColor,
+    );
   }
 
   /**
@@ -1040,9 +1153,25 @@ export class ComputeDecodePipeline {
     this.gatherUniforms?.destroy();
     this.sorter.destroy();
     this.cull?.destroy();
+    this.wsr?.destroy();
   }
 }
 
 export { createRadixSortPipelines, RadixSort } from './radix_sort.js';
-export { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL, CULL_WGSL } from './shaders.generated.js';
+export {
+  DECODE_WGSL,
+  RADIX_SORT_WGSL,
+  PROJECT_GATHER_WGSL,
+  CULL_WGSL,
+  WSR_CLEAR_WGSL,
+  WSR_ACCUMULATE_WGSL,
+  WSR_RESOLVE_WGSL,
+} from './shaders.generated.js';
 export { CullPipeline, createCullPipelines } from './cull.js';
+export {
+  WSRPipeline,
+  createWSRPipelines,
+  WSR_DEFAULT_BG_WEIGHT,
+  WSR_TILE,
+  WSR_WG,
+} from './wsr.js';
