@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
-use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, SplatScene};
+use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, Splat, SplatScene};
 use splatforge_gltf::{inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, WriteOpts};
 use splatforge_optimize::{preset, write_tileset, TilesetOpts};
 use splatforge_ply::{read_ply, write_ply};
@@ -214,6 +214,29 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         active_seats: u32,
     },
+    /// Reorder splats in a scene by 3D Morton code of their position,
+    /// then re-emit the same file format. The intent is to AMPLIFY the
+    /// natural spatial clustering that trained-3DGS PLYs already have,
+    /// so the runtime depth-key radix sort gets cache-friendly access
+    /// patterns. Render output is byte-identical (the renderer sorts by
+    /// depth anyway), but the per-frame sort runs measurably faster on
+    /// real scenes (see novel-5 in the research execution log).
+    ///
+    /// Quantizes position to 16 bits per axis over the scene bounding
+    /// box, interleaves x/y/z bits into a 48-bit Morton code packed in
+    /// u64, then `sort_by_key` stable. Pass `--in <file>` and
+    /// `--out <file>`; both must be the same format. Currently
+    /// supports PLY in/out; other formats are loaded via `load_scene`
+    /// and written by their respective writer crate.
+    MortonPermute {
+        /// Input scene file. Auto-detects format from extension/magic.
+        #[arg(long, short = 'i')]
+        input: PathBuf,
+        /// Output scene file. Format inferred from extension; must be
+        /// a writable format (`ply` today).
+        #[arg(long, short = 'o')]
+        out: PathBuf,
+    },
     /// Validate an asset against a SplatForge-supported standard
     /// (KHR_gaussian_splatting today; OpenUSD when the USDC reader path
     /// is wired). Wraps `splatforge-khr-validate` for the glTF case.
@@ -361,7 +384,112 @@ fn dispatch(cli: Cli) -> Result<()> {
             active_seats,
         } => cmd_serve(&bind, license.as_deref(), &api_base, active_seats),
         Command::SpecCheck { input, spec, json } => cmd_spec_check(&input, spec.as_deref(), json),
+        Command::MortonPermute { input, out } => cmd_morton_permute(&input, &out),
     }
+}
+
+/// Reorder splats in `scene` by 16-bit-per-axis 3D Morton code of their
+/// world-space position. Stable sort so equal Morton codes preserve input
+/// order. Mutates in place.
+fn morton_sort_scene(scene: &mut SplatScene) {
+    if scene.splats.is_empty() {
+        return;
+    }
+    // Compute bounding box. The IR doesn't carry a precomputed bbox, so we
+    // do one pass here. f32::min/max are NaN-propagating; trained 3DGS
+    // shouldn't have NaN positions but we clamp into [bbox_min, bbox_max]
+    // below regardless, so a stray NaN folds to the corner.
+    let mut mn = [f32::INFINITY; 3];
+    let mut mx = [f32::NEG_INFINITY; 3];
+    for s in &scene.splats {
+        for i in 0..3 {
+            if s.position[i] < mn[i] {
+                mn[i] = s.position[i];
+            }
+            if s.position[i] > mx[i] {
+                mx[i] = s.position[i];
+            }
+        }
+    }
+    let extent = [
+        (mx[0] - mn[0]).max(f32::MIN_POSITIVE),
+        (mx[1] - mn[1]).max(f32::MIN_POSITIVE),
+        (mx[2] - mn[2]).max(f32::MIN_POSITIVE),
+    ];
+    // 16-bit-per-axis spread to 48 bits packed in u64. Classic mask-shift
+    // sequence: 5 steps to spread 16 bits over 48 positions.
+    fn spread16(v: u32) -> u64 {
+        let mut x = (v & 0xFFFF) as u64;
+        x = (x | (x << 32)) & 0x0000_FFFF_0000_FFFF;
+        x = (x | (x << 16)) & 0x0000_FFFF_0000_FFFF;
+        x = (x | (x << 8)) & 0x00FF_00FF_00FF_00FF;
+        x = (x | (x << 4)) & 0x0F0F_0F0F_0F0F_0F0F;
+        x = (x | (x << 2)) & 0x3333_3333_3333_3333;
+        x = (x | (x << 1)) & 0x5555_5555_5555_5555;
+        x
+    }
+    let n = scene.splats.len();
+    let mut keyed: Vec<(u64, u32)> = Vec::with_capacity(n);
+    for (idx, s) in scene.splats.iter().enumerate() {
+        let qx = (((s.position[0] - mn[0]) / extent[0]).clamp(0.0, 1.0) * 65535.0 + 0.5) as u32;
+        let qy = (((s.position[1] - mn[1]) / extent[1]).clamp(0.0, 1.0) * 65535.0 + 0.5) as u32;
+        let qz = (((s.position[2] - mn[2]) / extent[2]).clamp(0.0, 1.0) * 65535.0 + 0.5) as u32;
+        let qx = qx.min(65535);
+        let qy = qy.min(65535);
+        let qz = qz.min(65535);
+        let code = spread16(qx) | (spread16(qy) << 1) | (spread16(qz) << 2);
+        keyed.push((code, idx as u32));
+    }
+    keyed.sort_by_key(|&(k, _)| k);
+    // Permute splats. Also permute semantic_labels if present so they
+    // stay aligned. LOD indices reference the splat array; after this
+    // permutation those indices would point at the wrong rows, so we
+    // drop precomputed LODs (they'd need re-generation downstream).
+    let perm: Vec<usize> = keyed.iter().map(|&(_, i)| i as usize).collect();
+    let new_splats: Vec<Splat> = perm.iter().map(|&i| scene.splats[i].clone()).collect();
+    scene.splats = new_splats;
+    if let Some(labels) = scene.semantic_labels.take() {
+        let new_labels: Vec<_> = perm.iter().map(|&i| labels[i].clone()).collect();
+        scene.semantic_labels = Some(new_labels);
+    }
+    // Stale LODs would silently reference the wrong rows; clear them.
+    scene.lods = None;
+}
+
+fn cmd_morton_permute(input: &Path, out: &Path) -> Result<()> {
+    let (mut scene, fmt) = load_scene(input)?;
+    let n = scene.len();
+    let t0 = std::time::Instant::now();
+    morton_sort_scene(&mut scene);
+    let elapsed = t0.elapsed();
+    // Output format: derive from extension.
+    let out_fmt = format_from_extension(out)
+        .ok_or_else(|| anyhow!("could not infer output format from {}", out.display()))?;
+    if out_fmt != fmt {
+        // Allowed in principle (load_scene returns IR), but for the morton-
+        // permute use-case we want a same-format roundtrip. Permit the
+        // conversion but warn.
+        eprintln!(
+            "splatforge: warning: input is {fmt}, output is {out_fmt} — \
+             cross-format conversion proceeds but morton-permute is intended same-format"
+        );
+    }
+    match out_fmt {
+        "ply" => write_ply(&scene, out)?,
+        "spz" => write_spz(out, &scene)?,
+        "gltf" => write_gltf(&scene, out, &WriteOpts::default())?,
+        "glb" => write_glb(&scene, out, &WriteOpts::default())?,
+        "usda" => write_usda(&scene, out, &UsdWriteOpts::default())?,
+        "usdc" => write_usdc(&scene, out, &UsdWriteOpts::default())?,
+        other => return Err(anyhow!("unsupported output format: {other}")),
+    }
+    println!(
+        "morton-permute: {} splats reordered in {:.1} ms -> {}",
+        n,
+        elapsed.as_secs_f64() * 1000.0,
+        out.display()
+    );
+    Ok(())
 }
 
 fn detect_format(path: &Path) -> Result<&'static str> {
