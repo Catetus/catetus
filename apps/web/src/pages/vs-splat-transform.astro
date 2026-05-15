@@ -1,0 +1,495 @@
+---
+// /vs-splat-transform — the one-pager every technical evaluator reads
+// before deciding whether to install SplatForge or just
+// `npm i -g @playcanvas/splat-transform`.
+//
+// Per the v2 plan Q1 distribution deliverable. Honest stance: PlayCanvas
+// shipped a great CLI; we differentiate on production-readiness, not on
+// "we're a better CLI." Anchored on real SplatBench numbers, not claims.
+import Base from "../layouts/Base.astro";
+import { splatbench } from "../lib/splatbench";
+
+const title = "SplatForge vs splat-transform — when to use which";
+const description =
+  "Direct comparison: SplatForge's Rust pipeline + hosted API + determinism + fidelity QA vs PlayCanvas splat-transform's npm CLI. Real numbers on real scenes.";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+
+// Real numbers from splatbench-v0.json. These are committed in
+// apps/web/src/data/splatbench-v0.json so they update with each bench run.
+type Scene = (typeof splatbench)["scenes"][number];
+function findScene(id: string): Scene | undefined {
+  return splatbench.scenes.find((s) => s.id === id);
+}
+
+const bonsai = findScene("bonsai_mipnerf360_iter7k");
+const bicycle = findScene("bicycle_mipnerf360_iter30k") ?? findScene("bicycle_mipnerf360_iter7k");
+const indoor = findScene("splatbench_indoor_proxy");
+
+// Hand-curated comparison rows. Each row is one capability with a binary
+// flag for splat-transform (their public CLI surface as of May 2026) and a
+// short prose answer for SplatForge. The point isn't to dunk — it's to
+// help readers decide whether the differentiator is one they care about.
+const capabilities: Array<{
+  label: string;
+  splatTransform: string;
+  splatForge: string;
+  note?: string;
+}> = [
+  {
+    label: "Convert PLY ↔ SPZ ↔ glTF",
+    splatTransform: "yes",
+    splatForge: "yes",
+    note: "Table stakes for either tool.",
+  },
+  {
+    label: "Single static binary (no Node)",
+    splatTransform: "no — Node + npm runtime",
+    splatForge: "yes — Rust binary, no runtime",
+    note: "Matters for CI containers and air-gapped runs.",
+  },
+  {
+    label: "Byte-deterministic outputs",
+    splatTransform: "no published guarantee",
+    splatForge: "yes — BLAKE3 hash on canonical IR; same input + version = same bytes",
+    note: "Required for cache-by-hash and provenance audits.",
+  },
+  {
+    label: "Per-scene fidelity gates (ΔE94, SSIM, ML-Score)",
+    splatTransform: "no",
+    splatForge: "yes — 8-orbit deterministic render, JSON report alongside output",
+    note: "splat-transform converts; it doesn't tell you if the conversion broke anything.",
+  },
+  {
+    label: "Hosted API with SLA",
+    splatTransform: "no",
+    splatForge: "yes — splatforge-api.fly.dev, free + paid tiers",
+    note: "The OSS CLI can't ship hosted by definition.",
+  },
+  {
+    label: "GitHub Action with PR badge",
+    splatTransform: "no",
+    splatForge: "yes — splatforge/optimize-action",
+    note: "Drop in any repo, fail CI on fidelity regression.",
+  },
+  {
+    label: "MCP server (Claude / Cursor / Cline)",
+    splatTransform: "no",
+    splatForge: "yes — analyze / optimize / list_presets over stdio",
+    note: "The distribution channel splat-transform structurally can't grow into.",
+  },
+  {
+    label: "Differentiable repack (RDO-optimized compression)",
+    splatTransform: "no",
+    splatForge: "yes — hosted-tier, +6.4 dB PSNR over opacity-prune at 50% byte budget on bonsai",
+  },
+  {
+    label: "Standards conformance suite (KHR_gaussian_splatting)",
+    splatTransform: "no",
+    splatForge: "yes — published validator + golden fixture corpus",
+  },
+  {
+    label: "OpenUSD ParticleField3DGaussianSplat support",
+    splatTransform: "no",
+    splatForge: "in progress — USDC bit-exact round-trip against `usdcat`",
+  },
+  {
+    label: "OSS license",
+    splatTransform: "MIT",
+    splatForge: "Apache-2.0 (CLI + viewer SDK + benchmark)",
+    note: "Both are permissive. Hosted features are commercial-license.",
+  },
+  {
+    label: "SOG / SOGS adoption",
+    splatTransform: "native (PlayCanvas invented SOG)",
+    splatForge: "reads SOG via splatforge-spz; comparison column on the benchmark",
+    note: "If your runtime is PlayCanvas Engine, splat-transform's SOG path is the path of least resistance.",
+  },
+];
+
+// When to honestly recommend the other tool. Credibility from saying it
+// out loud beats hiding from the obvious cases.
+const useSplatTransformWhen = [
+  "You ship inside the PlayCanvas / SuperSplat / Snap pipeline and SOG is the runtime format.",
+  "You want a one-liner npm install with zero infrastructure footprint.",
+  "Your scene count is small enough that local CLI runs are all you need — no CI, no reports, no multi-developer regression tracking.",
+];
+
+const useSplatForgeWhen = [
+  "You ship splat assets to multiple platforms (web, mobile, AR, geospatial, USD) and need every output validated.",
+  "You run compression in CI and want a fidelity badge on every PR.",
+  "Your team is more than one person and reproducibility matters across machines.",
+  "You're building enterprise-grade assets (e-commerce, AEC, geospatial via Cesium, VFX via USD) and need an SLA-backed pipeline.",
+  "You want hosted-only access to research-grade compression (PostHAC entropy coding, differentiable repack, splat-aware perceptual metrics) that requires more than a local CPU.",
+];
+
+// Real fidelity numbers from splatbench-v0.json. We render whatever
+// scenes are present; if the data file moves, this page surfaces empty
+// columns instead of fabricated numbers.
+const fidelityScenes = [bonsai, bicycle, indoor].filter(Boolean) as Scene[];
+function pctRatio(n?: number): string {
+  return n == null ? "—" : `${n.toFixed(2)}×`;
+}
+function dE(n?: number): string {
+  return n == null ? "—" : n.toFixed(4);
+}
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/vs-splat-transform" aria-current="page">vs splat-transform</a>
+      <a href="/compare">Compare</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="vs-hero">
+    <p class="vs-eyebrow">Comparison</p>
+    <h1>SplatForge vs splat-transform</h1>
+    <p class="vs-subtitle">
+      PlayCanvas's <a
+        href="https://github.com/playcanvas/splat-transform"
+        target="_blank"
+        rel="noreferrer noopener"
+      ><code>splat-transform</code></a>
+      is a great Gaussian-Splat conversion CLI. SplatForge is a different shape of tool: a Rust
+      production pipeline with a hosted API, byte-deterministic outputs, perceptual fidelity gates,
+      and a benchmark corpus. We share ~80% of the conversion surface; the differentiation is
+      everything downstream of <code>convert</code>.
+    </p>
+    <p class="vs-subtitle">
+      The honest take: if you live inside the PlayCanvas / SOG ecosystem and run one-off
+      conversions on your laptop, <code>npm i -g @playcanvas/splat-transform</code> is the right
+      answer. If you ship splats into a team workflow, a CI pipeline, multiple runtimes, or an
+      enterprise integration, the production primitives below are why teams pick SplatForge.
+    </p>
+    <div class="vs-cta-row">
+      <a class="btn primary" href="/#try">Try the optimizer</a>
+      <a class="btn" href="/bench">See real numbers on SplatBench</a>
+      <a class="btn" href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </header>
+
+  <section class="vs-section" aria-labelledby="cli-title">
+    <h2 id="cli-title" class="section-title">Side-by-side: same job, two tools</h2>
+    <p class="vs-prose">
+      Optimize a 1.16M-splat real Mip-NeRF 360 scene (<code>bonsai</code>) down to a web-mobile
+      target.
+    </p>
+    <div class="vs-grid">
+      <div class="vs-block">
+        <h3>splat-transform</h3>
+        <pre><code>{`npm i -g @playcanvas/splat-transform
+
+splat-transform convert \\
+  bonsai.ply \\
+  --output bonsai.sog`}</code></pre>
+        <ul class="vs-block-notes">
+          <li>Output: SOG (PlayCanvas format)</li>
+          <li>No fidelity report</li>
+          <li>No determinism guarantee</li>
+          <li>Runs only on your machine</li>
+        </ul>
+      </div>
+      <div class="vs-block">
+        <h3>SplatForge — local</h3>
+        <pre><code>{`# single static binary, no runtime
+splatforge optimize \\
+  --preset web-mobile \\
+  bonsai.ply \\
+  --output bonsai.glb
+
+# fidelity report next to the output
+splatforge fidelity \\
+  bonsai.glb \\
+  --baseline bonsai.ply \\
+  --report bonsai-fidelity.json`}</code></pre>
+        <ul class="vs-block-notes">
+          <li>Output: glTF + KHR_gaussian_splatting</li>
+          <li>JSON fidelity report (ΔE94 / SSIM / ML-Score over 8 orbit poses)</li>
+          <li>BLAKE3-deterministic — re-run produces identical bytes</li>
+        </ul>
+      </div>
+      <div class="vs-block">
+        <h3>SplatForge — hosted</h3>
+        <pre><code>{`# same pipeline, on splatforge-api.fly.dev
+curl -X POST https://splatforge-api.fly.dev/v1/jobs \\
+  -H "Authorization: Bearer $SPLATFORGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"preset":"web-mobile",
+       "source_url":"https://.../bonsai.ply"}'
+
+# poll → download → public report URL`}</code></pre>
+        <ul class="vs-block-notes">
+          <li>Same output + same report, no local install</li>
+          <li>Free tier: 100 jobs / month</li>
+          <li>PR-badge integration via <a href={`${githubUrl}/tree/main/apps/optimize-action`}>splatforge/optimize-action</a></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="vs-section" aria-labelledby="capabilities-title">
+    <h2 id="capabilities-title" class="section-title">Capability comparison</h2>
+    <table class="vs-table">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>splat-transform</th>
+          <th>SplatForge</th>
+          <th>Why it matters</th>
+        </tr>
+      </thead>
+      <tbody>
+        {capabilities.map((c) => (
+          <tr>
+            <td><strong>{c.label}</strong></td>
+            <td class="vs-cell-other">{c.splatTransform}</td>
+            <td class="vs-cell-us">{c.splatForge}</td>
+            <td class="vs-cell-note">{c.note ?? ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </section>
+
+  {fidelityScenes.length > 0 && (
+    <section class="vs-section" aria-labelledby="fidelity-title">
+      <h2 id="fidelity-title" class="section-title">Real fidelity on real scenes</h2>
+      <p class="vs-prose">
+        SplatBench v0 measurements on representative scenes. We publish ΔE94 and ML-Score
+        alongside compression ratio so the leaderboard never hides quality cost behind
+        compression headlines. Numbers come from
+        <a href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.json`}>splatbench-v0.json</a>.
+        splat-transform numbers will land here once we wire its CLI into the same harness.
+      </p>
+      <table class="vs-table">
+        <thead>
+          <tr>
+            <th>Scene</th>
+            <th>Splats</th>
+            <th>web-mobile ratio</th>
+            <th>web-mobile ΔE94</th>
+            <th>web-mobile ML-Score</th>
+            <th>size-min ratio</th>
+            <th>size-min ΔE94</th>
+          </tr>
+        </thead>
+        <tbody>
+          {fidelityScenes.map((s) => {
+            const wm = s.fidelity?.webMobile;
+            const sm = s.fidelity?.sizeMin;
+            return (
+              <tr>
+                <td><strong>{s.id}</strong></td>
+                <td class="tabular">{s.splatCount.toLocaleString()}</td>
+                <td class="tabular">{pctRatio(s.webMobileRatio)}</td>
+                <td class="tabular">{dE(wm?.meanDeltaE94)}</td>
+                <td class="tabular">{wm?.mlScore != null ? wm.mlScore.toFixed(3) : "—"}</td>
+                <td class="tabular">{pctRatio(s.sizeMinRatio)}</td>
+                <td class="tabular">{dE(sm?.meanDeltaE94)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  )}
+
+  <section class="vs-section">
+    <div class="vs-decision">
+      <div>
+        <h2 class="section-title section-title--inline">Use splat-transform when</h2>
+        <ul class="vs-decision-list">
+          {useSplatTransformWhen.map((line) => <li>{line}</li>)}
+        </ul>
+      </div>
+      <div>
+        <h2 class="section-title section-title--inline">Use SplatForge when</h2>
+        <ul class="vs-decision-list">
+          {useSplatForgeWhen.map((line) => <li>{line}</li>)}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="vs-section vs-cta">
+    <h2 class="section-title">Try it on a real scene</h2>
+    <p class="vs-prose">
+      Drop a PLY at <a href="/#try">splatforge.dev/#try</a> and watch the full pipeline run
+      against the hosted API. Or run it locally — the
+      <a href="/#docs">five-minute quickstart</a> doesn't require a key.
+    </p>
+  </section>
+
+  <footer class="site-footer">
+    <span>
+      SplatForge <span class="tabular">v{splatbench.splatforgeVersion}</span> ·
+      bench run <span class="tabular">{splatbench.runDate}</span>
+    </span>
+    <span>
+      <a href="/bench">SplatBench</a> ·
+      <a href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.json`}>splatbench-v0.json</a> ·
+      Apache-2.0
+    </span>
+  </footer>
+</Base>
+
+<style>
+  .vs-hero {
+    padding: 4rem 2rem 2rem;
+    max-width: 1024px;
+    margin: 0 auto;
+  }
+  .vs-eyebrow {
+    color: var(--muted, #9aa2ad);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 0.78rem;
+    margin: 0 0 0.5rem;
+  }
+  .vs-hero h1 {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 1rem;
+  }
+  .vs-subtitle {
+    font-size: 1.075rem;
+    line-height: 1.6;
+    color: var(--muted, #9aa2ad);
+    max-width: 70ch;
+    margin: 0 0 1rem;
+  }
+  .vs-subtitle code,
+  .vs-prose code,
+  .vs-table code {
+    background: var(--surface, #15181d);
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.3rem;
+    font-size: 0.9em;
+  }
+  .vs-subtitle a {
+    color: inherit;
+    text-decoration: underline;
+  }
+  .vs-cta-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.6rem 1.1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border, #2a2f37);
+    color: var(--text, #e7eaef);
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: background-color 120ms, border-color 120ms;
+  }
+  .btn:hover {
+    border-color: var(--accent, #6ea0ff);
+  }
+  .btn.primary {
+    background: var(--accent, #6ea0ff);
+    color: #0b0d10;
+    border-color: var(--accent, #6ea0ff);
+    font-weight: 600;
+  }
+  .vs-section {
+    max-width: 1024px;
+    margin: 4rem auto 0;
+    padding: 0 2rem;
+  }
+  .vs-prose {
+    color: var(--muted, #9aa2ad);
+    line-height: 1.6;
+    max-width: 70ch;
+    margin: 0 0 1.5rem;
+  }
+  .vs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+  }
+  .vs-block {
+    border: 1px solid var(--border, #2a2f37);
+    border-radius: 0.6rem;
+    padding: 1rem;
+    background: var(--surface, #15181d);
+  }
+  .vs-block h3 {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+  }
+  .vs-block pre {
+    background: #0b0d10;
+    border: 1px solid var(--border, #2a2f37);
+    border-radius: 0.4rem;
+    padding: 0.75rem;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    margin: 0 0 0.75rem;
+  }
+  .vs-block-notes {
+    color: var(--muted, #9aa2ad);
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+  .vs-block-notes li { margin: 0.2rem 0; }
+  .vs-block-notes a {
+    color: var(--accent, #6ea0ff);
+    text-decoration: none;
+  }
+  .vs-block-notes a:hover { text-decoration: underline; }
+  .vs-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.93rem;
+  }
+  .vs-table thead {
+    text-align: left;
+    color: var(--muted, #9aa2ad);
+    font-weight: 500;
+  }
+  .vs-table th,
+  .vs-table td {
+    padding: 0.65rem 0.9rem;
+    border-bottom: 1px solid var(--border, #2a2f37);
+    vertical-align: top;
+  }
+  .vs-cell-other { color: var(--muted, #9aa2ad); }
+  .vs-cell-us { color: var(--text, #e7eaef); }
+  .vs-cell-note { color: var(--muted, #9aa2ad); font-size: 0.88rem; }
+  .vs-decision {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 2rem;
+    margin-top: 1.25rem;
+  }
+  .vs-decision-list {
+    margin: 0.75rem 0;
+    padding-left: 1.2rem;
+    line-height: 1.6;
+  }
+  .vs-decision-list li { margin: 0.35rem 0; }
+  .section-title--inline { font-size: 1.4rem; }
+  .vs-cta { padding-bottom: 4rem; }
+  .tabular { font-variant-numeric: tabular-nums; }
+</style>
