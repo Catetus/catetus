@@ -386,11 +386,34 @@ async fn build_job(
     if has_url {
         let url = req.source_url.unwrap();
         validate_source_url(&url)?;
-        let filename = url
+        // Derive a safe filename from the URL path. Strip the query string
+        // first (presigned URLs like R2/S3 carry kilobytes of signature
+        // params), then take the last path segment. The result is fed to
+        // sanitize_filename and capped at 200 bytes so we stay well under
+        // ext4's 255-byte filename limit on the worker side.
+        let path = url.split('?').next().unwrap_or(&url);
+        let last_seg = path
             .rsplit('/')
             .find(|s| !s.is_empty())
-            .map(sanitize_filename)
-            .unwrap_or_else(|| "scene.bin".to_string());
+            .unwrap_or("scene.bin");
+        let mut filename = sanitize_filename(last_seg);
+        if filename.is_empty() {
+            filename = "scene.bin".to_string();
+        }
+        if filename.len() > 200 {
+            // Preserve the trailing extension when truncating.
+            let ext = std::path::Path::new(&filename)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| format!(".{e}"))
+                .unwrap_or_default();
+            let mut keep = 200usize.saturating_sub(ext.len());
+            // Step back to the nearest char boundary so we don't slice mid-codepoint.
+            while keep > 0 && !filename.is_char_boundary(keep) {
+                keep -= 1;
+            }
+            filename = format!("{}{ext}", &filename[..keep]);
+        }
         let blob_key = format!("jobs/{id}/{filename}");
         Ok(Job {
             id,
