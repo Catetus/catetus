@@ -19,10 +19,43 @@
 
 ## Headline numbers (cool GPU, single-tenant, fused path)
 
+### Without cull (legacy baseline, current `useCull: false`)
+
 | Splat count | Frame fps | keygen | sort_full | project_gather | Total GPU |
 |-------------|-----------|--------|-----------|----------------|-----------|
 | 1 M         | ~67       | 1.10 ms | 10.15 ms  | 2.97 ms        | 14.25 ms  |
 | 10 M        | ~6.5      | 11.19 ms | **283.78 ms** | 49.77 ms     | ~351 ms   |
+
+### With opacity-radius cull (B4b, on `main` since 2026-05-15 commit `3886d19`)
+
+| Splat count | Frame fps | cull+compact | project | sort_full | gather | Total GPU |
+|-------------|-----------|--------------|---------|-----------|--------|-----------|
+| 1 M         | **150.6** | 2.21 ms | 0.90 ms | 2.20 ms | 0.74 ms | 6.05 ms |
+| 10 M        | **6.46**  | 23.6 ms | 22.6 ms | **71.9 ms** | 35.8 ms | 153.9 ms |
+
+**Cull rates** on the synthetic bench scene: 1 M → 27 % survivors (73 %
+culled); 10 M → 59 % survivors (41 % culled). The synthetic scene is random
+gaussians inside the unit cube, so cull rates differ from real captures
+(real-scene validation is task B4b.1). The headline win:
+
+- **1 M: 67 → 150.6 fps** (+125 %)
+- **10 M: 6.5 → 6.46 fps** (~0 % at 41 % cull, but 10 M *with cull* now matches the pre-fuse-regression baseline of 6.47 fps — the cull effectively "buys back" the regressions that had accumulated on main between PR #7's fuse and the post-revert state). At higher cull rates (real scenes typically cull 60-80 %) the 10 M number should land in the 12-20 fps range.
+
+Sort cost drop from 280 → 72 ms at 10 M (-76 %) on only 41 % survivors
+confirms scatter is **super-linear** in N. This is the key shape of the
+scatter bottleneck; it argues for *cull first, then optimize the
+remaining sort* — the inverse path (faster scatter kernel, same N) hits
+diminishing returns because the cache footprint scales worse than linearly
+above ~2-3 M elements.
+
+### What B7.1 (atomic-free scatter) showed
+
+Stacked B7's atomic-free scatter on top of the cull (commit `a5eb4dc` on
+branch `feat/cull-plus-atomic-free`); bench result: **same fps as cull
+alone** (within noise, +0.27 fps at 10 M). Diagnosis: at the 5.9 M
+survivor count, scatter is *DRAM-write-bound*, not atomic-bound on the
+4090. Atomic-free is parked for integrated/mobile GPU hardware
+(Apple Silicon, Adreno, Mali) where workgroup atomics are the bottleneck.
 
 (Numbers above are post-revert of `2a095d9` — the predecessor-count scatter
 fix was reverted in `e1333de` after measuring a 64–65 % fps regression.
