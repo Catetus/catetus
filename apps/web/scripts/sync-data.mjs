@@ -14,7 +14,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const APP_ROOT = resolve(__dirname, '..');
 const REPO_ROOT = resolve(APP_ROOT, '..', '..');
-const SOURCES = ['splatbench-v0.json', 'bonsai-real-demo.md'];
+const SOURCES = [
+  'splatbench-v0.json',
+  'splatbench-v0.encoders.json',
+  'bonsai-real-demo.md',
+];
 const DEST_DIR = resolve(APP_ROOT, 'src', 'data');
 
 mkdirSync(DEST_DIR, { recursive: true });
