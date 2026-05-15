@@ -39,7 +39,7 @@
  * key resolve in scatter order, which is deterministic for a fixed dispatch.
  */
 
-import { DECODE_WGSL, RADIX_SORT_WGSL } from './shaders.generated.js';
+import { DECODE_WGSL, RADIX_SORT_WGSL, SCAN_MULTIBLOCK_WGSL } from './shaders.generated.js';
 import { createRadixSortPipelines, RadixSort, type RadixSortPipelines } from './radix_sort.js';
 import type { ChunkDescriptor, SoaAttributeLayout } from '../manifest.js';
 
@@ -237,7 +237,10 @@ export class ComputeDecodePipeline {
     this.device = init.device;
     this.capacity = init.capacity;
     this.pipes = createDecodePipelines(this.device);
-    this.radixPipes = createRadixSortPipelines(this.device, RADIX_SORT_WGSL);
+    // Pass the multi-block scan WGSL so the radix sort uses the chained
+    // 3-kernel scan (parallelized across many workgroups) instead of the
+    // legacy single-workgroup scan. See `scan_multiblock.wgsl`.
+    this.radixPipes = createRadixSortPipelines(this.device, RADIX_SORT_WGSL, SCAN_MULTIBLOCK_WGSL);
 
     const decodedSize = Math.max(this.capacity * BYTES_PER_DECODED_SPLAT, BYTES_PER_DECODED_SPLAT);
     this.splatsBuffer = this.device.createBuffer({
@@ -440,4 +443,4 @@ export class ComputeDecodePipeline {
 }
 
 export { createRadixSortPipelines, RadixSort } from './radix_sort.js';
-export { DECODE_WGSL, RADIX_SORT_WGSL } from './shaders.generated.js';
+export { DECODE_WGSL, RADIX_SORT_WGSL, SCAN_MULTIBLOCK_WGSL } from './shaders.generated.js';
