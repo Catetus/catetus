@@ -1,63 +1,20 @@
 {
-  "asset": {
-    "version": "2.0",
-    "generator": "splatforge-gltf"
-  },
-  "extensionsUsed": [
-    "KHR_gaussian_splatting"
-  ],
-  "extensionsRequired": [
-    "KHR_gaussian_splatting"
-  ],
-  "buffers": [
-    {
-      "byteLength": 224,
-      "uri": "buffers/chunk_0000.bin"
-    }
-  ],
-  "bufferViews": [
-    {
-      "buffer": 0,
-      "byteOffset": 0,
-      "byteLength": 48
-    },
-    {
-      "buffer": 0,
-      "byteOffset": 48,
-      "byteLength": 64
-    },
-    {
-      "buffer": 0,
-      "byteOffset": 112,
-      "byteLength": 48
-    },
-    {
-      "buffer": 0,
-      "byteOffset": 160,
-      "byteLength": 16
-    },
-    {
-      "buffer": 0,
-      "byteOffset": 176,
-      "byteLength": 48
-    }
-  ],
   "accessors": [
     {
       "bufferView": 0,
       "componentType": 5126,
       "count": 4,
-      "type": "VEC3",
+      "max": [
+        3.0,
+        1.5,
+        0.0
+      ],
       "min": [
         0.0,
         0.0,
         -3.0
       ],
-      "max": [
-        3.0,
-        1.5,
-        -0.0
-      ]
+      "type": "VEC3"
     },
     {
       "bufferView": 1,
@@ -84,42 +41,81 @@
       "type": "VEC3"
     }
   ],
+  "asset": {
+    "generator": "splatforge-khr-fixtures",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 48,
+      "byteOffset": 0
+    },
+    {
+      "buffer": 0,
+      "byteLength": 64,
+      "byteOffset": 48
+    },
+    {
+      "buffer": 0,
+      "byteLength": 48,
+      "byteOffset": 112
+    },
+    {
+      "buffer": 0,
+      "byteLength": 16,
+      "byteOffset": 160
+    },
+    {
+      "buffer": 0,
+      "byteLength": 48,
+      "byteOffset": 176
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 224,
+      "uri": "buffers/chunk_0000.bin"
+    }
+  ],
+  "extensionsUsed": [
+    "KHR_gaussian_splatting"
+  ],
   "meshes": [
     {
       "primitives": [
         {
+          "attributes": {
+            "KHR_gaussian_splatting:OPACITY": 3,
+            "KHR_gaussian_splatting:ROTATION": 1,
+            "KHR_gaussian_splatting:SCALE": 2,
+            "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0": 4,
+            "POSITION": 0
+          },
           "extensions": {
             "KHR_gaussian_splatting": {
-              "attributes": {
-                "POSITION": 0,
-                "_COLOR_DC": 4,
-                "_OPACITY": 3,
-                "_ROTATION": 1,
-                "_SCALE": 2
-              },
-              "shDegree": 0
+              "colorSpace": "srgb_rec709_display",
+              "kernel": "ellipse",
+              "projection": "perspective",
+              "sortingMethod": "cameraDistance"
             }
-          }
+          },
+          "mode": 0
         }
       ]
     }
   ],
-  "extensions": {
-    "KHR_gaussian_splatting": {
-      "bbox": {
-        "max": [
-          3.0,
-          1.5,
-          -0.0
-        ],
-        "min": [
-          0.0,
-          0.0,
-          -3.0
-        ]
-      },
-      "shDegree": 0,
-      "splatCount": 4
+  "nodes": [
+    {
+      "mesh": 0
     }
-  }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ]
 }
