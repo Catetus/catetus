@@ -656,6 +656,92 @@ export class ComputeDecodePipeline {
     return 6;
   }
 
+  /**
+   * Bench-only variant that drills the radix sort into per-sub-stage
+   * timestamps. Writes 20 timestamps total:
+   *   [0..1)   keygen / project
+   *   [2..3)   pass0_histogram
+   *   [4..5)   pass0_scan_per_wg
+   *   [6..7)   pass0_scan_block_sums
+   *   [8..9)   pass0_scan_add_block_sums
+   *   [10..11) pass0_scatter
+   *   [12..13) pass1_full
+   *   [14..15) pass2_full
+   *   [16..17) pass3_full
+   *   [18..19) project_gather / gather
+   * Caller must supply a querySet of capacity >= 20.
+   */
+  encodeTimedDrilled(
+    encoder: GPUCommandEncoder,
+    view: Float32Array,
+    viewProj: Float32Array,
+    focal: [number, number],
+    viewport: [number, number],
+    querySet: GPUQuerySet,
+    baseIndex: number,
+  ): number {
+    const count = this.decodedSplats;
+    if (count === 0) return 0;
+
+    const ab = new ArrayBuffer(160);
+    const f32 = new Float32Array(ab);
+    const i32 = new Int32Array(ab);
+    f32.set(view, 0);
+    f32.set(viewProj, 16);
+    f32[32] = viewport[0]; f32[33] = viewport[1];
+    f32[34] = focal[0];    f32[35] = focal[1];
+    i32[36] = count;
+    this.device.queue.writeBuffer(this.projectUniforms, 0, ab);
+
+    const wgs = Math.ceil(count / 256);
+    const ts = (begin: number, end: number): GPUComputePassDescriptor => ({
+      timestampWrites: {
+        querySet,
+        beginningOfPassWriteIndex: begin,
+        endOfPassWriteIndex: end,
+      },
+    });
+
+    if (this.useFusedProject) {
+      {
+        const pass = encoder.beginComputePass(ts(baseIndex + 0, baseIndex + 1));
+        pass.setPipeline(this.pipes.keygen!);
+        pass.setBindGroup(0, this.keygenBindGroup!);
+        pass.dispatchWorkgroups(wgs);
+        pass.end();
+      }
+      this.sorter.encodeTimedDrilled(encoder, count, querySet, baseIndex + 2);
+      {
+        const pass = encoder.beginComputePass(ts(baseIndex + 18, baseIndex + 19));
+        pass.setPipeline(this.pipes.projectGather!);
+        pass.setBindGroup(0, this.projectGatherBindGroup!);
+        pass.dispatchWorkgroups(wgs);
+        pass.end();
+      }
+      return 20;
+    }
+
+    {
+      const pass = encoder.beginComputePass(ts(baseIndex + 0, baseIndex + 1));
+      pass.setPipeline(this.pipes.project);
+      pass.setBindGroup(0, this.projectBindGroup!);
+      pass.dispatchWorkgroups(wgs);
+      pass.end();
+    }
+    this.sorter.encodeTimedDrilled(encoder, count, querySet, baseIndex + 2);
+    {
+      const u = new Uint32Array(8);
+      u[0] = count;
+      this.device.queue.writeBuffer(this.gatherUniforms!, 0, u.buffer);
+      const pass = encoder.beginComputePass(ts(baseIndex + 18, baseIndex + 19));
+      pass.setPipeline(this.pipes.gather);
+      pass.setBindGroup(0, this.gatherBindGroup!);
+      pass.dispatchWorkgroups(wgs);
+      pass.end();
+    }
+    return 20;
+  }
+
   /** Tear down. Idempotent. */
   destroy(): void {
     for (const c of this.chunks) {
