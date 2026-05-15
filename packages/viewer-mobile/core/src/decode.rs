@@ -38,11 +38,7 @@ pub fn decode_glb_bytes(bytes: &[u8]) -> Result<Vec<SplatVertex>, DecodeError> {
             Color::Sh { coeffs, .. } => {
                 if coeffs.len() >= 3 {
                     let dc = 0.282_094_8_f32; // 1 / (2 * sqrt(pi))
-                    [
-                        coeffs[0] * dc + 0.5,
-                        coeffs[1] * dc + 0.5,
-                        coeffs[2] * dc + 0.5,
-                    ]
+                    [coeffs[0] * dc + 0.5, coeffs[1] * dc + 0.5, coeffs[2] * dc + 0.5]
                 } else {
                     [1.0, 1.0, 1.0]
                 }

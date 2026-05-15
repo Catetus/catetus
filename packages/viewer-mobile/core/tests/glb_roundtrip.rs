@@ -87,9 +87,5 @@ fn decode_bonsai_when_available() {
     };
     let bytes = fs::read(&path).expect("read bonsai");
     let verts = decode_glb_bytes(&bytes).expect("decode bonsai");
-    assert!(
-        verts.len() > 1000,
-        "expected >1k splats, got {}",
-        verts.len()
-    );
+    assert!(verts.len() > 1000, "expected >1k splats, got {}", verts.len());
 }
