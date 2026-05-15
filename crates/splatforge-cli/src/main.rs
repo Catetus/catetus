@@ -115,6 +115,63 @@ enum Command {
         #[command(subcommand)]
         cmd: CorpusCmd,
     },
+    /// Upload a splat to SplatForge Cloud, poll until done, return the URL.
+    ///
+    /// Reads `SPLATFORGE_API_KEY` and `SPLATFORGE_API_URL`
+    /// (default `https://splatforge-api.fly.dev`) from the environment.
+    /// On success prints the public output URL to stdout. On failure exits
+    /// non-zero with a one-line error to stderr.
+    Submit {
+        /// Local splat file (.ply / .spz / .glb).
+        input: PathBuf,
+        /// Optimize preset (web-mobile / size-min / web-desktop / etc).
+        #[arg(long, default_value = "web-mobile")]
+        preset: String,
+        /// Optional human-readable label stamped on the job for audit.
+        #[arg(long)]
+        label: Option<String>,
+        /// Optional webhook URL the Cloud fires on terminal state.
+        #[arg(long)]
+        webhook_url: Option<String>,
+        /// Poll interval in seconds.
+        #[arg(long, default_value_t = 5)]
+        poll_secs: u64,
+        /// Hard timeout in seconds. 0 = no timeout.
+        #[arg(long, default_value_t = 900)]
+        timeout_secs: u64,
+        /// Don't poll — print the job id and return immediately.
+        #[arg(long)]
+        no_wait: bool,
+    },
+    /// Render a fidelity report (8-orbit ΔE94 / SSIM / pixelmatch) for a
+    /// candidate against a baseline. Writes a `report.json` next to the
+    /// candidate; exits non-zero if mean ΔE94 exceeds `--threshold`.
+    Fidelity {
+        /// Optimized candidate file.
+        candidate: PathBuf,
+        /// Baseline file (typically the original / lossless-repack output).
+        #[arg(long, short = 'b')]
+        baseline: PathBuf,
+        /// Output directory for `report.json` and the rendered frames.
+        #[arg(long, short = 'o')]
+        out: Option<PathBuf>,
+        /// Mean ΔE94 threshold (0..1). Default matches SplatBench `pass`.
+        #[arg(long, default_value_t = 0.03_f32)]
+        threshold: f32,
+    },
+    /// Validate an asset against a SplatForge-supported standard
+    /// (KHR_gaussian_splatting today; OpenUSD when the USDC reader path
+    /// is wired). Wraps `splatforge-khr-validate` for the glTF case.
+    SpecCheck {
+        /// Input file (.gltf / .glb / .usdc / .usda).
+        input: PathBuf,
+        /// Spec to check against. Default: auto-detect from extension.
+        #[arg(long)]
+        spec: Option<String>,
+        /// Emit a JSON report instead of human-readable lines.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -174,6 +231,32 @@ fn dispatch(cli: Cli) -> Result<()> {
         Command::Corpus { cmd } => match cmd {
             CorpusCmd::Run { suite } => cmd_corpus_run(&suite),
         },
+        Command::Submit {
+            input,
+            preset,
+            label,
+            webhook_url,
+            poll_secs,
+            timeout_secs,
+            no_wait,
+        } => cmd_submit(
+            &input,
+            &preset,
+            label.as_deref(),
+            webhook_url.as_deref(),
+            poll_secs,
+            timeout_secs,
+            no_wait,
+        ),
+        Command::Fidelity {
+            candidate,
+            baseline,
+            out,
+            threshold,
+        } => cmd_fidelity(&candidate, &baseline, out.as_deref(), threshold),
+        Command::SpecCheck { input, spec, json } => {
+            cmd_spec_check(&input, spec.as_deref(), json)
+        }
     }
 }
 
@@ -612,6 +695,234 @@ fn cmd_corpus_run(name: &str) -> Result<()> {
     };
     println!("{}", splatforge_bench::to_json(&suite)?);
     Ok(())
+}
+
+/* ---------- submit / fidelity / spec-check ---------- */
+
+/// Default SplatForge Cloud endpoint. Override with `SPLATFORGE_API_URL`.
+const DEFAULT_API_URL: &str = "https://splatforge-api.fly.dev";
+
+fn cmd_submit(
+    input: &Path,
+    preset: &str,
+    label: Option<&str>,
+    webhook_url: Option<&str>,
+    poll_secs: u64,
+    timeout_secs: u64,
+    no_wait: bool,
+) -> Result<()> {
+    use std::process::Command as Cmd;
+
+    let api_url = std::env::var("SPLATFORGE_API_URL").unwrap_or_else(|_| DEFAULT_API_URL.into());
+    let api_url = api_url.trim_end_matches('/').to_string();
+    let api_key = std::env::var("SPLATFORGE_API_KEY").ok();
+
+    if !input.exists() {
+        anyhow::bail!("input not found: {}", input.display());
+    }
+    let size_bytes = std::fs::metadata(input)?.len();
+    let filename = input
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("scene.bin");
+
+    // Build the create-job request body.
+    let mut body = serde_json::json!({
+        "preset": preset,
+        "filename": filename,
+        "size_bytes": size_bytes,
+    });
+    if let Some(l) = label {
+        body["label"] = serde_json::Value::String(l.into());
+    }
+    if let Some(w) = webhook_url {
+        body["webhook_url"] = serde_json::Value::String(w.into());
+    }
+
+    let body_str = serde_json::to_string(&body)?;
+    eprintln!("→ POST {api_url}/v1/jobs  ({size_bytes} bytes)");
+    let mut args = vec![
+        "-sS".to_string(),
+        "-X".into(),
+        "POST".into(),
+        format!("{api_url}/v1/jobs"),
+        "-H".into(),
+        "content-type: application/json".into(),
+        "-d".into(),
+        body_str,
+    ];
+    if let Some(k) = api_key.as_deref() {
+        args.push("-H".into());
+        args.push(format!("Authorization: Bearer {k}"));
+    }
+    let create = Cmd::new("curl").args(&args).output()?;
+    if !create.status.success() {
+        anyhow::bail!(
+            "POST /v1/jobs failed: {}",
+            String::from_utf8_lossy(&create.stderr)
+        );
+    }
+    let create_json: serde_json::Value = serde_json::from_slice(&create.stdout)?;
+    let job_id = create_json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("create response missing id: {create_json}"))?
+        .to_string();
+    eprintln!("✓ job {job_id} created");
+
+    // Upload bytes through the API's proxy endpoint.
+    eprintln!("→ PUT  {api_url}/v1/jobs/{job_id}/upload");
+    let mut upload_args = vec![
+        "-sS".to_string(),
+        "-X".into(),
+        "POST".into(),
+        format!("{api_url}/v1/jobs/{job_id}/upload"),
+        "-H".into(),
+        "content-type: application/octet-stream".into(),
+        "--data-binary".into(),
+        format!("@{}", input.display()),
+    ];
+    if let Some(k) = api_key.as_deref() {
+        upload_args.push("-H".into());
+        upload_args.push(format!("Authorization: Bearer {k}"));
+    }
+    let up = Cmd::new("curl").args(&upload_args).output()?;
+    if !up.status.success() {
+        anyhow::bail!(
+            "upload failed: {}",
+            String::from_utf8_lossy(&up.stderr)
+        );
+    }
+    eprintln!("✓ upload complete");
+
+    if no_wait {
+        println!("{}", job_id);
+        return Ok(());
+    }
+
+    // Poll until terminal.
+    let deadline = if timeout_secs == 0 {
+        None
+    } else {
+        Some(std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs))
+    };
+    loop {
+        if let Some(d) = deadline {
+            if std::time::Instant::now() > d {
+                anyhow::bail!("polling deadline reached without terminal state (job {job_id})");
+            }
+        }
+        let mut poll_args = vec!["-sS".to_string(), format!("{api_url}/v1/jobs/{job_id}")];
+        if let Some(k) = api_key.as_deref() {
+            poll_args.push("-H".into());
+            poll_args.push(format!("Authorization: Bearer {k}"));
+        }
+        let poll = Cmd::new("curl").args(&poll_args).output()?;
+        if !poll.status.success() {
+            anyhow::bail!(
+                "poll failed: {}",
+                String::from_utf8_lossy(&poll.stderr)
+            );
+        }
+        let pj: serde_json::Value = serde_json::from_slice(&poll.stdout)?;
+        let status = pj
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        match status {
+            "done" | "succeeded" => {
+                let out_url = pj
+                    .get("output_url")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("done state but no output_url"))?;
+                eprintln!("✓ done");
+                println!("{}", out_url);
+                return Ok(());
+            }
+            "error" | "failed" => {
+                let err = pj
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("worker returned error with no message");
+                anyhow::bail!("job failed: {err}");
+            }
+            other => {
+                let phase = pj.get("phase").and_then(|v| v.as_str()).unwrap_or("");
+                eprintln!("  status={other} phase={phase}");
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(poll_secs));
+    }
+}
+
+fn cmd_fidelity(
+    candidate: &Path,
+    baseline: &Path,
+    out: Option<&Path>,
+    threshold: f32,
+) -> Result<()> {
+    // Today fidelity scoring is delegated to the diff harness, which
+    // already does the 8-orbit deterministic render + ΔE94/SSIM/pixelmatch
+    // through @splatforge/viewer. cmd_diff writes report.json to the
+    // output dir; we forward the threshold for the pass/fail exit code.
+    cmd_diff(baseline, candidate, out, threshold)
+}
+
+fn cmd_spec_check(input: &Path, spec: Option<&str>, json: bool) -> Result<()> {
+    use std::process::Command as Cmd;
+
+    if !input.exists() {
+        anyhow::bail!("input not found: {}", input.display());
+    }
+
+    // Default: pick the validator from the file extension.
+    let chosen = match spec {
+        Some(s) => s.to_string(),
+        None => match input
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("gltf") | Some("glb") => "khr_gaussian_splatting".to_string(),
+            Some("usdc") | Some("usda") => "openusd_particle_field".to_string(),
+            other => anyhow::bail!(
+                "could not auto-detect spec for extension {:?}; pass --spec explicitly",
+                other
+            ),
+        },
+    };
+
+    match chosen.as_str() {
+        "khr_gaussian_splatting" => {
+            // The validator binary lives in the workspace as
+            // `splatforge-khr-validate`. We invoke it via Cargo's standard
+            // binary-resolution: when this CLI was installed via
+            // `cargo install splatforge-cli`, both binaries end up in the
+            // same Cargo bin dir. For local dev, the user can override via
+            // `SPLATFORGE_KHR_VALIDATE` to point at the workspace target.
+            let validator = std::env::var("SPLATFORGE_KHR_VALIDATE")
+                .unwrap_or_else(|_| "splatforge-khr-validate".to_string());
+            let mut args: Vec<String> = vec![input.display().to_string()];
+            if json {
+                args.push("--json".into());
+            }
+            let status = Cmd::new(&validator).args(&args).status()?;
+            if !status.success() {
+                anyhow::bail!("{validator} returned non-zero ({status})");
+            }
+            Ok(())
+        }
+        "openusd_particle_field" => {
+            anyhow::bail!(
+                "OpenUSD conformance validator is not yet packaged as a sibling \
+                 binary. Use `splatforge convert --to usda <file>` to inspect the \
+                 schema mapping; full validator lands when splatforge-usd's reader \
+                 path matures past SPEC-GAPS.md."
+            );
+        }
+        other => anyhow::bail!("unknown spec: {other}"),
+    }
 }
 
 #[cfg(test)]
