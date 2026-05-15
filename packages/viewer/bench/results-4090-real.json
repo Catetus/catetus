@@ -1,0 +1,333 @@
+{
+  "results": [
+    {
+      "splatCount": 1000000,
+      "decodeMs": 165,
+      "perFrameMs": 17.883333333333333,
+      "perFrameMsBreakdown": {
+        "project": 3.5766666666666667,
+        "sort": 12.518333333333333,
+        "gather": 1.7883333333333333
+      },
+      "framesPerSecond": 55.91798695246971,
+      "iterations": 30,
+      "perStageMsTimestamp": {
+        "keygenOrProject": 2.930971,
+        "sortFull": 9.928844,
+        "projectGatherOrGather": 3.570759,
+        "totalGpuMs": 16.634376,
+        "path": "fused"
+      },
+      "perStageMsDrilled": {
+        "keygenOrProject": 2.920347,
+        "pass0Histogram": 0.437602,
+        "pass0ScanPerWg": 0,
+        "pass0ScanBlockSums": 0.940724,
+        "pass0ScanAddBlockSums": 0,
+        "pass0Scatter": 1.491397,
+        "pass1Full": 2.759201,
+        "pass2Full": 2.595348,
+        "pass3Full": 1.861082,
+        "projectGatherOrGather": 3.607894,
+        "totalDrilledMs": 16.613595
+      }
+    },
+    {
+      "splatCount": 10000000,
+      "decodeMs": 758.3999999985099,
+      "perFrameMs": 662.010000000149,
+      "perFrameMsBreakdown": {
+        "project": 132.4020000000298,
+        "sort": 463.4070000001043,
+        "gather": 66.2010000000149
+      },
+      "framesPerSecond": 1.5105512001325885,
+      "iterations": 10,
+      "perStageMsTimestamp": {
+        "keygenOrProject": 29.823876,
+        "sortFull": 437.612004,
+        "projectGatherOrGather": 200.078906,
+        "totalGpuMs": 667.547494,
+        "path": "fused"
+      },
+      "perStageMsDrilled": {
+        "keygenOrProject": 30.141114,
+        "pass0Histogram": 4.347316,
+        "pass0ScanPerWg": 0,
+        "pass0ScanBlockSums": 14.289181,
+        "pass0ScanAddBlockSums": 0,
+        "pass0Scatter": 121.361794,
+        "pass1Full": 153.30024,
+        "pass2Full": 116.98656,
+        "pass3Full": 25.040677,
+        "projectGatherOrGather": 196.59273,
+        "totalDrilledMs": 662.059612
+      }
+    }
+  ],
+  "cullResults": [
+    {
+      "splatCount": 1000000,
+      "survivors": 274240,
+      "cullRate": 0.72576,
+      "tau": 0.00392156862745098,
+      "decodeMs": 92.29999999701977,
+      "perFrameMs": 6.633333333333334,
+      "framesPerSecond": 150.7537688442211,
+      "iterations": 30,
+      "perStageMsTimestamp": {
+        "cullCompact": 2.199309,
+        "projectCmpct": 0.896245,
+        "sortFull": 2.194101,
+        "gather": 0.714474,
+        "totalGpuMs": 6.049442000000001
+      }
+    },
+    {
+      "splatCount": 1000000,
+      "survivors": 274240,
+      "cullRate": 0.72576,
+      "tau": 0.0009765625,
+      "decodeMs": 49.79999999701977,
+      "perFrameMs": 6.636666666716337,
+      "framesPerSecond": 150.6780512294097,
+      "iterations": 30,
+      "perStageMsTimestamp": {
+        "cullCompact": 2.243111,
+        "projectCmpct": 0.916296,
+        "sortFull": 2.222798,
+        "gather": 0.742235,
+        "totalGpuMs": 6.161159
+      }
+    },
+    {
+      "splatCount": 1000000,
+      "survivors": 274240,
+      "cullRate": 0.72576,
+      "tau": 0.000244140625,
+      "decodeMs": 41.20000000298023,
+      "perFrameMs": 6.4966666666169965,
+      "framesPerSecond": 153.92508979081254,
+      "iterations": 30,
+      "perStageMsTimestamp": {
+        "cullCompact": 2.230038,
+        "projectCmpct": 0.901661,
+        "sortFull": 2.225143,
+        "gather": 0.726089,
+        "totalGpuMs": 6.134129
+      }
+    },
+    {
+      "splatCount": 10000000,
+      "survivors": 5914240,
+      "cullRate": 0.40857600000000005,
+      "tau": 0.00392156862745098,
+      "decodeMs": 606.6000000014901,
+      "perFrameMs": 173.97000000029803,
+      "framesPerSecond": 5.74811749151168,
+      "iterations": 10,
+      "perStageMsTimestamp": {
+        "cullCompact": 23.546467,
+        "projectCmpct": 22.972148,
+        "sortFull": 71.916582,
+        "gather": 55.561424,
+        "totalGpuMs": 174.41265900000002
+      }
+    },
+    {
+      "splatCount": 10000000,
+      "survivors": 5914240,
+      "cullRate": 0.40857600000000005,
+      "tau": 0.0009765625,
+      "decodeMs": 553.2000000029802,
+      "perFrameMs": 222.25,
+      "framesPerSecond": 4.499437570303712,
+      "iterations": 10,
+      "perStageMsTimestamp": {
+        "cullCompact": 23.055169,
+        "projectCmpct": 23.443135,
+        "sortFull": 72.20158,
+        "gather": 105.502414,
+        "totalGpuMs": 223.575374
+      }
+    },
+    {
+      "splatCount": 10000000,
+      "survivors": 5914240,
+      "cullRate": 0.40857600000000005,
+      "tau": 0.000244140625,
+      "decodeMs": 570,
+      "perFrameMs": 176.6,
+      "framesPerSecond": 5.662514156285391,
+      "iterations": 10,
+      "perStageMsTimestamp": {
+        "cullCompact": 23.51204,
+        "projectCmpct": 23.539436,
+        "sortFull": 69.568784,
+        "gather": 56.663864,
+        "totalGpuMs": 174.113911
+      }
+    }
+  ],
+  "sizes": {
+    "bytes_per_decoded_splat": 64,
+    "floats_per_instance": 12
+  },
+  "adapter": {},
+  "limits": {
+    "maxStorageBufferBindingSize": 2147483644,
+    "maxBufferSize": 2147483648,
+    "maxComputeWorkgroupStorageSize": 32768
+  },
+  "timestamp": "2026-05-15T19:57:13.335Z",
+  "realScene": {
+    "results": [
+      {
+        "scene": "bicycle_iter7000",
+        "splatCount": 3616103,
+        "bbox": {
+          "min": [
+            -64.89617156982422,
+            -82.04835510253906,
+            -71.52344512939453
+          ],
+          "max": [
+            54.87555694580078,
+            14.872154235839844,
+            97.00325775146484
+          ]
+        },
+        "decodeMs": 459.79999999701977,
+        "viewport": [
+          1920,
+          1080
+        ],
+        "iterations": 30,
+        "views": [
+          {
+            "view": "front",
+            "perFrameMs": 51.79666666661699,
+            "framesPerSecond": 19.30626166421827,
+            "perStageMsTimestamp": {
+              "keygenOrProject": 10.591028,
+              "sortFull": 29.573305,
+              "projectGatherOrGather": 9.743064,
+              "totalGpuMs": 49.840782000000004,
+              "path": "fused"
+            }
+          },
+          {
+            "view": "orbit45",
+            "perFrameMs": 52.38333333333333,
+            "framesPerSecond": 19.090041361756285,
+            "perStageMsTimestamp": {
+              "keygenOrProject": 10.581861,
+              "sortFull": 30.194864,
+              "projectGatherOrGather": 9.586243,
+              "totalGpuMs": 50.934212,
+              "path": "fused"
+            }
+          },
+          {
+            "view": "orbit90",
+            "perFrameMs": 52.083333333333336,
+            "framesPerSecond": 19.2,
+            "perStageMsTimestamp": {
+              "keygenOrProject": 10.623111,
+              "sortFull": 30.145958,
+              "projectGatherOrGather": 9.548794,
+              "totalGpuMs": 51.756969,
+              "path": "fused"
+            }
+          }
+        ],
+        "medianFps": 19.2,
+        "medianPerStageMs": {
+          "keygenOrProject": 10.591028,
+          "sortFull": 30.145958,
+          "projectGatherOrGather": 9.586243,
+          "totalGpuMs": 50.934212,
+          "path": "fused"
+        }
+      },
+      {
+        "scene": "bonsai_iter7000",
+        "splatCount": 1157141,
+        "bbox": {
+          "min": [
+            -26.652517318725586,
+            -16.868806838989258,
+            -28.147716522216797
+          ],
+          "max": [
+            17.8751163482666,
+            26.562875747680664,
+            20.351146697998047
+          ]
+        },
+        "decodeMs": 116.89999999850988,
+        "viewport": [
+          1920,
+          1080
+        ],
+        "iterations": 30,
+        "views": [
+          {
+            "view": "front",
+            "perFrameMs": 16.02666666681568,
+            "framesPerSecond": 62.3960066549939,
+            "perStageMsTimestamp": {
+              "keygenOrProject": 3.365135,
+              "sortFull": 8.64656,
+              "projectGatherOrGather": 2.916961,
+              "totalGpuMs": 14.987718999999998,
+              "path": "fused"
+            }
+          },
+          {
+            "view": "orbit45",
+            "perFrameMs": 16.12000000004967,
+            "framesPerSecond": 62.03473945390314,
+            "perStageMsTimestamp": {
+              "keygenOrProject": 3.380396,
+              "sortFull": 8.736873,
+              "projectGatherOrGather": 2.964512,
+              "totalGpuMs": 15.634017,
+              "path": "fused"
+            }
+          },
+          {
+            "view": "orbit90",
+            "perFrameMs": 16.063333333283662,
+            "framesPerSecond": 62.2535795810184,
+            "perStageMsTimestamp": {
+              "keygenOrProject": 3.358833,
+              "sortFull": 8.68703,
+              "projectGatherOrGather": 2.92769,
+              "totalGpuMs": 14.977927999999999,
+              "path": "fused"
+            }
+          }
+        ],
+        "medianFps": 62.2535795810184,
+        "medianPerStageMs": {
+          "keygenOrProject": 3.365135,
+          "sortFull": 8.68703,
+          "projectGatherOrGather": 2.92769,
+          "totalGpuMs": 14.987718999999998,
+          "path": "fused"
+        }
+      }
+    ],
+    "sizes": {
+      "bytes_per_decoded_splat": 64,
+      "floats_per_instance": 12
+    },
+    "adapter": {},
+    "limits": {
+      "maxStorageBufferBindingSize": 2147483644,
+      "maxBufferSize": 2147483648
+    },
+    "timestamp": "2026-05-15T19:57:23.022Z"
+  }
+}
