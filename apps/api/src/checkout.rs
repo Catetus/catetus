@@ -37,7 +37,7 @@
 //!     than 10 minutes. A buyer who closes their browser before
 //!     hitting `/welcome` cannot recover the key — they email
 //!     support, which rotates them a fresh one. This is the single
-//!     biggest customer-loss risk in the funnel; see CHECKOUT.md.
+//!     biggest customer-loss risk in the funnel; see BILLING.md.
 //!
 //! ## Webhook idempotency
 //!
@@ -542,7 +542,7 @@ pub async fn create_session(
     // and ignores the one in the URL? No — that would break the
     // "buyer presents the URL we gave them" property.
     //
-    // Final design (see CHECKOUT.md): the webhook does NOT see the
+    // Final design: the webhook does NOT see the
     // claim_token directly. The success_url contains the buyer's copy;
     // the buyer POSTs it to /reveal; the server cross-references it
     // against an in-memory map keyed by session_id that's populated

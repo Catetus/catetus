@@ -176,10 +176,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
-    // Default to the droplet's well-known address; override in env for
-    // production behind a proper hostname.
     let public_base_url = std::env::var("SPLATFORGE_PUBLIC_BASE_URL")
-        .unwrap_or_else(|_| "http://splatforge-api.fly.dev:8080".to_string());
+        .unwrap_or_else(|_| "https://splatforge-api.fly.dev".to_string());
     // Comma-separated list of accepted bearer tokens. Empty = auth disabled
     // (only acceptable in local dev; the deployed binary should always have
     // at least one key set).

@@ -11,7 +11,7 @@
 
 FFmpeg + Lighthouse + Cloudinary for Gaussian Splats. Ingest large `.ply`, `.spz`, and glTF Gaussian Splat assets; optimize them for real device budgets; output standards-aligned glTF / SPZ artifacts; and generate reproducible visual / performance reports.
 
-This repository implements **Phase 0 + Phase 1 + Phase 2** of the SplatForge roadmap. See the [engineering plan](./gaussian_splat_prd_eng_plan%20(1).md) for full product context, and [`specs/`](./specs) for per-feature SpecDD documents.
+This repository implements **Phase 0 + Phase 1 + Phase 2** of the SplatForge roadmap. See [`specs/`](./specs) for per-feature SpecDD documents and [`docs/architecture.md`](./docs/architecture.md) for system design.
 
 ## What you can do today
 

@@ -22,11 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   splats), `splatbench_lowlight_proxy` (narrow dynamic range), and
   `splatbench_portrait_proxy` (foreground/background saliency). Each is a
   deterministic stress test for a specific Gaussian-splat failure mode.
-- **Hosted API live on DigitalOcean.** `apps/api` deployed as a systemd
-  service at `http://splatforge-api.fly.dev:8080` (`/healthz`, `POST /v1/jobs`,
-  `GET /v1/jobs/:id`, `POST /v1/jobs/:id/upload`). HTTPS via a Cloudflare quick
-  tunnel at a `*.trycloudflare.com` URL (ephemeral — to be replaced with
-  `api.splatforge.dev` or a named Cloudflare tunnel).
+- **Hosted API on Fly.** `apps/api` deployed at `https://splatforge-api.fly.dev`
+  (`/healthz`, `POST /v1/jobs`, `GET /v1/jobs/:id`, `POST /v1/jobs/:id/upload`).
 - **TryIt component on splatforge.vercel.app actually calls the live API.**
   Drop a `.ply` and see the JSON response from `POST /v1/jobs`. Graceful
   fallback to the design-partner intake when the API is unreachable.

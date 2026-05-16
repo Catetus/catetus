@@ -9,9 +9,8 @@ This extension lets a glTF 2.0 asset carry a Gaussian-splat point cloud as a
 single SPZ-compressed binary blob embedded in a `bufferView`, instead of as
 five-to-six separate per-attribute accessors. It is the second Khronos
 extension SplatForge ships (alongside the lossless `KHR_gaussian_splatting`
-base), and it is the explicit ask in the Adobe / SPZ partnership memo
-(`(private partnership memo)`): SPZ-compressed splats embeddable
-inline in a `.glb` so a Creative Cloud export path can produce a single,
+base), and it targets the common production need for SPZ-compressed splats
+embeddable inline in a `.glb` so a DCC export path can produce a single,
 self-contained file.
 
 ## 1. Motivation

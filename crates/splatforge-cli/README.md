@@ -94,4 +94,4 @@ rejected for every other preset.
 
 Every preset is byte-deterministic: identical input + identical preset = identical output bytes,
 including the `tileset.json` JSON ordering for `geospatial`. This is a hard project constraint —
-see `tasks/v2-progress.md`.
+see `docs/architecture.md`.
