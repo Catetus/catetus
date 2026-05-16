@@ -87,7 +87,7 @@
     const ctx = canvas.getContext('webgpu');
     const format = navigator.gpu.getPreferredCanvasFormat();
     canvas.width = 1280; canvas.height = 720;
-    ctx.configure({ device, format, alphaMode: 'premultiplied', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+    ctx.configure({ device, format, alphaMode: 'premultiplied' });
 
     // Minimal render pipeline (copy of scale.astro's)
     const WGSL = `
