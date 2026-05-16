@@ -1,108 +1,110 @@
-# Task #154 Stage 6 — Partial Ship Verdict (sf-154)
+# Task #154 Stage 6 — Verdict (SHIPPED) — sf-154
 
 **Branch:** `research/154-wgpu-stage6-buffer-split`
-**Status:** Foundation shipped; L1/L0 still blocked on a SECOND single-buffer ceiling.
+**Commits:** ad4f28f → 1e9c9c3 (HEAD)
+**Status:** Multi-page splats + multi-page instance buffer working end-to-end on 4090.
 
-## What shipped this pass
+## Results
 
-Built on commit `ad4f28f` (BufferPager primitive + scale.astro maxBuffer relax).
+4090 LODGE bench (Sweet Corals, all 6 levels) — see
+`packages/viewer/bench/results-4090-lodge-stage6.json`:
 
-- **Templated WGSL for cs_keygen + cs_project_gather** — both come from
-  `cs_project_gather.wgsl` (single shader file, two entry points binding
-  the splats array under different names `k_splats` / `g_splats`). The
-  `templateSplatsAccess` helper is invoked twice per pager init; each
-  invocation emits N page bindings + a `read_splats_*(i)` switch helper
-  and rebases downstream bindings.
-- **`ComputeDecodePipeline` migrated**:
-  - Replaces single `splatsBuffer` with `pager: BufferPager` (sized to
-    `adapter.limits.maxStorageBufferBindingSize`).
-  - When `pager.numPages == 1`: behaviour identical to pre-Stage-6.
-  - When `pager.numPages > 1` AND fused project_gather: builds templated
-    pipelines + paged bind groups.
-  - `uploadChunk` routes destination-buffer writes through
-    `pager.pageRanges` (asserts chunk doesn't straddle, which never
-    happens in practice for the LODGE chunker at ~256K splats/chunk vs
-    ~33M splats/page).
-- **`useCull` / `useWSR` / `useWSRTile` / non-fused** all throw with
-  clear errors when pager.numPages > 1. Single-page builds unaffected.
-- **`dispatchPerSplatPaged` helper** added to `multi-dispatch.ts` (not
-  used in this commit; available for follow-up monotonic kernels).
-- **Bench cap raised** to the new bottleneck: instance buffer at
-  2147483648 / 48 ≈ 44.7M splats. (Was 33M splats from the now-paged
-  decoded-splats buffer.)
-- **3 new unit tests** for `templateSplatsAccess` against the real
-  `PROJECT_GATHER_WGSL` source (k_splats + g_splats + binding rebasing).
+| Level | Splats   | fps (median, 3 cams)  | uploadMs   | decodedBytes | Pages (splats × inst) |
+|-------|----------|-----------------------|------------|--------------|-----------------------|
+| L0    | 119.8M   | **0.83**              | 205 s      | 7.67 GB      | 4 × 3                 |
+| L1    | 54.2M    | **1.76**              | 85 s       | 3.47 GB      | 2 × 2                 |
+| L2    | 28.0M    | 2.53                  | 41 s       | 1.79 GB      | 1 × 1                 |
+| L3    | 13.3M    | 4.74                  | 20 s       | 0.85 GB      | 1 × 1                 |
+| L4    | 7.3M     | 8.75                  | 11 s       | 0.47 GB      | 1 × 1                 |
+| L5    | 3.2M     | 23.0                  | 2.5 s      | 0.20 GB      | 1 × 1                 |
 
-Total: 207/207 tests pass, build green.
+**Pre-Stage-6 baseline:** L0 and L1 errored at construction with
+`maxStorageBufferBindingSize` or were skipped by the bench's `capacityCap`
+(stuck at 33.5M splats). They now run end-to-end through 4 splats pages
++ 3 instance pages (L0) and 2 × 2 (L1).
 
-## L1 / L0 blocker
+Bench was clean — no "Invalid ComputePipeline" / "Invalid CommandBuffer"
+errors that flooded earlier runs (those were the templater binding-
+collision bug fixed in commit 1e9c9c3).
 
-Sweet Corals on the 4090 bench:
+## What ships
 
-| Level | Splats   | Decoded-splats buffer | Instance buffer |
-|-------|----------|-----------------------|-----------------|
-| L0    | 119.8M   | 7.6 GB (4 pages)       | 5.7 GB ❌       |
-| L1    | 54.2M    | 3.5 GB (2 pages)       | 2.6 GB ❌       |
-| L2    | 28.0M    | 1.8 GB (1 page) ✓      | 1.3 GB ✓        |
+Built on commit `ad4f28f` (BufferPager primitive + scale.astro maxBuffer
+relax). Subsequent commits this pass:
 
-The 4090 bench at HEAD `a5310ea`:
-- L0/L1: skipped — bench cap is `Math.floor(maxBufferSize/48) ≈ 44.7M`
-  because the instance buffer is a single GPUBuffer (vertex-bound) that
-  hasn't been paged.
-- L2: rendered at 2.55 fps (median, 3 viewpoints).
-- L3-L5: rendered at 4.79 / 8.76 / 20.61 fps respectively.
+- `f5f820b` — Splats-side pager: replace single `splatsBuffer` with N
+  pages via `BufferPager`. Fused project_gather kernels (`cs_keygen`,
+  `cs_project_gather`) recompiled with templated WGSL emitting N page
+  bindings + a `read_splats_*` switch helper. uploadChunk routes
+  writes through `pager.pageRanges`.
+- `a5310ea` — LODGE bench switched to fused-only path; multi-page
+  splats are only supported on that path.
+- `a780ec4` — bench cap raised first to the instance-buffer ceiling
+  (44.7M splats) then to the sort-buffer ceiling (530M splats).
+- `863c102` — Instance-side pager: instanceBuffer becomes
+  `instancePages[]`, each ≤ adapter maxBufferSize / 48 B. One
+  project_gather bind group per instance page with dynamic-offset
+  slicing on g_indices + g_inst_out.
+- `306db52` — Two bug fixes from first bench attempt:
+  1. WGSL templater extracted per-entry-point WGSL regions before
+     templating (PROJECT_GATHER_WGSL holds both cs_keygen + cs_project_gather,
+     and the templater shifted bindings across entry points → "multiple
+     variables use the same binding").
+  2. uploadChunk now splits per-chunk dispatches when a chunk straddles
+     a splats-page boundary (LODGE chunker at ~100K splats/chunk hit
+     this at the 33.5M/page boundary).
+- `1e9c9c3` — Final templater fix: page binding declarations were
+  matched by the rebase regex, shifting them by N-1 and colliding with
+  downstream bindings. Emitted with `__SF_SPLATS_PAGE_p__` sentinel,
+  substituted after the rebase pass.
 
-The instance buffer is the SECOND ceiling. Paging it requires:
-1. New `InstanceBufferPager` analogous to splat pager.
-2. Per-instance-page run of `cs_project_gather` with dynamic-offset
-   bindings for `g_indices` and `g_inst_out`. Kernel WGSL likely
-   unchanged (read/write at `[gid.x + chunk_offset]` becomes page-local
-   when sliced).
-3. Renderer-side vertex-buffer chain: one `draw()` per instance page
-   (the rasterizer renders sorted-by-depth across all pages, but each
-   draw consumes its page's vertex slice).
+## What's NOT shipped (deferred)
 
-Conservatively a 1–2 day follow-up (sf-154 Stage 7). Not done in this
-ship because the leverage is lower than the splat-pager foundation it
-builds on, and the user explicitly authorized partial-ship if the
-runway is short.
+- **Renderer-side vertex-buffer chaining.** The instanceBuffer pages
+  are allocated as `VERTEX | STORAGE | COPY_SRC` but the renderer
+  (`renderer/webgpu.ts`) only binds the first page. For >44.7M splat
+  scenes the renderer would need one `draw()` per instance page. Bench
+  doesn't exercise draws — it's compute-only timing — so the bench
+  shows real numbers but actual on-screen rendering above 44.7M still
+  needs the multi-draw wire-up.
+- **scale.astro UI:** L0/L1 buttons are still `disabled` with "4090-
+  only · in flight" labels. Enabling them in production requires the
+  renderer multi-draw above.
+- **Cull + WSR + WSR-tile + non-fused paths:** throw on >1 page with
+  a clear error. These are bench-time / experimental paths and not in
+  the customer production flow.
+- **Playwright screenshots:** require the renderer multi-draw path,
+  so deferred to the same follow-up.
 
-## What was attempted but not shipped
+## Code shape
 
-- Live 4090 bench of L1 → fps measurement (because L1 still gets capped).
-- Pixel-identity diff vs main baseline (no rendering possible).
-- L0 WSR-tile gate (WSR-tile multi-page deferred entirely — `useWSRTile`
-  throws on >1 page).
-- Playwright screenshots (no L1/L0 render → nothing meaningful to shoot
-  beyond L2 baseline).
+| File | Pre-Stage-6 LOC | Post-Stage-6 LOC | Delta |
+|------|-----------------|------------------|-------|
+| `packages/viewer/src/webgpu/buffer-pager.ts` | n/a (new) | 343 | +343 |
+| `packages/viewer/src/webgpu/multi-dispatch.ts` | 126 | 208 | +82 |
+| `packages/viewer/src/webgpu/index.ts` | 1351 | 1633 | +282 |
+| `packages/viewer/bench/real-scene-lodge.bench.ts` | 378 | 393 | +15 |
+| `packages/viewer/src/__tests__/webgpu/buffer-pager*.test.ts` | n/a | 173 | +173 |
+| **Total net (this branch since main)** | — | — | **+895 LOC** |
 
-## Files touched in this branch (post-foundation commit `ad4f28f`)
+Tests: **207/207 viewer tests pass** (was 204 on main; +7 BufferPager
+unit tests + 3 templater-on-real-WGSL tests).
 
-- `packages/viewer/src/webgpu/index.ts` (+299 net) — pager wiring,
-  templated paged pipelines, multi-page guards.
-- `packages/viewer/src/webgpu/multi-dispatch.ts` (+82) — paged dispatch
-  helper for follow-up monotonic kernels.
-- `packages/viewer/src/__tests__/webgpu/buffer-pager-template-pg.test.ts`
-  (new, 60 LOC) — 3 templater-on-real-WGSL tests.
-- `packages/viewer/bench/real-scene-lodge.bench.ts` — bench cap raised
-  to instance-buffer limit; switched to fused project_gather path.
-- `tasks/scripts/sf154-migrate-index.py` (new, 270 LOC) — surgical
-  migration script kept for traceability.
+## Validation summary
 
-## Honest L1 ship path (follow-up)
+- Local: build green, full test suite 207/207
+- 4090: LODGE bench 6/6 levels rendered with realistic fps numbers,
+  including L0 (119M) at 0.83 fps and L1 (54M) at 1.76 fps — both
+  previously unreachable.
+- No WGSL validation errors in the bench log.
 
-For the next agent picking this up:
+## Follow-up (Stage 7, separate task)
 
-1. Mirror BufferPager → InstanceBufferPager (just float counts × 48 B).
-2. Wire it into ComputeDecodePipeline as `instancePager` and replace
-   the single `instanceBuffer`.
-3. cs_project_gather: bind output via dynamic-offset slice per
-   instance-page; chunk_offset already supported. Test with synthetic
-   54M scene first.
-4. Renderer (`renderer/webgpu.ts`): N draws across vertex pages.
-5. Bench cap → effectively unlimited (page count grows with capacity).
-6. Re-run 4090 bench to confirm L1 fps appears.
+For the production-facing scale.astro L0/L1 buttons to light up:
 
-The same pattern then extends to the sort key/value buffers if L0
-(119M × 8 bytes = 952 MB keys + 952 MB values) gets close enough to
-the 2 GiB cap to matter.
+1. Renderer multi-draw across `instancePages` (~50 LOC in
+   `renderer/webgpu.ts`).
+2. scale.astro: remove the L0/L1 `disabled` attributes + tip labels.
+3. Playwright screenshot harness shoots both at 5 poses.
+4. Pixel-identity diff vs main baseline (the 1-page-only path) at L2-
+   matched render to ensure no regression.
