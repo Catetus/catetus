@@ -11,6 +11,7 @@
 // honestly shows that and tells contributors how to send numbers.
 import Base from "../layouts/Base.astro";
 import Leaderboard from "../components/Leaderboard.astro";
+import BenchGallery from "../components/BenchGallery.astro";
 import {
   splatbench,
   encoders,
@@ -159,6 +160,9 @@ const otherEncoders = [
       <a class="btn primary" href={`${githubUrl}/blob/main/benches/reports/splatbench-v0.json`}>
         splatbench-v0.json
       </a>
+      <a class="btn" href="#visual-gallery">
+        Visual gallery ↓
+      </a>
       <a class="btn" href="#submit">
         Submit your encoder
       </a>
@@ -173,6 +177,8 @@ const otherEncoders = [
       </a>
     </div>
   </header>
+
+  <BenchGallery />
 
   <Leaderboard />
 

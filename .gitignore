@@ -128,3 +128,24 @@ integrations/blender/dist/*.zip
 /tasks/scripts/p2-audit-v2/results/*.ply
 /tasks/scripts/p2-audit-v2/*.log
 
+
+# Bench visual gallery — large real-scene outputs are reproducible from
+# the source PLYs via `tasks/scripts/run_all.sh` and the synthetic
+# proxies regen in seconds. We ignore the two payload hogs (bonsai
+# web-desktop ~78 MB + quality-max ~260 MB, outdoor quality-max ~118 MB)
+# to keep the repo well under a hundred MB while still shipping every
+# small synthetic scene with all 3 preset tiers visible in the gallery.
+/apps/web/public/bench-renders/bonsai/web-desktop/
+/apps/web/public/bench-renders/bonsai/quality-max/
+/apps/web/public/bench-renders/splatbench_outdoor/web-desktop/
+/apps/web/public/bench-renders/splatbench_outdoor/quality-max/
+/apps/web/public/bench-renders/splatbench_indoor/quality-max/
+/apps/web/public/bench-renders/stump/web-desktop/
+/apps/web/public/bench-renders/stump/quality-max/
+# render artifacts produced by shoot-bench-renders.mjs (offline only;
+# WebGL2 splat shaders don't run under headless GPU so this PNG path is
+# wired up but unused — the live iframe path is the production answer).
+/apps/web/public/bench-renders/*/*/render.png
+/apps/web/public/bench-renders/*/*/render.json
+# Local agent scratch logs for bench-renders run_all.sh
+/tasks/logs/
