@@ -32,14 +32,16 @@ const title = "Scale — 119M-splat Sweet Corals · SplatForge";
 const description =
   "Live in-browser stream of a 3.2M-splat LOD level (L5) of the 119,800,000-splat Sweet Corals scene. LODGE runtime, chunked HTTP, WebGPU compute-decode.";
 
-// L4 + L5 manifest URL — published 2026-05-15 from the 4090 LODGE
-// chunker output via apps/web/scripts/publish-sweet-corals-l5.py.
-// Stable per-blob (Vercel Blob inserts a random suffix per object).
-// To add L3/L2/L1/L0:
-//   1. Run the publish script on the 4090 with `--level 3` etc.
+// L2 + L3 + L4 + L5 manifest URL — published 2026-05-16 from the 4090
+// LODGE chunker output via tasks/scripts/sf-scale-l2-l3/publish_l2_l3.py
+// (reuses prior L4/L5 chunk URLs; only L2 + L3 chunks were uploaded
+// this pass). Honest-claim Path A: published L2 (28M) + L3 (13.3M)
+// to lift /scale above the 12 dB L4-only viewer-PSNR floor.
+// To add L1/L0 (still 4090-only, in-flight per task #154 buffer-split):
+//   1. Re-run publish_l2_l3.py with --level 1 --level 0.
 //   2. Replace this URL with the returned `manifest_url`.
 const lodgeManifestUrl =
-  "https://xmcqr5nqjygbqjqw.public.blob.vercel-storage.com/samples/sweet-corals.lodge/manifest-l4-l5-QevCTqvCPEvNGoZKyeEUn9iYFWgEoX.json";
+  "https://xmcqr5nqjygbqjqw.public.blob.vercel-storage.com/samples/sweet-corals.lodge/manifest-l2-l3-l4-l5-apDScMeYFOVyHZ3Z14G65QLvv3z0fA.json";
 
 const githubUrl = "https://github.com/montabano1/SplatForge";
 ---
@@ -111,10 +113,10 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
             <span class="scale-lod-splats">54.2M</span>
             <span class="scale-lod-tip">4090-only · in flight</span>
           </button>
-          <button type="button" class="scale-lod-btn" data-lod="2" disabled aria-disabled="true">
+          <button type="button" class="scale-lod-btn" data-lod="2">
             <span class="scale-lod-name">L2</span>
             <span class="scale-lod-splats">28.0M</span>
-            <span class="scale-lod-tip">4090-only · in flight</span>
+            <span class="scale-lod-tip">desktop GPU · slow on mobile</span>
           </button>
           <button type="button" class="scale-lod-btn" data-lod="3">
             <span class="scale-lod-name">L3</span>
