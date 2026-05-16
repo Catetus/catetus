@@ -1,118 +1,182 @@
 # SplatForge
 
+**Production infrastructure for Gaussian Splats** — compress, validate, and ship splat assets with standards-aligned output and reproducible quality gates.
+
 <p>
+  <a href="https://splatforge.com"><img alt="Website" src="https://img.shields.io/badge/website-splatforge.com-0ea5e9?style=flat-square" /></a>
   <a href="https://github.com/montabano1/SplatForge/actions/workflows/test.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/montabano1/SplatForge/test.yml?branch=main&label=ci&style=flat-square" /></a>
-  <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" /></a>
-  <a href="./benches/reports/splatbench-v0.md"><img alt="SplatBench v0" src="https://img.shields.io/badge/SplatBench-v0%20%E2%80%94%2021.75%C3%97%20median-7dd3fc?style=flat-square" /></a>
-  <a href="./specs/"><img alt="specs" src="https://img.shields.io/badge/spec--driven-yes-34d399?style=flat-square" /></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" /></a>
+  <a href="https://splatforge.com/bench"><img alt="SplatBench" src="https://img.shields.io/badge/SplatBench-21.9×%20median-7dd3fc?style=flat-square" /></a>
 </p>
 
-> **SplatForge makes Gaussian Splats production-ready: optimized, standards-aligned, streamable, benchmarked, and safe to ship.**
+| | |
+| --- | --- |
+| **Website** | [splatforge.com](https://splatforge.com) — live demos, leaderboard, docs |
+| **Try it** | [Drop a `.ply` in the browser](https://splatforge.com/#try) |
+| **Benchmark** | [SplatBench leaderboard](https://splatforge.com/bench) — 16 scenes, open submission |
+| **Standards** | [KHR conformance report](https://splatforge.com/khr-conformance) — 23 clauses, 10 fixtures |
 
-FFmpeg + Lighthouse + Cloudinary for Gaussian Splats. Ingest large `.ply`, `.spz`, and glTF Gaussian Splat assets; optimize them for real device budgets; output standards-aligned glTF / SPZ artifacts; and generate reproducible visual / performance reports.
+---
 
-This repository implements **Phase 0 + Phase 1 + Phase 2** of the SplatForge roadmap. See [`specs/`](./specs) for per-feature SpecDD documents and [`docs/architecture.md`](./docs/architecture.md) for system design.
+## What is SplatForge?
 
-## What you can do today
+Gaussian Splatting is moving from research demos into production web, mobile, and spatial apps. Capture tools export huge `.ply` files; runtimes expect compact, standards-aligned assets; teams need proof that optimization did not destroy visual quality.
+
+**SplatForge is the delivery layer in the middle** — think **FFmpeg + Lighthouse for Gaussian Splats**:
+
+- **Ingest** `.ply`, `.spz`, and glTF Gaussian Splat assets
+- **Optimize** for real device byte and fidelity budgets (CLI presets + hosted API)
+- **Export** [glTF `KHR_gaussian_splatting`](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_gaussian_splatting) and SPZ — no proprietary container format
+- **Prove** quality with deterministic visual diff, SplatBench, and conformance suites
+
+The open-source core (this repo) ships the CLI, viewer SDK, benchmark corpus, and Khronos/OpenUSD conformance tooling. Hosted optimize, premium passes, and enterprise deployment live on [splatforge.com](https://splatforge.com).
+
+---
+
+## Why teams choose SplatForge
+
+| Capability | What it means |
+| --- | --- |
+| **Standards-first output** | glTF KHR Gaussian Splatting + SPZ; assets work in mainstream viewers and DCC pipelines |
+| **Reproducible pipeline** | Same input + preset → byte-identical output and stable BLAKE3 scene hashes |
+| **Public benchmark moat** | [SplatBench](https://splatforge.com/bench) — 16 scenes (real + synthetic stress tests), open encoder comparison |
+| **Quality gates** | Per-scene fidelity (ΔE94, SSIM), visual diff harness, KHR conformance crate in CI |
+| **Ship anywhere** | Rust CLI, `@splatforge/viewer` (WebGPU + WebGL2), GitHub Action, REST API |
+
+**Headline numbers (SplatBench v0, `web-mobile` preset):**
+
+| Metric | Value |
+| ---: | ---: |
+| Median compression (16 scenes) | **21.9×** |
+| Real outdoor (`bicycle`, 3.6M splats) | **25.5×** (856 MB → 34 MB) |
+| Real indoor (`bonsai`, 1.2M splats) | **22.8×** (274 MB → 12 MB) |
+| Fidelity gates passing | **16 / 16** scenes |
+
+Full tables and per-scene breakdown: [leaderboard](https://splatforge.com/bench) · [report](./benches/reports/splatbench-v0.md) · [interactive HTML](./benches/reports/splatbench-v0.html)
+
+---
+
+## Quick start
+
+**Prerequisites:** Rust stable (≥ 1.74), Node.js 20+, pnpm 9+. See [INSTALL.md](./INSTALL.md) for platform notes.
 
 ```bash
-# Build (Rust 1.74+ stable, Node 20+)
+git clone https://github.com/montabano1/SplatForge.git
+cd SplatForge
 ./setup.sh
 
-# Analyze a real splat
+# Inspect a splat
 ./target/release/splatforge analyze fixtures/tiny/basic_binary.ply --pretty
 
-# Optimize for the web
+# Optimize for web delivery (glTF + chunked buffers)
 ./target/release/splatforge optimize fixtures/tiny/basic_binary.ply \
-    --preset web-mobile --out /tmp/scene.gltf
+  --preset web-mobile --out /tmp/scene.gltf
 
-# Run the SplatBench v0 corpus locally
-make bench-splatbench
+# Preview in the browser (WebGPU viewer)
+./target/release/splatforge preview /tmp/scene.gltf
 ```
 
-## SplatBench v0 — what the pipeline does on real data
+**Run tests:** `make test` · **Run SplatBench locally:** `make bench-splatbench`
 
-Corpus total: **1.80 GB → 78.5 MB at web-mobile (23.43× overall)** across 16 scenes (2 real Mip-NeRF360 anchors + 14 deterministic synthetic probes for product / indoor / outdoor / dense / specular / foliage / lowlight / portrait / texture / transparency / motion / depth / banding / noisy-capture failure modes).
+Step-by-step guide: [docs/getting-started.md](./docs/getting-started.md)
 
-| Scene | Splats | PLY in | SPZ out (web-mobile) | **Ratio** |
-| ----- | ---: | ---: | ---: | ---: |
-| `bicycle_mipnerf360_iter7k` (real) | **3.62M** | 856 MB | 34 MB | **25.46×** |
-| `bonsai_mipnerf360_iter7k` (real)  | 1.16M | 273 MB | 12 MB | **22.81×** |
-| `splatbench_dense_proxy` (synth)   | 2.0M  | 474 MB | 22 MB | 21.75× |
-| `splatbench_floater_proxy` (synth) | 250K  |  60 MB | 2.3 MB | **25.84×** |
-| _full leaderboard, 16 rows →_ | | | | [splatbench-v0.html](./benches/reports/splatbench-v0.html) |
+---
 
-Median compression across 16 scenes: **21.88× (web-mobile)** / **23.19× (size-min)**.
-Median analyze wall time on real splats: **~1 µs/splat**.
+## CLI commands
 
-**v0.1.1** adds three new leaderboard columns: **Fidelity** (CIE ΔE94 + pixelmatch + per-block SSIM against the lossless baseline via deterministic 8-orbit-frame renders through `@splatforge/viewer`), **ML Score** (the splat-aware perceptual metric from `splatforge-pro` v0.3.0-perkind — values are published; the model is proprietary), and **Repack ΔPSNR** (differentiable gsplat-based repack vs naive opacity-prune at the same byte budget, 10 of 16 scenes show double-digit dB wins).
-
-Public landing page (Astro static, Vercel-deployed): [`apps/web/`](./apps/web).
-
-## Layout
-
-```
-splatforge/
-  specs/                   # SpecDD spec docs (SPEC-0001 .. SPEC-0010)
-  crates/
-    splatforge-core/       # SplatIR + canonical types
-    splatforge-ply/        # PLY ingest + write
-    splatforge-spz/        # SPZ I/O
-    splatforge-gltf/       # glTF KHR Gaussian Splatting + GLB
-    splatforge-optimize/   # Optimization pass framework
-    splatforge-bench/      # Benchmark runner
-    splatforge-cli/        # `splatforge` binary
-  packages/
-    viewer/                # @splatforge/viewer (WebGPU + WebGL2)
-    report-ui/             # @splatforge/report-ui
-  tests/
-    integration/           # CLI end-to-end scripts
-    visual/                # Playwright visual-regression tests
-  fixtures/                # Tiny, invalid, corpus, golden assets
-  benches/
-    synth_scenes.py        # Reproducible synthetic SplatBench scenes
-    reports/               # SplatBench v0 + bonsai demo writeups
-  docs/                    # User docs
-  .github/workflows/       # CI gates
-```
-
-## CLI surface
-
-| Command | What it does |
-| ------- | ------------ |
-| `analyze` | Emit deterministic JSON analysis report |
-| `inspect` | Validate an asset and print a brief summary |
+| Command | Description |
+| --- | --- |
+| `analyze` | Deterministic JSON report (size, bounds, attribute stats) |
+| `inspect` | Validate an asset; print a short summary |
 | `convert` | Convert between PLY, SPZ, glTF, GLB |
-| `optimize` | Run a preset (or custom passes); emit chunked glTF + report |
-| `preview` | Launch a local WebGPU viewer instance |
-| `diff` | Render before/after frames; emit a visual-diff report |
+| `optimize` | Run a preset (`web-mobile`, `size-min`, `geospatial`, …) |
+| `preview` | Local WebGPU viewer |
+| `diff` | Before/after visual diff report (Playwright-backed) |
 | `benchmark` | Device-profile timings |
 | `corpus run` | Run a named SplatBench suite |
+| `submit` | Submit a job to the hosted API |
+| `spec-check` | Validate against KHR / extension rules |
 
-## Standards
+```bash
+splatforge optimize scene.ply --preset web-mobile --out out/
+splatforge diff scene.ply out/scene.gltf --threshold 0.03 --out reports/diff/
+```
 
-SplatForge writes **glTF 2.0 with `KHR_gaussian_splatting`** as the primary delivery target, with optional external-buffer chunking and a vendor extension (`SF_spatial_streaming_index`) for Morton-ordered LOD streaming.
+---
 
-SPZ is a first-class compressed format. **No proprietary `.sfz` package format.** When advanced streaming metadata is present, the asset degrades gracefully to baseline glTF behavior in viewers that ignore the vendor extension.
+## Integrations
 
-## Docs
+| Surface | Link |
+| --- | --- |
+| **GitHub Action** | [apps/optimize-action](./apps/optimize-action) — PR gate on compression + fidelity badge |
+| **Hosted API** | `https://splatforge-api.fly.dev` — job create, upload, status ([apps/api](./apps/api)) |
+| **Viewer SDK** | [`@splatforge/viewer`](./packages/viewer) — WebGPU compute decode + streaming LOD |
+| **Blender add-on** | [integrations/blender](./integrations/blender) |
 
-- [INSTALL.md](./INSTALL.md) — toolchain + first build
-- [docs/getting-started.md](./docs/getting-started.md) — running the CLI end-to-end
-- [docs/architecture.md](./docs/architecture.md) — high-level component map
-- [specs/](./specs) — 10 SpecDD documents (IR, PLY, SPZ, glTF, analyze, optimize, streaming, viewer, diff, parity)
-- [CHANGELOG.md](./CHANGELOG.md) — release notes
-- [CONTRIBUTING.md](./CONTRIBUTING.md) — DCO, PR flow, principles
+---
 
-## Status
+## Repository layout
 
-| Phase | Spec coverage | Status |
-| ----- | ------------- | ------ |
-| Phase 0 — technical spike + design partners | (PRD §) | ✓ proven on real Inria 3DGS data |
-| Phase 1 — CLI alpha + standards I/O | SPEC-0001..0007 | ✓ shipped in v0.1.0 |
-| Phase 2 — viewer SDK + visual diff + benchmark runner | SPEC-0008..0010 | ✓ shipped in v0.1.0; fidelity column added v0.1.1 |
-| Phase 3 — hosted API + OpenUSD + partnerships | SPEC-0011, 0012 (draft) | in flight |
-| Phase 4 — advanced compression + enterprise pipeline | (PRD §) | planned |
+```
+SplatForge/
+  crates/
+    splatforge-core/          # SplatIR — canonical internal representation
+    splatforge-ply/           # PLY ingest + write
+    splatforge-spz/           # SPZ I/O
+    splatforge-gltf/          # glTF KHR Gaussian Splatting + GLB
+    splatforge-optimize/      # Optimization pass framework
+    splatforge-khr-conformance/  # KHR extension validator (23 clauses)
+    splatforge-usd/           # OpenUSD writer (draft)
+    splatforge-cli/           # `splatforge` binary
+  packages/
+    viewer/                   # @splatforge/viewer
+    report-ui/                # Diff + parity HTML reports
+  specs/                      # Feature specs (SPEC-0001 … SPEC-0013)
+  benches/                    # SplatBench corpus + reports
+  apps/
+    web/                      # Marketing site + leaderboard (Astro)
+    api/                      # Hosted optimize API (Rust / Axum)
+    optimize-action/          # GitHub Action
+  docs/                       # User + architecture docs
+  tests/                      # Integration + visual regression
+```
+
+Architecture overview: [docs/architecture.md](./docs/architecture.md)
+
+---
+
+## Standards & conformance
+
+SplatForge targets **glTF 2.0 + `KHR_gaussian_splatting`** as the primary interchange format, with **SPZ** as a first-class compressed wire format. Advanced streaming uses a vendor extension (`SF_spatial_streaming_index`) that degrades gracefully in viewers that ignore it.
+
+- **KHR suite:** `cargo test -p splatforge-khr-conformance` — [conformance report](./crates/splatforge-khr-conformance/conformance.md) · [live matrix](https://splatforge.com/khr-conformance)
+- **KHR SPZ compression extension (draft):** [docs/standards/KHR_gaussian_splatting_compression_spz.md](./docs/standards/KHR_gaussian_splatting_compression_spz.md)
+- **OpenUSD:** writer + conformance work in progress ([SPEC-0011](./specs/0011-openusd-roundtrip.md), [SPEC-0012](./specs/0012-openusd-streaming.md))
+
+---
+
+## Documentation
+
+| Doc | Audience |
+| --- | --- |
+| [INSTALL.md](./INSTALL.md) | First-time setup (macOS, Linux, Windows) |
+| [docs/getting-started.md](./docs/getting-started.md) | End-to-end CLI walkthrough |
+| [docs/architecture.md](./docs/architecture.md) | System design |
+| [specs/](./specs) | Feature specifications |
+| [CHANGELOG.md](./CHANGELOG.md) | Release history |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | How to contribute |
+
+---
+
+## Contributing
+
+Issues and PRs welcome. We are **spec-driven** and **determinism is non-negotiable** — see [CONTRIBUTING.md](./CONTRIBUTING.md) for the workflow, DCO, and review expectations.
+
+- [Report a bug](https://github.com/montabano1/SplatForge/issues/new?template=bug.md)
+- [Request a feature](https://github.com/montabano1/SplatForge/issues/new?template=feature.md)
+- [Submit a scene to SplatBench](https://github.com/montabano1/SplatForge/issues/new?template=corpus_request.md)
+
+---
 
 ## License
 
