@@ -1,0 +1,99 @@
+name: visual-regression
+
+on:
+  pull_request:
+    paths:
+      - 'crates/splatforge-optimize/**'
+      - 'crates/splatforge-gltf/**'
+      - 'packages/viewer/**'
+      - 'apps/web/public/hero-scene/**'
+      - 'apps/web/src/components/Hero.astro'
+      - 'apps/web/public/preview-hero.html'
+      - 'tests/visual/tests/hero-regression.spec.ts'
+      - 'tests/visual/harness/hero-server.mjs'
+      - 'tests/visual/playwright.hero-regression.config.ts'
+      - '.github/workflows/visual-regression.yml'
+  workflow_dispatch:
+
+# Cancel superseded PR runs — visual regression is the slowest job we have,
+# and a force-push or `git commit --amend` shouldn't keep the old one going.
+concurrency:
+  group: visual-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hero-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # No PLYs are committed to the repo. The matrix below downloads them via
+      # `actions/cache` keyed on a stable URL in the SplatForge research bucket,
+      # falling back to the on-runner sample if the cache miss happens.
+      #
+      # CI sets SPLATFORGE_PLY_<SCENE> after staging. If a scene PLY is missing
+      # (e.g. for a forked PR with no secret access), the corresponding test
+      # cases skip with a clear message rather than failing the run.
+      SPLATFORGE_PLY_BONSAI: ${{ github.workspace }}/tests/visual/fixtures/scenes/bonsai.ply
+      SPLATFORGE_PLY_BICYCLE: ${{ github.workspace }}/tests/visual/fixtures/scenes/bicycle.ply
+      SPLATFORGE_PLY_GARDEN: ${{ github.workspace }}/tests/visual/fixtures/scenes/garden.ply
+      SPLATFORGE_PLY_STUMP: ${{ github.workspace }}/tests/visual/fixtures/scenes/stump.ply
+      SPLATFORGE_BIN: ${{ github.workspace }}/target/release/splatforge
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with: { version: 9 }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Node deps
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build splatforge CLI
+        run: cargo build --release -p splatforge-cli
+
+      - name: Build viewer bundle
+        run: pnpm -F @splatforge/viewer run build
+
+      - name: Install Playwright (chromium)
+        run: pnpm -F splatforge-visual exec playwright install --with-deps chromium
+
+      # Optional: hydrate scene PLYs from a private mirror. Forks without the
+      # secret simply hit the skip-paths in the test (logged, not failed).
+      - name: Stage scene PLYs (cached)
+        if: ${{ env.SPLATFORGE_SCENE_BUCKET != '' }}
+        env:
+          SPLATFORGE_SCENE_BUCKET: ${{ secrets.SPLATFORGE_SCENE_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPLATFORGE_SCENE_AWS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPLATFORGE_SCENE_AWS_SECRET }}
+        run: |
+          set -euo pipefail
+          mkdir -p tests/visual/fixtures/scenes
+          for scene in bonsai bicycle garden stump; do
+            aws s3 cp "s3://${SPLATFORGE_SCENE_BUCKET}/${scene}.ply" \
+              "tests/visual/fixtures/scenes/${scene}.ply" || true
+          done
+
+      - name: Run hero visual-regression suite
+        run: pnpm -F splatforge-visual run test:hero
+        env:
+          CI: 'true'
+          # Reuse the workflow's OPENAI_API_KEY secret when present to enable the
+          # antimatter15-eye vision-LLM check.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Upload screenshots + report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hero-regression-artifacts
+          path: |
+            tests/visual/__screenshots__/
+            tests/visual/report/hero/
+          if-no-files-found: warn

@@ -7,6 +7,7 @@
   "description": "Visual-diff (SPEC-0009) and viewer-parity (SPEC-0010) harness for SplatForge.",
   "scripts": {
     "test": "playwright test",
+    "test:hero": "playwright test --config playwright.hero-regression.config.ts",
     "report": "node scripts/build-report.mjs",
     "diff": "node scripts/diff-cli.mjs",
     "lint": "tsc --noEmit"
