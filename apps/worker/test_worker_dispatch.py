@@ -124,6 +124,7 @@ class WorkerDispatchTests(unittest.TestCase):
             "SPLATFORGE_HACPP_LZMA_URL",
             "SPLATFORGE_HOSTED_NEURAL_URL",
             "SPLATFORGE_QAT_SCAFFOLD_URL",
+            "SPLATFORGE_QAT_BUNDLE_URL",
         ):
             os.environ.pop(key, None)
         # Drop cached module so module-level `PRESET_DISPATCH_URLS`
@@ -623,6 +624,140 @@ class WorkerDispatchTests(unittest.TestCase):
             body["callback_url"], "https://api.example/v1/jobs/q/result"
         )
 
+
+    def test_qat_bundle_without_url_returns_clear_error(self) -> None:
+        """`splatforge-qat-bundle` is the premium-tier full-QAT recipe.
+        Until SPLATFORGE_QAT_BUNDLE_URL is set, the worker MUST surface
+        a synchronous error naming the env var — same configured-gap
+        contract as the other forwarded presets. New 2026-05-16: this
+        preset bills at $0.50/scene at Modal A100 pass-through; if it
+        ever silently fell through to the local CLI we'd be running a
+        ~10-minute placeholder optimize for free."""
+        worker = self._import_worker()
+        ack = worker.enqueue(
+            {
+                "job_id": "00000000-0000-0000-0000-00000000000b",
+                "preset": "splatforge-qat-bundle",
+                "blob_url": "https://blob.example/bundle.tar",
+                "callback_url": "https://api.example/v1/jobs/b/result",
+                "filename": "scaffold-bundle.tar",
+            }
+        )
+        self.assertFalse(ack["queued"])
+        self.assertIsNotNone(ack["error"])
+        self.assertIn("splatforge-qat-bundle", ack["error"])
+        self.assertIn("SPLATFORGE_QAT_BUNDLE_URL", ack["error"])
+
+    def test_qat_bundle_forwards_to_configured_url(self) -> None:
+        """Happy path for the premium QAT-Bundle dispatch. The bundle URL
+        + callback are forwarded verbatim to the private Modal app, which
+        owns the int8 retrain + constant-strip pipeline."""
+        os.environ["SPLATFORGE_QAT_BUNDLE_URL"] = (
+            "https://example--splatforge-qat-bundle-enqueue.modal.run"
+        )
+        worker = self._import_worker()
+
+        fake_response = mock.MagicMock()
+        fake_response.status_code = 200
+        fake_response.json.return_value = {"queued": True, "error": None}
+        with mock.patch("requests.post", return_value=fake_response) as post:
+            ack = worker.enqueue(
+                {
+                    "job_id": "00000000-0000-0000-0000-00000000000B",
+                    "preset": "splatforge-qat-bundle",
+                    "blob_url": "https://blob.example/bonsai-bundle.tar",
+                    "callback_url": "https://api.example/v1/jobs/B/result",
+                    "filename": "bonsai-bundle.tar",
+                }
+            )
+        self.assertTrue(ack["queued"])
+        self.assertIsNone(ack["error"])
+        post.assert_called_once()
+        self.assertEqual(
+            post.call_args.args[0],
+            "https://example--splatforge-qat-bundle-enqueue.modal.run",
+        )
+        body = post.call_args.kwargs["json"]
+        self.assertEqual(body["preset"], "splatforge-qat-bundle")
+        self.assertEqual(body["filename"], "bonsai-bundle.tar")
+
+    def test_healthz_reports_qat_bundle_flag(self) -> None:
+        """Operators rely on healthz to confirm the premium preset is
+        wired. QAT-Bundle was added 2026-05-16; ensure it appears in
+        the preset_dispatch_configured map so the deploy check covers
+        the new preset."""
+        worker = self._import_worker()
+        body = worker.healthz()
+        flags = body["preset_dispatch_configured"]
+        self.assertIn(
+            "splatforge-qat-bundle",
+            flags,
+            "qat-bundle must appear in healthz dispatch table",
+        )
+        # capture-and-compress shipped earlier; pin that it's also surfaced.
+        self.assertIn("capture-and-compress", flags)
+
+    def test_required_keys_covers_every_dispatch_env_var(self) -> None:
+        """The Modal Secret `required_keys` list MUST name every env var
+        that PRESET_DISPATCH_URLS reads. If a new preset is added to the
+        dispatch table but its env var is left out of required_keys, the
+        Modal app launches without that secret bound — the operator only
+        finds out when a customer hits the preset and gets a generic
+        500. Regression: SPLATFORGE_CAPTURE_URL was missing from
+        required_keys when the photos pipeline shipped."""
+        # Parse the worker.py source directly so the test catches
+        # additions to PRESET_DISPATCH_URLS that forget to update
+        # the Secret declaration.
+        import re as _re
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, "worker.py"), "r", encoding="utf-8") as fh:
+            src = fh.read()
+
+        # Collect env-var names referenced inside PRESET_DISPATCH_URLS.
+        dispatch_block_start = src.index("PRESET_DISPATCH_URLS = {")
+        dispatch_block_end = src.index("\n}\n", dispatch_block_start)
+        dispatch_block = src[dispatch_block_start:dispatch_block_end]
+        dispatch_envs = set(_re.findall(r"SPLATFORGE_[A-Z0-9_]+_URL", dispatch_block))
+
+        # Collect env-var names declared in the asgi_app Secret.from_name
+        # required_keys list. Find the FIRST `required_keys=[` after the
+        # WORKER_ASGI_LABEL block to avoid colliding with run_optimize's
+        # vercel-blob Secret.
+        asgi_block_start = src.index('@modal.asgi_app(label=WORKER_ASGI_LABEL)')
+        # Walk back to find the function block's secrets= clause.
+        web_app_block_start = src.rindex("def web_app", 0, asgi_block_start + 200)
+        function_block_start = src.rindex("@app.function", 0, web_app_block_start)
+        # Find required_keys=[...] inside this function block.
+        m = _re.search(
+            r'required_keys=\[(.*?)\]',
+            src[function_block_start:asgi_block_start + 200],
+            flags=_re.DOTALL,
+        )
+        self.assertIsNotNone(
+            m, "could not find required_keys list on the web_app Secret"
+        )
+        declared = set(_re.findall(r'"(SPLATFORGE_[A-Z0-9_]+_URL)"', m.group(1)))
+
+        missing = dispatch_envs - declared
+        self.assertFalse(
+            missing,
+            f"PRESET_DISPATCH_URLS references env vars that are NOT in "
+            f"the web_app Modal Secret required_keys list: {sorted(missing)}",
+        )
+
+    def test_capture_url_in_required_keys(self) -> None:
+        """Explicit regression for the SPLATFORGE_CAPTURE_URL omission.
+        capture-and-compress was added to PRESET_DISPATCH_URLS but its
+        env var was missing from required_keys until 2026-05-16. Pin
+        the fix so a refactor can't undo it silently."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, "worker.py"), "r", encoding="utf-8") as fh:
+            src = fh.read()
+        # Find the asgi_app Secret block and check the literal is present.
+        asgi_block_start = src.index('@modal.asgi_app(label=WORKER_ASGI_LABEL)')
+        function_block_start = src.rindex("@app.function", 0, asgi_block_start)
+        block = src[function_block_start:asgi_block_start + 500]
+        self.assertIn("SPLATFORGE_CAPTURE_URL", block)
 
 if __name__ == "__main__":
     unittest.main()

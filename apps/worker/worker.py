@@ -729,6 +729,7 @@ def healthz() -> dict:
             required_keys=[
                 "SPLATFORGE_CODEC_GS_MIXED_URL",
                 "SPLATFORGE_FCGS_URL",
+                "SPLATFORGE_CAPTURE_URL",
                 "SPLATFORGE_HACPP_LZMA_URL",
                 "SPLATFORGE_HOSTED_NEURAL_URL",
                 "SPLATFORGE_QAT_SCAFFOLD_URL",
