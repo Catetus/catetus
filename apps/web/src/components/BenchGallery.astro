@@ -1,0 +1,684 @@
+---
+// BenchGallery — visual side-by-side strip of preset outputs.
+//
+// The numeric leaderboard tells customers "preset X is 22× smaller with ΔE94
+// 0.0086". That's a number, not a picture. This component shows what each
+// preset actually looks like in our viewer so the customer can decide
+// "is the size win worth the visible loss?" before they pay.
+//
+// Inputs come from `apps/web/public/bench-renders/<scene>/<preset>/render.png`
+// + `render.json` (GLB byte size on disk). Fidelity numbers come from
+// `benches/reports/splatbench-v0.json` (synced into the Astro lib at build
+// time as `splatbench`).
+//
+// Honest framing: if a preset visually degrades a scene we just show it.
+// The point is customer trust, not a marketing reel.
+
+import fs from "node:fs";
+import path from "node:path";
+import {
+  splatbench,
+  type SplatBenchScene,
+  type PresetFidelity,
+} from "../lib/splatbench";
+
+// ---- Data discovery ---------------------------------------------------------
+
+const PRESET_ORDER = ["web-mobile", "web-desktop", "quality-max"] as const;
+type PresetSlug = (typeof PRESET_ORDER)[number];
+
+const PRESET_LABEL: Record<PresetSlug, string> = {
+  "web-mobile": "web-mobile",
+  "web-desktop": "web-desktop",
+  "quality-max": "quality-max",
+};
+
+const PRESET_BLURB: Record<PresetSlug, string> = {
+  "web-mobile":
+    "Smallest viable output for phones. SH-1 + aggressive opacity prune. Where you ship to customers when bytes are the constraint.",
+  "web-desktop":
+    "Desktop-quality viewer target. Keeps more SH bands; the conservative default for a /splatforge.dev/explore-style portfolio site.",
+  "quality-max":
+    "Lossless repack only — no opacity prune, no quant beyond what the SPZ container does. Use as a stand-in for the original PLY when judging the lossy presets.",
+};
+
+// Map each gallery scene to the SplatBench scene id (so we can pull fidelity
+// + bytesIn from the bench JSON). When the gallery scene is a synthetic probe
+// we look up by exact id; for real Mip-NeRF 360 scenes we map "bonsai" →
+// "bonsai_mipnerf360_iter7k" etc.
+const SCENE_ID_MAP: Record<string, string> = {
+  bonsai: "bonsai_mipnerf360_iter7k",
+  bicycle: "bicycle_mipnerf360_iter7k",
+  stump: "stump_mipnerf360_iter7k",
+  splatbench_indoor: "splatbench_indoor_proxy",
+  splatbench_outdoor: "splatbench_outdoor_proxy",
+  splatbench_foliage: "splatbench_foliage_proxy",
+  splatbench_specular: "splatbench_specular_proxy",
+  splatbench_transparency: "splatbench_transparency_proxy",
+  splatbench_portrait: "splatbench_portrait_proxy",
+  splatbench_motion: "splatbench_motion_proxy",
+  splatbench_texture: "splatbench_texture_proxy",
+  splatbench_depth: "splatbench_depth_proxy",
+  splatbench_banding: "splatbench_banding_proxy",
+  splatbench_lowlight: "splatbench_lowlight_proxy",
+  splatbench_floater: "splatbench_floater_proxy",
+  splatbench_product: "splatbench_product_proxy",
+  splatbench_dense: "splatbench_dense_proxy",
+};
+
+const SCENE_DISPLAY: Record<string, { title: string; sub: string }> = {
+  bonsai: { title: "bonsai", sub: "Mip-NeRF 360 · indoor real estate · iter-7k" },
+  bicycle: { title: "bicycle", sub: "Mip-NeRF 360 · outdoor scene · iter-7k" },
+  stump: { title: "stump", sub: "Mip-NeRF 360 · outdoor scene · iter-7k" },
+  splatbench_indoor: { title: "indoor (synthetic)", sub: "SplatBench probe · indoor lighting" },
+  splatbench_outdoor: { title: "outdoor (synthetic)", sub: "SplatBench probe · outdoor mid-range" },
+  splatbench_foliage: { title: "foliage (synthetic)", sub: "SplatBench probe · dense foliage" },
+  splatbench_specular: { title: "specular (synthetic)", sub: "SplatBench probe · specular highlights" },
+  splatbench_transparency: { title: "transparency (synthetic)", sub: "SplatBench probe · transparent surfaces" },
+  splatbench_portrait: { title: "portrait (synthetic)", sub: "SplatBench probe · portrait subject" },
+};
+
+const RENDERS_DIR = path.resolve(
+  process.cwd(),
+  "apps/web/public/bench-renders",
+);
+// Astro projects sometimes run from apps/web/ — fall back to that.
+const RENDERS_DIR_LOCAL = path.resolve(process.cwd(), "public/bench-renders");
+const RENDERS_ROOT = fs.existsSync(RENDERS_DIR)
+  ? RENDERS_DIR
+  : fs.existsSync(RENDERS_DIR_LOCAL)
+    ? RENDERS_DIR_LOCAL
+    : null;
+
+interface RenderEntry {
+  scene: string;
+  preset: PresetSlug;
+  gltfUrl: string;
+  pngUrl: string | null;
+  presetBytes: number;
+}
+
+interface SceneEntry {
+  scene: string;
+  bench: SplatBenchScene | null;
+  presets: Record<PresetSlug, RenderEntry | null>;
+  /** Ordered for the strip. */
+  presetOrder: PresetSlug[];
+}
+
+function dirTotalBytes(dir: string): number {
+  // Walk one level; the chunked output is scene.gltf + buffers/<chunks>.
+  let total = 0;
+  const stack = [dir];
+  while (stack.length) {
+    const d = stack.pop()!;
+    if (!fs.existsSync(d)) continue;
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(f);
+        continue;
+      }
+      // Exclude the render artifacts from the "preset size" total — those
+      // are not what the customer ships; the customer ships scene.gltf +
+      // buffers/. scene.json is the report sidecar (manifest metadata) so
+      // we include it the way the customer would download it.
+      if (entry.name === "render.png" || entry.name === "render.json") continue;
+      try {
+        total += fs.statSync(f).size;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return total;
+}
+
+function loadGallery(): SceneEntry[] {
+  if (!RENDERS_ROOT) return [];
+  const sceneDirs = fs
+    .readdirSync(RENDERS_ROOT, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+  // Stable scene order: real first, then synthetic by name.
+  const realOrder = ["bonsai", "stump", "bicycle"];
+  const sortedScenes = [
+    ...realOrder.filter((s) => sceneDirs.includes(s)),
+    ...sceneDirs
+      .filter((s) => !realOrder.includes(s))
+      .sort((a, b) => a.localeCompare(b)),
+  ];
+
+  return sortedScenes
+    .map((scene): SceneEntry | null => {
+      const sceneDir = path.join(RENDERS_ROOT, scene);
+      const presets: Record<PresetSlug, RenderEntry | null> = {
+        "web-mobile": null,
+        "web-desktop": null,
+        "quality-max": null,
+      };
+      for (const preset of PRESET_ORDER) {
+        const dir = path.join(sceneDir, preset);
+        const gltf = path.join(dir, "scene.gltf");
+        const png = path.join(dir, "render.png");
+        if (!fs.existsSync(gltf)) continue;
+        const bytes = dirTotalBytes(dir);
+        presets[preset] = {
+          scene,
+          preset,
+          gltfUrl: `/bench-renders/${scene}/${preset}/scene.gltf`,
+          pngUrl: fs.existsSync(png)
+            ? `/bench-renders/${scene}/${preset}/render.png`
+            : null,
+          presetBytes: bytes,
+        };
+      }
+      const hasAny = PRESET_ORDER.some((p) => presets[p] != null);
+      if (!hasAny) return null;
+      const benchId = SCENE_ID_MAP[scene];
+      const bench = benchId
+        ? splatbench.scenes.find((s) => s.id === benchId) ?? null
+        : null;
+      return { scene, bench, presets, presetOrder: [...PRESET_ORDER] };
+    })
+    .filter((s): s is SceneEntry => s != null);
+}
+
+const gallery = loadGallery();
+
+// ---- Display helpers --------------------------------------------------------
+
+function fmtBytes(b: number): string {
+  if (b >= 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  if (b >= 1024) return `${(b / 1024).toFixed(0)} kB`;
+  return `${b} B`;
+}
+
+function presetFidelity(
+  scene: SplatBenchScene | null,
+  preset: PresetSlug,
+): PresetFidelity | null {
+  if (!scene?.fidelity) return null;
+  if (preset === "web-mobile") return scene.fidelity.webMobile ?? null;
+  // size-min is the closest analog to "size-aggressive desktop"; we don't
+  // have web-desktop fidelity in the corpus today, so we leave it unbadged.
+  if (preset === "web-desktop") return null;
+  // quality-max is lossless-repack-equivalent for visual purposes.
+  if (preset === "quality-max") return scene.fidelity.losslessRepack ?? null;
+  return null;
+}
+
+/** Pretty short label for fidelity. We do not fabricate PSNR — splatbench
+ *  measures ΔE94 (color distance, 0 = identical) + SSIM-loss. We surface
+ *  ΔE94 because it's the published metric. */
+function fidelityBadge(fid: PresetFidelity | null): {
+  label: string;
+  tone: "good" | "ok" | "warn";
+} | null {
+  if (!fid) return null;
+  if (fid.status === "baseline") return { label: "ΔE94 0 (baseline)", tone: "good" };
+  const dE = fid.meanDeltaE94;
+  const tone = dE < 0.01 ? "good" : dE < 0.03 ? "ok" : "warn";
+  return { label: `ΔE94 ${dE.toFixed(4)}`, tone };
+}
+
+function sizeRatio(
+  scene: SplatBenchScene | null,
+  presetBytes: number,
+): string | null {
+  if (!scene || !scene.bytesIn || presetBytes <= 0) return null;
+  const r = scene.bytesIn / presetBytes;
+  if (!isFinite(r) || r <= 0) return null;
+  return `${r.toFixed(1)}× smaller`;
+}
+
+const totalPairs = gallery.reduce(
+  (n, s) => n + s.presetOrder.filter((p) => s.presets[p] != null).length,
+  0,
+);
+const totalScenes = gallery.length;
+const anyRender = gallery.some((s) =>
+  s.presetOrder.some((p) => s.presets[p]?.pngUrl),
+);
+---
+
+<section
+  id="visual-gallery"
+  aria-labelledby="visual-gallery-title"
+  class="bench-section bench-gallery-section"
+>
+  <h2 id="visual-gallery-title" class="section-title">
+    Visual gallery — what the presets actually look like
+  </h2>
+  <p class="methodology">
+    Per-scene, per-preset outputs straight out of our pipeline. {totalScenes} scenes,
+    {totalPairs} (scene, preset) outputs. <strong>Click any tile to mount the live
+    splat right inside the page</strong> — what you see is the real glTF, not a
+    cherry-picked stock photo. (Honest framing: if a preset visually degrades a
+    scene, you'll see it. That's the point.)
+  </p>
+  <p class="methodology" style="color: var(--muted, #9aa2ad); font-size: 0.9rem;">
+    Tiles load on demand to keep your browser cool — 18 WebGL contexts in a
+    single page would melt most laptops. The <code>open ↗</code> link in the
+    corner opens the same scene in a full-window <code>preview-hero.html</code>.
+  </p>
+
+  {gallery.map((s) => {
+    const disp = SCENE_DISPLAY[s.scene] ?? { title: s.scene, sub: "" };
+    const bench = s.bench;
+    return (
+      <article class="gallery-scene" aria-labelledby={`gscene-${s.scene}`}>
+        <header class="gallery-scene-head">
+          <div>
+            <h3 id={`gscene-${s.scene}`} class="gallery-scene-title">{disp.title}</h3>
+            <p class="gallery-scene-sub">{disp.sub}</p>
+          </div>
+          {bench && (
+            <div class="gallery-scene-meta">
+              <span class="meta-chip">
+                <span class="meta-k">source</span>
+                <span class="meta-v">{fmtBytes(bench.bytesIn)} · {bench.splatCount.toLocaleString()} splats</span>
+              </span>
+              <span class="meta-chip">
+                <span class="meta-k">class</span>
+                <span class="meta-v">{bench.class}</span>
+              </span>
+            </div>
+          )}
+        </header>
+
+        <div class="gallery-strip">
+          {s.presetOrder.map((preset) => {
+            const cell = s.presets[preset];
+            if (!cell) {
+              return (
+                <div class="gallery-cell gallery-cell-empty" aria-disabled="true">
+                  <div class="gallery-cell-frame gallery-cell-frame-empty">
+                    <span class="gallery-empty-label">no output</span>
+                  </div>
+                  <div class="gallery-cell-meta">
+                    <strong class="preset-name">{PRESET_LABEL[preset]}</strong>
+                    <span class="preset-blurb">{PRESET_BLURB[preset]}</span>
+                  </div>
+                </div>
+              );
+            }
+            const fid = presetFidelity(bench, preset);
+            const badge = fidelityBadge(fid);
+            const ratio = sizeRatio(bench, cell.presetBytes);
+            const framing = preset === "quality-max" ? 0.6 : 0.55;
+            const previewSrc = `/preview-hero.html?src=${encodeURIComponent(cell.gltfUrl)}&framing=${framing}`;
+            return (
+              <div
+                class="gallery-cell"
+                data-preview-src={previewSrc}
+                data-scene={disp.title}
+                data-preset={PRESET_LABEL[preset]}
+              >
+                <div
+                  class="gallery-cell-frame"
+                  role="button"
+                  tabindex="0"
+                  aria-label={`Load live preview of ${disp.title} · ${PRESET_LABEL[preset]}`}
+                >
+                  {cell.pngUrl ? (
+                    <img
+                      class="gallery-poster"
+                      src={cell.pngUrl}
+                      alt={`Render of ${disp.title} compressed with the ${PRESET_LABEL[preset]} preset`}
+                      loading="lazy"
+                      decoding="async"
+                      width="800"
+                      height="600"
+                    />
+                  ) : (
+                    <div class="gallery-poster gallery-poster-stub">
+                      <span class="gallery-poster-title">{disp.title}</span>
+                      <span class="gallery-poster-sub">{PRESET_LABEL[preset]}</span>
+                      <span class="gallery-poster-bytes">{fmtBytes(cell.presetBytes)}</span>
+                    </div>
+                  )}
+                  <span class="gallery-cell-cta">▶ load live splat</span>
+                  <a
+                    class="gallery-cell-popout"
+                    href={previewSrc}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    aria-label={`Open ${disp.title} · ${PRESET_LABEL[preset]} in a new tab`}
+                    onclick="event.stopPropagation();"
+                  >open ↗</a>
+                </div>
+                <div class="gallery-cell-meta">
+                  <div class="preset-row">
+                    <strong class="preset-name">{PRESET_LABEL[preset]}</strong>
+                    <span class="preset-bytes">{fmtBytes(cell.presetBytes)}</span>
+                  </div>
+                  <div class="preset-badges">
+                    {ratio && <span class="badge badge-ratio">{ratio}</span>}
+                    {badge && (
+                      <span class={`badge badge-fid badge-${badge.tone}`} title="Mean ΔE94 across 8 orbit-cam frames (lower = closer to lossless baseline)">
+                        {badge.label}
+                      </span>
+                    )}
+                  </div>
+                  <span class="preset-blurb">{PRESET_BLURB[preset]}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </article>
+    );
+  })}
+
+  {gallery.length === 0 && (
+    <p class="methodology">
+      No gallery outputs found under <code>apps/web/public/bench-renders/</code>.
+      Run <code>tasks/scripts/run_all.sh</code> in the worktree to produce them.
+    </p>
+  )}
+</section>
+
+<script>
+  // Click-to-load each cell's live splat viewer in an iframe. We never
+  // auto-load — 18 WebGL contexts at once would melt most laptops, and
+  // the bench page is read sequentially. The customer chooses which
+  // (scene, preset) to inspect; we only mount the viewer for that cell.
+  // ESC or clicking the close × tears the viewer back down.
+  type Cell = HTMLElement & { dataset: DOMStringMap };
+  const cells = document.querySelectorAll<Cell>(".gallery-cell[data-preview-src]");
+  for (const cell of Array.from(cells)) {
+    const src = cell.dataset.previewSrc;
+    if (!src) continue;
+    const frame = cell.querySelector<HTMLDivElement>(".gallery-cell-frame");
+    if (!frame) continue;
+    const mount = () => {
+      if (cell.classList.contains("is-live")) return;
+      cell.classList.add("is-live");
+      // Build iframe
+      const iframe = document.createElement("iframe");
+      iframe.src = src;
+      iframe.title = `Live preview of ${cell.dataset.scene} · ${cell.dataset.preset}`;
+      iframe.setAttribute("loading", "eager");
+      iframe.setAttribute("allow", "fullscreen");
+      iframe.classList.add("gallery-iframe");
+      // Close button
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.classList.add("gallery-cell-close");
+      closeBtn.setAttribute("aria-label", "Close live preview");
+      closeBtn.textContent = "×";
+      closeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        cell.classList.remove("is-live");
+        iframe.remove();
+        closeBtn.remove();
+      });
+      frame.appendChild(iframe);
+      frame.appendChild(closeBtn);
+    };
+    frame.addEventListener("click", (e) => {
+      // Ignore clicks on the popout link
+      if ((e.target as HTMLElement).closest(".gallery-cell-popout")) return;
+      if ((e.target as HTMLElement).closest(".gallery-cell-close")) return;
+      if (cell.classList.contains("is-live")) return;
+      mount();
+    });
+    frame.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        mount();
+      }
+    });
+  }
+</script>
+
+<style>
+  .bench-gallery-section {
+    max-width: 1280px;
+  }
+  .gallery-scene {
+    margin: 2.5rem 0 3.5rem;
+  }
+  .gallery-scene-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 0.85rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border, #2a2f37);
+  }
+  .gallery-scene-title {
+    font-size: 1.5rem;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .gallery-scene-sub {
+    margin: 0.15rem 0 0;
+    color: var(--muted, #9aa2ad);
+    font-size: 0.92rem;
+  }
+  .gallery-scene-meta {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .meta-chip {
+    background: var(--surface, #15181d);
+    border: 1px solid var(--border, #2a2f37);
+    border-radius: 0.4rem;
+    padding: 0.3rem 0.55rem;
+    font-size: 0.78rem;
+    font-variant: tabular-nums;
+    display: inline-flex;
+    flex-direction: column;
+    line-height: 1.15;
+  }
+  .meta-k {
+    color: var(--muted, #9aa2ad);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .meta-v {
+    color: var(--text, #e7eaef);
+  }
+  .gallery-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  @media (max-width: 760px) {
+    .gallery-strip { grid-template-columns: 1fr; }
+  }
+  .gallery-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .gallery-cell-frame {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #0b0d10;
+    border: 1px solid var(--border, #2a2f37);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+    transition: border-color 120ms, transform 200ms;
+  }
+  .gallery-cell-frame:hover { border-color: var(--accent, #6ea0ff); transform: translateY(-1px); }
+  .gallery-cell-frame:focus-visible {
+    outline: 2px solid var(--accent, #6ea0ff);
+    outline-offset: 2px;
+  }
+  .gallery-cell-frame img,
+  .gallery-cell-frame .gallery-poster {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .gallery-poster-stub {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 0.3rem;
+    width: 100%;
+    height: 100%;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(110, 160, 255, 0.18) 0%, transparent 60%),
+      radial-gradient(ellipse at 70% 80%, rgba(78, 194, 126, 0.12) 0%, transparent 60%),
+      #0b0d10;
+    color: var(--text, #e7eaef);
+    text-align: center;
+    padding: 0 1rem;
+  }
+  .gallery-poster-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .gallery-poster-sub {
+    font-size: 0.85rem;
+    color: var(--muted, #9aa2ad);
+    font-variant: tabular-nums;
+  }
+  .gallery-poster-bytes {
+    font-variant: tabular-nums;
+    font-size: 0.85rem;
+    color: #6ea0ff;
+  }
+  .gallery-cell-cta {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    padding: 0.5rem 1rem;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    transition: background-color 120ms, transform 120ms, opacity 120ms;
+  }
+  .gallery-cell-frame:hover .gallery-cell-cta {
+    background: rgba(110, 160, 255, 0.85);
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+  .gallery-cell-popout {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.2rem 0.55rem;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 0.35rem;
+    font-size: 0.74rem;
+    text-decoration: none;
+    backdrop-filter: blur(4px);
+    z-index: 2;
+  }
+  .gallery-cell-popout:hover {
+    background: rgba(110, 160, 255, 0.85);
+  }
+  /* Live state — iframe replaces the poster + CTA. */
+  .gallery-cell.is-live .gallery-cell-cta,
+  .gallery-cell.is-live .gallery-poster {
+    display: none;
+  }
+  .gallery-iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: #000;
+  }
+  .gallery-cell-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 50%;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 3;
+  }
+  .gallery-cell-close:hover { background: rgba(255, 90, 90, 0.85); }
+  .gallery-cell-frame-empty,
+  .gallery-cell-frame .gallery-empty-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gallery-empty-label {
+    width: 100%;
+    height: 100%;
+    color: var(--muted, #9aa2ad);
+    font-size: 0.85rem;
+    background: repeating-linear-gradient(
+      45deg,
+      rgba(255,255,255,0.02) 0 8px,
+      rgba(255,255,255,0) 8px 16px
+    );
+  }
+  .gallery-cell-empty .gallery-cell-meta { opacity: 0.6; }
+  .gallery-cell-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .preset-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .preset-name {
+    font-size: 1rem;
+    color: var(--text, #e7eaef);
+  }
+  .preset-bytes {
+    font-variant: tabular-nums;
+    color: var(--text, #e7eaef);
+    font-size: 0.9rem;
+  }
+  .preset-badges {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.74rem;
+    border-radius: 1rem;
+    border: 1px solid var(--border, #2a2f37);
+    background: var(--surface, #15181d);
+    font-variant: tabular-nums;
+  }
+  .badge-ratio { color: #6ea0ff; }
+  .badge-fid.badge-good { color: #4ec27e; }
+  .badge-fid.badge-ok   { color: #c9a55a; }
+  .badge-fid.badge-warn { color: #d96a5a; }
+  .preset-blurb {
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--muted, #9aa2ad);
+  }
+</style>

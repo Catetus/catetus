@@ -1,0 +1,24 @@
+{
+  "splats_before": 25000,
+  "splats_after": 25000,
+  "passes": [
+    {
+      "name": "RemoveInvalidSplats",
+      "stats": {
+        "removed": 0,
+        "modified": 0,
+        "duration_ms": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "MortonSort",
+      "stats": {
+        "removed": 0,
+        "modified": 25000,
+        "duration_ms": 0,
+        "notes": []
+      }
+    }
+  ]
+}

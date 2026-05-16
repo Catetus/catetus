@@ -1,0 +1,185 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "splatforge-gltf"
+  },
+  "extensionsUsed": [
+    "KHR_gaussian_splatting",
+    "SF_spatial_streaming_index",
+    "KHR_mesh_quantization"
+  ],
+  "extensionsRequired": [
+    "KHR_gaussian_splatting"
+  ],
+  "buffers": [
+    {
+      "byteLength": 456000,
+      "uri": "buffers/chunk_0000.bin"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 72000
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 72000,
+      "byteLength": 192000
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 264000,
+      "byteLength": 36000
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 300000,
+      "byteLength": 12000
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 312000,
+      "byteLength": 144000
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5123,
+      "count": 12000,
+      "type": "VEC3",
+      "normalized": true,
+      "min": [
+        -0.9998938,
+        -0.9995087,
+        -0.9999603
+      ],
+      "max": [
+        1.099933,
+        0.9996175,
+        0.99953854
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 12000,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5121,
+      "count": 12000,
+      "type": "VEC3",
+      "normalized": true,
+      "min": [
+        0.0035033603,
+        0.0035033603,
+        0.0035033603
+      ],
+      "max": [
+        0.019999465,
+        0.019999465,
+        0.019999465
+      ]
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5121,
+      "count": 12000,
+      "type": "SCALAR",
+      "normalized": true,
+      "min": [
+        0.0
+      ],
+      "max": [
+        1.0
+      ]
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 12000,
+      "type": "VEC3"
+    }
+  ],
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "attributes": {
+            "KHR_gaussian_splatting:OPACITY": 3,
+            "KHR_gaussian_splatting:ROTATION": 1,
+            "KHR_gaussian_splatting:SCALE": 2,
+            "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0": 4,
+            "POSITION": 0
+          },
+          "extensions": {
+            "KHR_gaussian_splatting": {
+              "colorSpace": "srgb_rec709_display",
+              "kernel": "ellipse",
+              "projection": "perspective",
+              "shDegree": 0,
+              "sortingMethod": "cameraDistance"
+            }
+          },
+          "mode": 0
+        }
+      ]
+    }
+  ],
+  "extensions": {
+    "KHR_gaussian_splatting": {
+      "bbox": {
+        "max": [
+          1.0999330282211304,
+          0.9996175169944763,
+          0.9995385408401489
+        ],
+        "min": [
+          -0.9998937845230103,
+          -0.9995086789131165,
+          -0.9999603033065796
+        ]
+      },
+      "shDegree": 0,
+      "splatCount": 12000
+    },
+    "SF_spatial_streaming_index": {
+      "chunkCount": 1,
+      "chunks": [
+        {
+          "bbox": {
+            "max": [
+              1.0999330282211304,
+              0.9996175169944763,
+              0.9995385408401489
+            ],
+            "min": [
+              -0.9998937845230103,
+              -0.9995086789131165,
+              -0.9999603033065796
+            ]
+          },
+          "buffer": 0,
+          "byteLength": 456000,
+          "byteOffset": 0,
+          "checksum": "blake3:27cb46c0f0060a34b6dd8aee3a497341e88a7040aa5460d7c98bea48b7dd95a7",
+          "loadPriority": 0,
+          "lod": 0,
+          "splatCount": 12000,
+          "uri": "buffers/chunk_0000.bin"
+        }
+      ],
+      "lods": [
+        {
+          "level": 0,
+          "splatFraction": 1.0
+        }
+      ],
+      "ordering": "morton"
+    }
+  }
+}
