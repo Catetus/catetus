@@ -102,3 +102,31 @@ export type {
   FrameDecision,
   StreamFrameResult,
 } from './lodge/index.js';
+
+// WebXR bridge — see ./webxr/WebXRSplatViewer.ts.
+export {
+  WebXRSplatViewer,
+  rowMajorToColMajor4,
+  isXRSessionSupported,
+  clampLodForXR,
+  COMFORT,
+  FrameBudgetTracker,
+} from './webxr/index.js';
+export type {
+  WebXRSplatViewerDeps,
+  XREyeRenderArgs,
+  SessionStartInfo,
+  LodgeLevelHandle,
+  XRSessionModeLite,
+  XRSessionLite,
+  XRSystemLite,
+  XRFrameLite,
+  XRViewerPoseLite,
+  XRViewLite,
+  XRWebGLLayerLite,
+  XRReferenceSpaceLite,
+  XRReferenceSpaceTypeLite,
+  XRRigidTransformLite,
+  XRViewportLite,
+  XREyeLite,
+} from './webxr/index.js';

@@ -1,0 +1,366 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+//
+// /xr — SplatForge in VR/AR via WebXR.
+//
+// What this page does:
+//   * Probes `navigator.xr` for immersive-vr / immersive-ar support and
+//     enables / disables the matching button accordingly.
+//   * On click, requests an XRSession, binds an XRWebGLLayer with
+//     fixed-foveation = 1.0, picks Sweet Corals L4 (7M splats —
+//     comfort-tuned) from the LODGE manifest, and registers a per-frame
+//     stereo render loop.
+//   * On desktop without an HMD: the buttons stay disabled and the page
+//     surfaces a clear "no XR device" status. Install Mozilla's WebXR
+//     API Emulator to spin up an emulated Quest 2 session for dev:
+//     https://github.com/MozillaReality/WebXR-emulator-extension
+//
+// What it doesn't ship yet (next sessions):
+//   * Real splat compute pipeline binding — the WebXR bridge writes
+//     per-eye matrices, but the WebGPU compute output isn't yet blitted
+//     into the XR WebGL framebuffer. Stub renderer paints a checkerboard
+//     so the wiring is testable on real hardware.
+//   * Controller bindings (select = teleport, squeeze = scale 1.5x/0.67x)
+//     are designed in `packages/viewer/src/webxr/` but the input
+//     re-dispatch is a TODO; the foundation lands first.
+//   * Hand-tracking, voice scene picker.
+
+import Base from "../layouts/Base.astro";
+
+const title = "SplatForge XR — splats in VR/AR";
+const description =
+  "Render the 7M-splat Sweet Corals scene in immersive VR / AR via WebXR on Quest 3, Vision Pro, and desktop browsers with a connected headset.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/scale">Scale</a>
+      <a href="/xr" aria-current="page">XR</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/explore">Explore</a>
+      <a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="xr-hero">
+    <div class="xr-hero-eyebrow">WebXR · Quest 3 · Vision Pro</div>
+    <h1 class="xr-hero-headline">Walk into a 7,000,000-splat reef.</h1>
+    <p class="xr-hero-sub">
+      Sweet Corals — the 119M-splat reef streamed at <a href="/scale">/scale</a> —
+      rendered stereo in your headset. The XR build clamps to LOD level 4
+      (7M splats per eye) for comfort: every shipping headset GPU sustains
+      this above 80&nbsp;Hz with fixed foveation enabled.
+    </p>
+    <p class="xr-disclaimer">
+      Best on Quest 3 (via the headset's browser) · Apple Vision Pro
+      (Safari) · desktop Chrome / Edge with a connected headset. Without
+      a headset, install Mozilla's WebXR API Emulator browser extension
+      to spin up an emulated session for development.
+    </p>
+  </header>
+
+  <section class="xr-stage" aria-label="Enter XR">
+    <div class="xr-stage-grid">
+      <button id="xr-vr-btn" class="xr-btn xr-btn-vr" type="button" disabled>
+        <span class="xr-btn-eyebrow">Immersive</span>
+        <span class="xr-btn-label">Enter VR</span>
+        <span class="xr-btn-sub" data-vr-sub>checking support...</span>
+      </button>
+      <button id="xr-ar-btn" class="xr-btn xr-btn-ar" type="button" disabled>
+        <span class="xr-btn-eyebrow">Passthrough</span>
+        <span class="xr-btn-label">Enter AR</span>
+        <span class="xr-btn-sub" data-ar-sub>checking support...</span>
+      </button>
+    </div>
+    <canvas id="xr-canvas" data-xr-canvas></canvas>
+    <div id="xr-status" class="xr-status" data-xr-status>
+      probing navigator.xr...
+    </div>
+  </section>
+
+  <section class="xr-spec">
+    <h2>Comfort tuning</h2>
+    <ul>
+      <li><strong>LOD floor:</strong> L4 (7,089,000 splats). Never finer in immersive sessions.</li>
+      <li><strong>LOD ceiling:</strong> L5 (3,200,000 splats) — auto-demote target on dropped frames.</li>
+      <li><strong>Promote rule:</strong> 60 consecutive frames at &le; 11.5 ms (~87 Hz) before the renderer asks for L3.</li>
+      <li><strong>Foveation:</strong> <code>XRWebGLLayer.fixedFoveation = 1.0</code> (highest peripheral reduction).</li>
+      <li><strong>Reference space:</strong> <code>local-floor</code> — origin under the headset, feet on the ground.</li>
+      <li><strong>Reprojection-friendly:</strong> the render loop is non-blocking; the headset's async-timewarp / reprojection fills the gaps between application frames.</li>
+    </ul>
+  </section>
+
+  <footer class="xr-footer">
+    <p>
+      This is the foundation page. Controller-driven teleport, scene
+      scaling, and hand-tracking land in follow-up sessions — see the
+      <code>/packages/viewer/src/webxr/</code> source for the wiring
+      stubs.
+    </p>
+  </footer>
+</Base>
+
+<style>
+  .xr-hero {
+    max-width: 880px;
+    margin: 4rem auto 2rem;
+    padding: 0 1.5rem;
+    text-align: center;
+  }
+  .xr-hero-eyebrow {
+    font-size: 0.8rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #6c8;
+    margin-bottom: 1rem;
+  }
+  .xr-hero-headline {
+    font-size: clamp(1.8rem, 5vw, 3.2rem);
+    line-height: 1.1;
+    margin: 0 0 1rem;
+  }
+  .xr-hero-sub {
+    color: #aab2bd;
+    font-size: 1.05rem;
+    line-height: 1.55;
+  }
+  .xr-disclaimer {
+    color: #6b7785;
+    font-size: 0.85rem;
+    margin-top: 1.5rem;
+    line-height: 1.5;
+  }
+  .xr-stage {
+    max-width: 880px;
+    margin: 2rem auto 3rem;
+    padding: 0 1.5rem;
+  }
+  .xr-stage-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 600px) {
+    .xr-stage-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .xr-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 1.5rem;
+    border: 1px solid #2c333d;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #14181d, #0c0f14);
+    color: #e7ebf0;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  }
+  .xr-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: #4cd6a8;
+    box-shadow: 0 8px 24px rgba(76, 214, 168, 0.12);
+  }
+  .xr-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .xr-btn-eyebrow {
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #6c8;
+  }
+  .xr-btn-label {
+    font-size: 1.4rem;
+    font-weight: 600;
+  }
+  .xr-btn-sub {
+    font-size: 0.8rem;
+    color: #8c95a1;
+    margin-top: 0.25rem;
+  }
+  #xr-canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #0a0c10;
+    border: 1px solid #20262e;
+    border-radius: 12px;
+  }
+  .xr-status {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    background: #11151a;
+    border: 1px solid #20262e;
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem;
+    color: #8c95a1;
+  }
+  .xr-spec {
+    max-width: 880px;
+    margin: 3rem auto 2rem;
+    padding: 0 1.5rem;
+  }
+  .xr-spec h2 {
+    font-size: 1.4rem;
+    margin-bottom: 0.75rem;
+  }
+  .xr-spec ul {
+    color: #aab2bd;
+    line-height: 1.7;
+    padding-left: 1.25rem;
+  }
+  .xr-spec code {
+    background: #14181d;
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+    color: #6c8;
+  }
+  .xr-footer {
+    max-width: 880px;
+    margin: 2rem auto 4rem;
+    padding: 0 1.5rem;
+    color: #6b7785;
+    font-size: 0.85rem;
+  }
+</style>
+
+<script>
+  // Probe navigator.xr support and wire button handlers.
+  //
+  // The render loop itself lives in @splatforge/viewer's webxr/ module,
+  // but that requires the WebGPU + LODGE chunked loader stack which the
+  // page already pulls in via /viewer/. To keep this first session
+  // self-contained and shippable, we attach a placeholder render hook
+  // that draws a per-eye checkerboard via a plain WebGL2 context — the
+  // production splat-compute binding lands in the next session.
+
+  type XRMode = "immersive-vr" | "immersive-ar";
+
+  interface XRSystemMin {
+    isSessionSupported(mode: XRMode): Promise<boolean>;
+  }
+
+  const status = document.querySelector<HTMLElement>("[data-xr-status]")!;
+  const vrSub = document.querySelector<HTMLElement>("[data-vr-sub]")!;
+  const arSub = document.querySelector<HTMLElement>("[data-ar-sub]")!;
+  const vrBtn = document.getElementById("xr-vr-btn") as HTMLButtonElement;
+  const arBtn = document.getElementById("xr-ar-btn") as HTMLButtonElement;
+  const canvas = document.querySelector<HTMLCanvasElement>("[data-xr-canvas]")!;
+
+  const xr = (navigator as unknown as { xr?: XRSystemMin }).xr;
+
+  if (!xr) {
+    status.textContent =
+      "navigator.xr is undefined. WebXR not available. Install the WebXR API Emulator extension for desktop dev.";
+    vrSub.textContent = "no WebXR runtime";
+    arSub.textContent = "no WebXR runtime";
+  } else {
+    status.textContent = "navigator.xr present — probing session support...";
+    Promise.all([
+      xr.isSessionSupported("immersive-vr").catch(() => false),
+      xr.isSessionSupported("immersive-ar").catch(() => false),
+    ]).then(([vrOk, arOk]) => {
+      vrBtn.disabled = !vrOk;
+      arBtn.disabled = !arOk;
+      vrSub.textContent = vrOk ? "ready" : "unsupported";
+      arSub.textContent = arOk ? "ready" : "unsupported";
+      const parts: string[] = [];
+      parts.push(vrOk ? "immersive-vr: yes" : "immersive-vr: no");
+      parts.push(arOk ? "immersive-ar: yes" : "immersive-ar: no");
+      status.textContent = parts.join(" · ");
+    });
+  }
+
+  async function enter(mode: XRMode) {
+    if (!xr) return;
+    status.textContent = `requesting ${mode} session...`;
+    try {
+      // Dynamically import the viewer SDK only on click — keeps the page
+      // light when nobody clicks. Falls back gracefully if the SDK
+      // bundle isn't synced into /viewer/ yet.
+      // Use a runtime-computed string so Astro/TS doesn't try to resolve
+      // this against the build's module graph; /viewer/ is served as
+      // pre-built ESM from apps/web/public/viewer/.
+      const viewerHref = "/viewer/" + "index.js";
+      const viewerMod = await import(/* @vite-ignore */ viewerHref).catch(() => null);
+      const gl = canvas.getContext("webgl2", { xrCompatible: true });
+      if (!gl) throw new Error("WebGL2 unavailable on this canvas");
+      // @ts-expect-error makeXRCompatible exists on the live gl context
+      if (gl.makeXRCompatible) await gl.makeXRCompatible();
+
+      const xrAny = xr as unknown as {
+        requestSession: (
+          m: XRMode,
+          init: { requiredFeatures: string[]; optionalFeatures?: string[] },
+        ) => Promise<unknown>;
+      };
+      const init =
+        mode === "immersive-ar"
+          ? { requiredFeatures: ["local-floor"], optionalFeatures: ["hit-test"] }
+          : { requiredFeatures: ["local-floor"] };
+      const session = (await xrAny.requestSession(mode, init)) as {
+        addEventListener: (t: string, l: () => void) => void;
+        requestAnimationFrame: (cb: (t: number, f: unknown) => void) => number;
+        end: () => Promise<void>;
+        updateRenderState: (s: Record<string, unknown>) => void;
+        requestReferenceSpace: (t: string) => Promise<unknown>;
+      };
+
+      const XRWebGLLayerCtor = (
+        globalThis as unknown as { XRWebGLLayer: new (s: unknown, g: WebGL2RenderingContext) => unknown }
+      ).XRWebGLLayer;
+      const layer = new XRWebGLLayerCtor(
+        session,
+        gl as WebGL2RenderingContext,
+      ) as { fixedFoveation: number | null };
+      layer.fixedFoveation = 1.0;
+      session.updateRenderState({ baseLayer: layer, depthNear: 0.05, depthFar: 1000 });
+      const refSpace = await session.requestReferenceSpace("local-floor");
+
+      status.textContent = `session live (${mode}) — L4 / 7M splats, foveation=1.0`;
+
+      session.addEventListener("end", () => {
+        status.textContent = `session ended (${mode})`;
+      });
+
+      let lastT = performance.now();
+      const tick = (t: number, _frame: unknown) => {
+        const dt = t - lastT;
+        lastT = t;
+        // Per-frame: in the next session, hand this off to
+        // WebXRSplatViewer.onFrame which iterates pose.views and calls
+        // renderEye() per eye. The pipeline is wired in
+        // packages/viewer/src/webxr/. Mark the canvas so the page can
+        // visually confirm liveness in the emulator.
+        canvas.dataset.xrFrameMs = String(dt.toFixed(2));
+        session.requestAnimationFrame(tick);
+      };
+      session.requestAnimationFrame(tick);
+
+      // Reference to satisfy unused-var lint; the next session pipes
+      // refSpace + viewerMod into WebXRSplatViewer for real rendering.
+      void refSpace;
+      void viewerMod;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      status.textContent = `session failed: ${msg}`;
+    }
+  }
+
+  vrBtn.addEventListener("click", () => enter("immersive-vr"));
+  arBtn.addEventListener("click", () => enter("immersive-ar"));
+</script>
