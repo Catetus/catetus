@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "case01_int8_1x1.ply",
+      "n_anchors": 1,
+      "fields": {
+        "f_anchor_feat": {
+          "shape": [
+            1,
+            1
+          ],
+          "expected_fp32_b64": "AACoQQ=="
+        }
+      }
+    },
+    {
+      "name": "case02_int8_4x3.ply",
+      "n_anchors": 4,
+      "fields": {
+        "f_anchor_feat": {
+          "shape": [
+            4,
+            3
+          ],
+          "expected_fp32_b64": "zcxMwQAAAABnZhhCAACAPwAAgMAAABBBAAAAAAAAAAAAAAAAzczMPc3MTD6amZk+"
+        }
+      }
+    },
+    {
+      "name": "case03_int8_5x32.ply",
+      "n_anchors": 5,
+      "fields": {
+        "f_anchor_feat": {
+          "shape": [
+            5,
+            32
+          ],
+          "expected_fp32_b64": "CtejvwAAsL9aZLu/GQTGvzzfz7/C9di/r0fhv//U6L+yne+/yqH1v0fh+r8pXP+/N4kBwAwCA8CUGATAzcwEwLgeBcBWDgXAppsEwKjGA8BcjwLAwvUAwLfz/b9MN/m/Rrbzv6Rw7b9mZua/jpfevxgE1r8IrMy/XI/CvxWut79H4Zq/3SSmv9ejsL82Xrq/+FPDvx6Fy7+r8dK/mpnZv+1837+lm+S/wvXov0OL7L8pXO+/c2jxvyGw8r8zM/O/qvHyv4br8b/FIPC/aJHtv3A96r/dJOa/r0fhv+Ol279+P9W/exTOv90kxr+kcL2/zvezv166qb9SuJ6/qvGSv4Xrkb+6SZy/VOOlv1K4rr+1yLa/exS+v6abxL82Xsq/KFzPv4GV0789Cte/XrrZv+Ol27/NzNy/Gy/dv83M3L/kpdu/X7rZvz4K17+BldO/KVzPvzVeyr+mm8S/exS+v7XItr9SuK6/VOOlv7pJnL+F65G/tMiGv4/Cdb9/aly/wvWIv5hukr/RIpu/bxKjv3E9qr/Xo7C/okW2v9Iiu79kO7+/XI/Cv7gexb956ca/nu/HvycxyL8Vrse/Z2bGvx1axL84icG/t/O9v5mZub/herS/jZeuv57vp78Sg6C/7FGYvylcj7/KoYW/okV2v3a+X78Vrke/exQuv6rxEr8AAIC/dZOIv05ikL+LbJe/LbKdvzMzo7+e76e/beerv58ar783ibG/MzOzv5MYtL9YObS/gZWzvw4tsr8AALC/Vg6tvxFYqb8v3aS/sp2fv5mZmb/l0JK/lkOLv6rxgr9GtnO/AABgv4LASr/P9zO/46Ubv8HKAb/MzMy+qvGSvg=="
+        }
+      }
+    },
+    {
+      "name": "case04_int4_1x4.ply",
+      "n_anchors": 1,
+      "fields": {
+        "f_offset": {
+          "shape": [
+            1,
+            4
+          ],
+          "expected_fp32_b64": "AAAAwAAAgL4AAAAAAADgPw=="
+        }
+      }
+    },
+    {
+      "name": "case05_int4_3x30.ply",
+      "n_anchors": 3,
+      "fields": {
+        "f_offset": {
+          "shape": [
+            3,
+            30
+          ],
+          "expected_fp32_b64": "AACAwAAAYMAAAEDAAAAgwAAAAMAAAMC/AACAvwAAAL8AAAAAAAAAPwAAgD8AAMA/AAAAQAAAIEAAAEBAAABgQAAAgMAAAGDAAABAwAAAIMAAAADAAADAvwAAgL8AAAC/AAAAAAAAAD8AAIA/AADAPwAAAEAAACBAAABAvwAAAL8AAIC+AAAAAAAAgD4AAAA/AABAPwAAgD8AAKA/AADAPwAA4D8AAADAAADgvwAAwL8AAKC/AACAvwAAQL8AAAC/AACAvgAAAAAAAIA+AAAAPwAAQD8AAIA/AACgPwAAwD8AAOA/AAAAwAAA4L8AAMC/AACAvwAAIL8AAIC+AAAAPgAAAD8AAGA/AABAvwAAwL4AAAAAAADAPgAAQD8AAGC/AAAAvwAAAL4AAIA+AAAgPwAAgL8AACC/AACAvgAAAD4AAAA/AABgPwAAQL8AAMC+AAAAAAAAwD4AAEA/AABgvwAAAL8AAAC+"
+        }
+      }
+    },
+    {
+      "name": "case06_int4_2x5_odd.ply",
+      "n_anchors": 2,
+      "fields": {
+        "f_x": {
+          "shape": [
+            2,
+            5
+          ],
+          "expected_fp32_b64": "AACAwAAAYEAAAAAAAAAAvwAAAD8AAEBAAABAwAAAoEAAAKDAAAAAQA=="
+        }
+      }
+    },
+    {
+      "name": "case07_mixed.ply",
+      "n_anchors": 2,
+      "fields": {
+        "f_anchor_feat": {
+          "shape": [
+            2,
+            2
+          ],
+          "expected_fp32_b64": "AACgwAAAIEEAAIA/AAAAwA=="
+        },
+        "f_offset": {
+          "shape": [
+            2,
+            4
+          ],
+          "expected_fp32_b64": "AAAAwAAA4D8AAAAAAACAPgAAAEAAAADAAACAPwAAgL8="
+        }
+      }
+    },
+    {
+      "name": "case08_int8_zero.ply",
+      "n_anchors": 2,
+      "fields": {
+        "f_anchor_feat": {
+          "shape": [
+            2,
+            4
+          ],
+          "expected_fp32_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        }
+      }
+    },
+    {
+      "name": "case09_int8_extreme_scales.ply",
+      "n_anchors": 3,
+      "fields": {
+        "f_anchor_feat": {
+          "shape": [
+            3,
+            3
+          ],
+          "expected_fp32_b64": "/+bbLgAAgD/5AhVQ/+bbrgAAgL/5AhXQMS9aMgAAAAD5ApXT"
+        }
+      }
+    },
+    {
+      "name": "case10_int8_with_constant.ply",
+      "n_anchors": 2,
+      "fields": {
+        "f_anchor_feat": {
+          "shape": [
+            2,
+            2
+          ],
+          "expected_fp32_b64": "AACgQAAAoMAAACBBAAAgwQ=="
+        }
+      }
+    }
+  ]
+}
