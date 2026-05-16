@@ -27,6 +27,8 @@ const cull = readFileSync(join(wgpu, 'cs_cull.wgsl'), 'utf8');
 const wsrClear = readFileSync(join(wgpu, 'cs_wsr_clear.wgsl'), 'utf8');
 const wsrAccum = readFileSync(join(wgpu, 'cs_wsr_accumulate.wgsl'), 'utf8');
 const wsrResolve = readFileSync(join(wgpu, 'cs_wsr_resolve.wgsl'), 'utf8');
+const lodSelect = readFileSync(join(wgpu, 'cs_lod_select.wgsl'), 'utf8');
+const lodBlend = readFileSync(join(wgpu, 'cs_lod_blend.wgsl'), 'utf8');
 
 const escape = (s) => '`' + s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${') + '`';
 
@@ -50,6 +52,10 @@ export const WSR_CLEAR_WGSL: string = ${escape(wsrClear)};
 export const WSR_ACCUMULATE_WGSL: string = ${escape(wsrAccum)};
 
 export const WSR_RESOLVE_WGSL: string = ${escape(wsrResolve)};
+
+export const LOD_SELECT_WGSL: string = ${escape(lodSelect)};
+
+export const LOD_BLEND_WGSL: string = ${escape(lodBlend)};
 `;
 
 writeFileSync(join(wgpu, 'shaders.generated.ts'), out);

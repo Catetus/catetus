@@ -812,3 +812,116 @@ Measured on `bonsai_iter7000.ply` (1.16 M splats, 287 MB input PLY,
 SH degree 3) running M3-Max release build: **1.9 s wall-time** to
 emit a 4-level pyramid (L0 1.16 M, L1 372 k, L2 190 k, L3 98 k) at
 430 MB total on disk (= L0 287 MB + coarser-copies overhead).
+
+---
+
+## A.3 Phase A.3 BUILT — per-frame WGSL LOD compute pass + boundary blend (2026-05-15)
+
+`packages/viewer/src/lodge/lod-math.ts`, `lod-pipeline.ts` and the WGSL
+kernels `cs_lod_select.wgsl` + `cs_lod_blend.wgsl` ship the runtime
+LOD-selection compute pass + LODGE eq. 4 boundary blend on top of the
+Phase A.2 loader.
+
+### A.3.1 What Phase A.3 adds
+
+1. **`cs_lod_select.wgsl`** — one thread per chunk (workgroup 64).
+   Reads chunk centroid + radius + camera position, evaluates LODGE
+   eq. 2 (distance band) + a screen-space-size heuristic to bump
+   coarser at projected radius < `ss_size_threshold` px. Emits per-chunk
+   `ChunkActivation { level, active, slot, t_blend }` records.
+
+2. **`cs_lod_blend.wgsl`** — per-splat alpha modulation. Reads each
+   decoded splat's owning `chunk_id`, looks up its activation record,
+   and writes `splat.opacity = active ? alpha * t_blend : 0`. Inactive
+   splats fall through the downstream cull predicate (`alpha >= tau`)
+   and never reach project / sort.
+
+3. **`LodgeLODPipeline`** — TS orchestrator that wraps a
+   `LodgeChunkLoader` with the per-frame LOD decision, the near/far
+   chunk picker for eq. 4, and the byte-layout encoders for the WGSL
+   uniform / chunk-record / level-record buffers. Exposes
+   `prepareFrame(camera, focalY)` (CPU-only, sub-ms per call on a
+   100 M-splat scene) and `streamFrame(camera, focalY)` (CPU + I/O,
+   ensures the eq. 4 partners are resident in the GPU pipeline).
+
+### A.3.2 LODGE eq. 4 boundary blend
+
+The boundary-blend ramp is the projection of `(camera - m_o)` onto
+the line `m_o → m_f`:
+
+```
+t = clamp( ((c - m_o) · (m_f - m_o)) / ||m_o - m_f||² , 0, 1 )
+```
+
+The "near" chunk's splats get `α' = α · (1 - t)` and the "far" chunk's
+splats get `α' = α · t`. When the camera passes the bisector
+(`t = 0.5`) the partners swap roles continuously — no popping. Single-
+chunk levels degenerate to `t_blend = 1.0` (no fade).
+
+### A.3.3 Buffer layout (kept in sync with WGSL → tested via emulator)
+
+| buffer | bytes/record | shape |
+|--------|--------------|-------|
+| `ls_chunks[]` (ChunkDesc) | 32 | `centroid(vec4) + level(u32) + chunk_index(u32) + splat_count(u32) + _pad(u32)` |
+| `ls_levels[]` (LevelDesc) | 16 | `depth_threshold(f32) + level(u32) + 2 u32 pad` |
+| `ls_activation[]` (ChunkActivation) | 16 | `level(u32) + active(u32) + slot(u32) + t_blend(f32)` |
+| `LodSelectUniforms` | 128 | 8 vec4: camera, scene_center, depth_thresholds[0..3], depth_thresholds2[4..7], counts(packed), near_centroid, far_centroid, ss_focal(packed) |
+
+`LOD_MAX_LEVELS = 8` (depth thresholds fit two vec4s).
+
+### A.3.4 Test gates
+
+`packages/viewer/src/__tests__/lodge-lod-math.test.ts` (18 tests):
+- LODGE eq. 4 ramp behaviour at endpoints, midpoints, off-axis cameras,
+  degenerate near==far.
+- `selectChunkActivation` decision tree: distance band, SS-size bump,
+  slot assignment, chunk-radius slack at the band edge.
+- `pickNearFarChunks` semantics on 2-chunk and 1-chunk levels.
+
+`packages/viewer/src/__tests__/lodge-lod-pipeline.test.ts` (10 tests):
+- Level selection at scene center vs scene far.
+- Record-order semantics (per-(level, chunk) flattening).
+- Active-splat-count accounting.
+- Near/far chunk picking at off-center cameras.
+- Byte-layout encoder constants (`CHUNK_RECORD_BYTES`,
+  `LEVEL_RECORD_BYTES`, `ACTIVATION_BYTES`, `LOD_UNIFORMS_BYTES`).
+- Activation decode round-trip.
+- Streaming integration with a synthetic-PLY mock fetcher: cache-hit
+  semantics across consecutive `streamFrame()` calls.
+
+`packages/viewer/src/__tests__/lodge-lod-wgsl-emulation.test.ts`
+(4 tests):
+- A hand-written WGSL "interpreter" that mirrors `cs_lod_select.wgsl`
+  byte-for-byte, fed the encoder output, must agree with the JS
+  reference on the same activations. This is the closest we can get
+  to gating the GPU kernel without spinning up real WebGPU inside
+  vitest.
+
+Total: 160 / 160 viewer tests pass. `pnpm lint` clean.
+`cargo test -p splatforge-lodge`: 8 / 8 pass (Phase A.1 untouched).
+
+### A.3.5 4090 bench harness
+
+`packages/viewer/bench/real-scene-lodge.bench.ts` +
+`real-scene-lodge.html` drive the LOD pipeline against a real `.lodge`
+directory through the existing `ComputeDecodePipeline`. Discovered by
+`run-bench-windows.mjs` when any `*.lodge/` directory lives in
+`SF_BENCH_PLY_DIR`; merged into `results.json::realSceneLodge`. Per
+scene, the bench measures fps at every level that fits in the device's
+`maxBufferSize` budget, picks the level the CPU heuristic would
+choose, and reports speedup vs L0.
+
+### A.3.6 Out of scope (deferred to Phase B)
+
+- LODGE depth-aware 3D smoothing (eq. 3) — the Phase A.1 decimator
+  approximates it with importance-weighted grid argmax; the
+  smoothing + per-LOD fine-tune is the ML-side Phase B job (gsplat,
+  Modal A100, ~$1/scene).
+- K-means over training-camera positions for chunk partition — Phase
+  A.1 uses Morton-sorted contiguous slices. Camera-aware re-clustering
+  is a re-emit of the on-disk `manifest.json` with the same schema.
+- Greedy training-view search for `d_l` thresholds — Phase A.1 emits
+  a linear heuristic; Phase B's training-view bench replaces it.
+- Async chunk prefetch / velocity-extrapolated streaming — Phase A.3
+  loads (near, far) synchronously each frame; the production path
+  will overlap fetch with the current frame's render.

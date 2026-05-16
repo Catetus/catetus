@@ -39,3 +39,32 @@ export type {
 
 export { decodePlyToSoa } from './ply.js';
 export type { DecodedPlyChunk } from './ply.js';
+
+// Phase A.3 — per-frame LOD selection + boundary-blend math.
+export {
+  LOD_SLOT_NEAR,
+  LOD_SLOT_FAR,
+  LOD_MAX_LEVELS,
+  boundaryBlendT,
+  selectChunkActivation,
+  selectAllActivations,
+  pickNearFarChunks,
+} from './lod-math.js';
+export type {
+  ChunkActivation,
+  ChunkRecord,
+  LodSelectInputs,
+} from './lod-math.js';
+
+export {
+  LodgeLODPipeline,
+  CHUNK_RECORD_BYTES,
+  LEVEL_RECORD_BYTES,
+  ACTIVATION_BYTES,
+  LOD_UNIFORMS_BYTES,
+} from './lod-pipeline.js';
+export type {
+  LodgeLODPipelineOptions,
+  FrameDecision,
+  StreamFrameResult,
+} from './lod-pipeline.js';
