@@ -79,7 +79,7 @@
 
     const numChunks = lvl.chunks.length;
     const capacity = lvl.splatCount + numChunks * 3;
-    const pipeline = new ComputeDecodePipeline({ device, capacity });
+    const pipeline = new ComputeDecodePipeline({ device, capacity, useFusedProject: true });
     log('pipeline: capacity=' + capacity + ', splat pages=' + pipeline.pager.numPages + ', instance pages=' + pipeline.instancePages.length);
     window.__sf.numPages = pipeline.instancePages.length;
 
