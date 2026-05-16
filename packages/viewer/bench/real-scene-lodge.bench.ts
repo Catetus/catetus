@@ -183,9 +183,15 @@ export async function runLodgeBench(
     // we're only rendering 100k splats at L_N (cheaper per-frame because
     // the compute-shader dispatch count uses `splatCount`, not
     // capacity).
+    //
+    // Worst-case padding per chunk: 3 splats (so the per-chunk
+    // decoded-splat offset lands on a 256-byte boundary — see
+    // alignDecodedSplats in chunk-loader.ts). Bump the capacity by
+    // `numChunks * 3` so the final padded count still fits.
+    const numChunks = lvl.chunks.length;
     const pipeline = new ComputeDecodePipeline({
       device,
-      capacity: lvl.splatCount,
+      capacity: lvl.splatCount + numChunks * 3,
     });
 
     const loader = new LodgeChunkLoader(manifest, {
@@ -199,8 +205,13 @@ export async function runLodgeBench(
     await device.queue.onSubmittedWorkDone();
     const uploadMs = performance.now() - uploadStart;
 
-    const fps = await Promise.all(cams.map(async ({ cam }) => (await runOneView(device, pipeline, cam, iterations)).fps));
-    const perFrameMs = await Promise.all(cams.map(async ({ cam }) => (await runOneView(device, pipeline, cam, iterations)).perFrameMs));
+    // Run each viewpoint once, capture (perFrameMs, fps).
+    const viewResults: Array<{ fps: number; perFrameMs: number }> = [];
+    for (const { cam } of cams) {
+      viewResults.push(await runOneView(device, pipeline, cam, iterations));
+    }
+    const fps = viewResults.map((v) => v.fps);
+    const perFrameMs = viewResults.map((v) => v.perFrameMs);
 
     const result: LodgeLevelResult = {
       level: li,
