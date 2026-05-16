@@ -153,8 +153,13 @@ struct VsOut { @builtin(position) clip : vec4<f32>, @location(0) offset : vec2<f
     }
 
     log('streaming L' + level + ' (this may take a while)…');
-    const baseUrl = new URL(manifestUrl, location.href).href;
-    const loader = new LodgeChunkLoader(manifest, { baseUrl, pipeline, memoryBudgetBytes: 32 * 1024 * 1024 * 1024 });
+    // The local 4090 manifest has relative chunk paths; resolve against the
+    // manifest's parent dir so 'level_1/chunk_xxxx.ply' becomes
+    // http://host/lodge/level_1/chunk_xxxx.ply.
+    const manifestAbs = new URL(manifestUrl, location.href);
+    const parent = new URL('./', manifestAbs).href; // strips manifest.json
+    log('chunk baseUrl = ' + parent);
+    const loader = new LodgeChunkLoader(manifest, { baseUrl: parent, pipeline, memoryBudgetBytes: 32 * 1024 * 1024 * 1024 });
     const t0 = performance.now();
     await loader.loadLevel(lvlIdx, camPose(0).position);
     const loadMs = performance.now() - t0;
