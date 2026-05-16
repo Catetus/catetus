@@ -133,26 +133,38 @@ pub struct DashboardResponse {
 
 /// Build the dashboard response for a single bearer key.
 ///
-/// `key_prefix` MUST come from `ratelimit::key_prefix` — the audit
-/// table is queried by the masked form. `plan` and `email` are
-/// resolved by the caller (they need access to `AppState`); this
-/// function's job is just to assemble the response from the store.
+/// `audit_scope` MUST come from `ratelimit::key_fingerprint(key)` -
+/// the audit table is queried by the *opaque per-user fingerprint*
+/// (a 16-char SHA-256 truncation), NOT by the 8-char display prefix.
+/// Two distinct `sf_live_...` keys share the same 8-char prefix; if
+/// we keyed the dashboard query on that, every customer would see
+/// every other customer's audit rows (the P0 bug this signature
+/// closes).
+///
+/// `key_masked` is the human-readable form (`ratelimit::key_prefix`,
+/// e.g. `"sf_live_"`) echoed back in the response so the page can
+/// display "Key: sf_live_..." without exposing the full token.
+///
+/// `plan` and `email` are resolved by the caller (they need access to
+/// `AppState`); this function's job is just to assemble the response
+/// from the store.
 pub async fn build_response(
     store: &DynJobStore,
-    key_prefix: String,
+    audit_scope: String,
+    key_masked: String,
     plan: Plan,
     email: Option<String>,
     limit: u32,
 ) -> Result<DashboardResponse, StoreError> {
     let limit = limit.clamp(1, RECENT_JOBS_MAX_LIMIT);
     let events = store
-        .list_audit_events_by_prefix(&key_prefix, limit)
+        .list_audit_events_by_prefix(&audit_scope, limit)
         .await?;
     let usage = summarize(&events);
     let recent_jobs = events.into_iter().map(RecentJob::from).collect();
     Ok(DashboardResponse {
         plan,
-        key_masked: key_prefix,
+        key_masked,
         email,
         usage,
         recent_jobs,

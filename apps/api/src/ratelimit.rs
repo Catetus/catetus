@@ -316,10 +316,16 @@ impl Limiter {
     }
 }
 
-/// Mask a key for logging / audit. We only ever persist the first 8
+/// Mask a key for *display*. We only ever surface the first 8
 /// characters — enough to disambiguate keys in a small operator pool
 /// without giving an attacker a foothold if the audit log is ever
 /// leaked. Anything shorter than 8 chars is returned as-is (test keys).
+///
+/// **This function is NOT suitable for per-user scoping** of the audit
+/// table: every production key is minted with the literal `sf_live_`
+/// prefix (`checkout::KEY_PREFIX_LITERAL`), so two distinct customers
+/// collide on the same 8-char prefix. Use `key_fingerprint` for any
+/// storage / query that must isolate one user from another.
 pub fn key_prefix(key: &str) -> String {
     // Operate on chars, not bytes, so a multibyte rune doesn't get sliced.
     let mut out = String::with_capacity(8);
@@ -330,6 +336,36 @@ pub fn key_prefix(key: &str) -> String {
         out.push(c);
     }
     out
+}
+
+/// Per-key opaque fingerprint for audit + per-user storage scoping.
+///
+/// Returns a 16-char lowercase hex string = SHA-256(key) truncated to
+/// the first 64 bits. Properties:
+///
+///   * **Stable** - same input -> same output across processes / restarts
+///     (no random salt; we explicitly want the same key to map to the
+///     same row on a redeploy).
+///   * **Per-user** - two distinct keys, even ones that share the same
+///     literal display prefix (`sf_live_...`), produce distinct
+///     fingerprints with overwhelming probability. We expect <1k keys for
+///     the lifetime of the beta; the birthday bound on 64 bits is ~4B,
+///     so collisions are not a practical concern at this scale.
+///   * **Non-reversible** - a leaked audit log doesn't expose the raw
+///     bearer token; an attacker would have to bruteforce SHA-256 with
+///     no other constraint than length.
+///   * **Schema-compatible** - 16 chars fits the existing
+///     `audit_events.key_prefix TEXT` column without a migration.
+///
+/// This replaces `key_prefix` as the audit-table identity column. The
+/// 8-char `key_prefix` is still used for human-readable masking in the
+/// `/v1/me/usage` response (`key_masked` field).
+pub fn key_fingerprint(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(key.as_bytes());
+    // First 8 bytes -> 16 hex chars. 64 bits of collision resistance is
+    // ample at <1k expected keys; sized to fit existing schema.
+    hex::encode(&digest[..8])
 }
 
 #[cfg(test)]
@@ -382,6 +418,46 @@ mod tests {
     fn key_prefix_caps_at_eight() {
         assert_eq!(key_prefix("sk_test_abcdef_long"), "sk_test_");
         assert_eq!(key_prefix("short"), "short");
+    }
+
+    #[test]
+    fn key_fingerprint_distinguishes_sf_live_keys() {
+        // Real bug: every production key starts with `sf_live_`, so the
+        // legacy `key_prefix` collapsed every customer to the same scope.
+        // The fingerprint must be per-key.
+        let a = key_fingerprint("sf_live_alice_aaaaaaaaaaaaaaaaa");
+        let b = key_fingerprint("sf_live_bobby_bbbbbbbbbbbbbbbbb");
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 16);
+        assert_eq!(b.len(), 16);
+        // Lowercase hex only.
+        for c in a.chars() {
+            assert!(c.is_ascii_hexdigit() && !c.is_uppercase(), "non-hex char {c}");
+        }
+    }
+
+    #[test]
+    fn key_fingerprint_is_stable() {
+        // Same input on two independent calls -> same output. This is
+        // what lets a re-issued process find the same audit rows.
+        let k = "sf_live_stable_xxxxxxxxxxxxxxxxx";
+        assert_eq!(key_fingerprint(k), key_fingerprint(k));
+    }
+
+    #[test]
+    fn key_fingerprint_handles_empty_and_unicode() {
+        // Bad-faith inputs: empty string and multibyte runes must not
+        // panic. SHA-256 accepts arbitrary bytes; we hash the UTF-8.
+        let e = key_fingerprint("");
+        assert_eq!(e.len(), 16);
+        // SHA256("") is well-known: e3b0c44298fc1c14...; truncated to 16.
+        assert_eq!(e, "e3b0c44298fc1c14");
+        // Unicode in a (synthetic) key must not panic and must differ
+        // from a plain-ASCII variant.
+        let u = key_fingerprint("sf_live_\u{1F4A9}xxxxxxxxxxxxxxxxx");
+        let a = key_fingerprint("sf_live_!xxxxxxxxxxxxxxxxxxxxxxx");
+        assert_ne!(u, a);
+        assert_eq!(u.len(), 16);
     }
 
     fn make_limiter(limits: Limits, start: Instant) -> (Limiter, Arc<Mutex<Instant>>) {

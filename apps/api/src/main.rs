@@ -730,7 +730,11 @@ async fn rate_limit_and_audit(
     } else {
         ratelimit::Tier::Free
     };
-    let key_prefix = ratelimit::key_prefix(&key);
+    // Audit + dashboard scope uses the per-key fingerprint (16-char
+    // SHA-256 hex). The legacy 8-char `key_prefix` is display-only and
+    // would collide on the literal `sf_live_` for every production
+    // customer, leaking dashboard rows across users.
+    let key_prefix = ratelimit::key_fingerprint(&key);
 
     // Free-tier callers can't use the batch endpoint at all — return a
     // structured 403 instead of pretending they have a 0-cap bucket.
@@ -2278,7 +2282,12 @@ async fn me_usage(
         .get::<AuthenticatedKey>()
         .map(|k| k.0.clone())
         .unwrap_or_else(|| "anon".to_string());
-    let key_prefix = ratelimit::key_prefix(&key);
+    // The audit table is keyed on the per-user fingerprint (the literal
+    // 8-char `key_prefix` collides on `sf_live_` for every production
+    // customer). `key_masked` is the user-friendly display value the
+    // page renders as "Key: sf_live_..." in the header.
+    let audit_scope = ratelimit::key_fingerprint(&key);
+    let key_masked = ratelimit::key_prefix(&key);
 
     let plan = if state.paid_api_keys.contains(&key) {
         Plan::Paid
@@ -2296,7 +2305,14 @@ async fn me_usage(
     let limit = q
         .limit
         .unwrap_or(customer_dashboard::RECENT_JOBS_DEFAULT_LIMIT);
-    let resp = customer_dashboard::build_response(&state.jobs, key_prefix, plan, email, limit)
-        .await?;
+    let resp = customer_dashboard::build_response(
+        &state.jobs,
+        audit_scope,
+        key_masked,
+        plan,
+        email,
+        limit,
+    )
+    .await?;
     Ok(Json(resp))
 }
