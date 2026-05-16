@@ -119,35 +119,40 @@ try {
   console.log('[playwright] navigating to ' + url);
   await page.goto(url, { waitUntil: 'load' });
 
-  // Wait for __sf.ready or __sf.error (up to 30 min for L1's 13 GB stream)
-  await page.waitForFunction(
-    () => globalThis.__sf && (globalThis.__sf.ready === true || globalThis.__sf.error !== null),
-    null,
-    { timeout: 30 * 60 * 1000 },
-  );
-
+  // Per-pose loop: wait for the harness to signal currentPose = N, screenshot the
+  // canvas, then trigger __sf.awaitScreenshot to unblock the harness for the next pose.
+  const NUM_POSES = 5;
+  for (let poseIdx = 0; poseIdx < NUM_POSES; poseIdx++) {
+    // Wait until the harness has finished rendering this pose and is parked at await.
+    await page.waitForFunction(
+      (idx) => globalThis.__sf && (globalThis.__sf.error || (globalThis.__sf.currentPose === idx && typeof globalThis.__sf.awaitScreenshot === 'function')),
+      poseIdx,
+      { timeout: 30 * 60 * 1000 },
+    );
+    const errAt = await page.evaluate(() => globalThis.__sf.error);
+    if (errAt) throw new Error('harness reported error at pose ' + poseIdx + ': ' + errAt);
+    // Screenshot the canvas via Playwright (captures the actual presented content).
+    const out = resolve(OUT_DIR, `L${LEVEL}_pose${poseIdx}.png`);
+    const el = await page.locator('canvas#c').elementHandle();
+    await el.screenshot({ path: out, omitBackground: false });
+    console.log('[saved] ' + out);
+    // Unblock the harness for the next pose.
+    await page.evaluate(() => {
+      const cb = globalThis.__sf.awaitScreenshot;
+      globalThis.__sf.awaitScreenshot = null;
+      if (typeof cb === 'function') cb();
+    });
+  }
+  // Final state
   const sf = await page.evaluate(() => ({
-    ready: globalThis.__sf.ready,
-    error: globalThis.__sf.error,
-    frames: globalThis.__sf.frames,
-    drawCalls: globalThis.__sf.drawCalls,
-    numPages: globalThis.__sf.numPages,
-    splatCount: globalThis.__sf.splatCount,
-    captures: (globalThis.__sf.captures || []).map((c) => ({ pose: c.pose, yaw: c.yaw, drawCount: c.drawCount, dataUrl: c.dataUrl })),
+    ready: globalThis.__sf.ready, error: globalThis.__sf.error,
+    frames: globalThis.__sf.frames, drawCalls: globalThis.__sf.drawCalls,
+    numPages: globalThis.__sf.numPages, splatCount: globalThis.__sf.splatCount,
   }));
-  result.harness = { ready: sf.ready, error: sf.error, frames: sf.frames, drawCalls: sf.drawCalls, numPages: sf.numPages, splatCount: sf.splatCount };
+  result.harness = sf;
 
   if (sf.error) throw new Error('harness reported error: ' + sf.error);
-  console.log('[playwright] harness ready: ' + sf.frames + ' frames, ' + sf.drawCalls + ' draws/frame, ' + sf.numPages + ' pages');
-
-  // Save PNGs
-  for (const cap of sf.captures) {
-    const b64 = cap.dataUrl.split('base64,')[1];
-    const buf = Buffer.from(b64, 'base64');
-    const out = resolve(OUT_DIR, `L${LEVEL}_pose${cap.pose}.png`);
-    await writeFile(out, buf);
-    console.log('[saved] ' + out + ' (' + buf.length + ' B)');
-  }
+  console.log('[playwright] harness ready: pages=' + sf.numPages);
 
   result.success = true;
 } catch (err) {

@@ -87,7 +87,7 @@
     const ctx = canvas.getContext('webgpu');
     const format = navigator.gpu.getPreferredCanvasFormat();
     canvas.width = 1280; canvas.height = 720;
-    ctx.configure({ device, format, alphaMode: 'premultiplied' });
+    ctx.configure({ device, format, alphaMode: 'premultiplied', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
 
     // Minimal render pipeline (copy of scale.astro's)
     const WGSL = `
@@ -200,12 +200,16 @@ struct VsOut { @builtin(position) clip : vec4<f32>, @location(0) offset : vec2<f
       device.queue.submit([enc.finish()]);
       await device.queue.onSubmittedWorkDone();
 
-      // Read back pixels via canvas dataURL
-      const dataUrl = canvas.toDataURL('image/png');
-      frameCaptures.push({ pose: i, yaw: poses[i], drawCount, dataUrl });
+      // Expose pose for playwright-side screenshot capture.
+      window.__sf.currentPose = i;
+      frameCaptures.push({ pose: i, yaw: poses[i], drawCount });
       window.__sf.frames++;
       window.__sf.drawCalls = drawCount;
-      log('pose ' + i + ': ' + drawCount + ' draws, ' + Math.round(dataUrl.length / 1024) + ' KB png');
+      log('pose ' + i + ': ' + drawCount + ' draws (frame ready for screenshot)');
+      // Wait so the playwright driver can grab a screenshot of this pose.
+      await new Promise((resolve) => {
+        window.__sf.awaitScreenshot = resolve;
+      });
     }
 
     window.__sf.captures = frameCaptures;
