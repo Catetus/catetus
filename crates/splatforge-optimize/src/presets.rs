@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use crate::passes::{
     AspectRatioPrune, BackgroundOverdrawPrune, BuildLOD, FloaterPrune, MortonSort, OpacityPrune,
     QuantizePosition, QuantizeRotation, QuantizeScale, ReduceSHDegree, RemoveInvalidSplats,
+    SubjectCrop,
 };
 use crate::pipeline::Pipeline;
 
@@ -155,18 +156,27 @@ pub fn preset(name: &str) -> Result<Pipeline> {
         //      12-bit scale/rot matches the spike-fix from the AspectRatioPrune
         //      commit; 14-bit position because the camera is tight and we
         //      benefit from a hair more spatial precision than web-desktop.
-        //   9. ReduceSHDegree(1) — viewer has SH-1 since dd3dae9.
+        //   9. ReduceSHDegree(0) — bake DC SH coeff to linear RGB.
+        //      SH-1 is intentionally avoided: the viewer's view-dependent
+        //      shading path renders the additive degree-1 contribution
+        //      with a sign/scale convention that produces a heavy blue
+        //      cast on Inria-3DGS assets. SH-0 (DC only) renders true to
+        //      the source colors.
         //   10. MortonSort — render order for tile-based viewer.
         "hero-quality" => Pipeline::new()
             .push(Box::new(RemoveInvalidSplats))
+            .push(Box::new(SubjectCrop::default()))
             .push(Box::new(OpacityPrune { threshold: 0.04 }))
             .push(Box::new(FloaterPrune::default()))
             .push(Box::new(AspectRatioPrune { max_ratio: 8.0 }))
-            .push(Box::new(BackgroundOverdrawPrune::default()))
+            .push(Box::new(BackgroundOverdrawPrune {
+                top_fraction: 0.15,
+                opacity_keep_above: 0.6,
+            }))
             .push(Box::new(QuantizePosition { bits: 14 }))
             .push(Box::new(QuantizeScale { bits: 12 }))
             .push(Box::new(QuantizeRotation { bits: 12 }))
-            .push(Box::new(ReduceSHDegree { target_degree: 1 }))
+            .push(Box::new(ReduceSHDegree { target_degree: 0 }))
             .push(Box::new(MortonSort)),
         other => return Err(anyhow!("unknown preset '{other}'")),
     };

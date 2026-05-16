@@ -656,10 +656,23 @@ impl Pass for ReduceSHDegree {
                     }
                     modified += 1;
                     if self.target_degree == 0 {
+                        // Convert SH DC coefficient to linear RGB in [0,1].
+                        // Inria 3DGS stores f_dc_* as raw SH degree-0 coefficients;
+                        // the standard conversion (matching the renderer's
+                        // base.ts and lodge/ply.ts paths) is
+                        //   color_rgb = SH_C0 * f_dc + 0.5
+                        // where SH_C0 = 0.28209479177387814. Without this
+                        // bake-down, downstream renderers that consume
+                        // Color::Rgb directly see raw (often-negative) SH
+                        // values and produce a near-black image.
+                        const SH_C0: f32 = 0.282_094_79_f32;
+                        let raw0 = coeffs.first().copied().unwrap_or(0.0);
+                        let raw1 = coeffs.get(1).copied().unwrap_or(0.0);
+                        let raw2 = coeffs.get(2).copied().unwrap_or(0.0);
                         let dc = [
-                            coeffs.first().copied().unwrap_or(0.0),
-                            coeffs.get(1).copied().unwrap_or(0.0),
-                            coeffs.get(2).copied().unwrap_or(0.0),
+                            (SH_C0 * raw0 + 0.5).clamp(0.0, 1.0),
+                            (SH_C0 * raw1 + 0.5).clamp(0.0, 1.0),
+                            (SH_C0 * raw2 + 0.5).clamp(0.0, 1.0),
                         ];
                         Color::Rgb(dc)
                     } else {
@@ -1046,6 +1059,99 @@ impl Pass for BackgroundOverdrawPrune {
             ));
         }
 
+        Ok(PassStats {
+            removed,
+            notes,
+            ..Default::default()
+        })
+    }
+}
+
+/// `SubjectCrop`: drop splats far from the dense subject cluster.
+///
+/// Why
+/// ---
+/// Inria-3DGS scenes from MipNeRF360 (and similar) include large radial
+/// background floaters that pad the bounding box by 5-10× the subject's
+/// actual footprint. At hero framing this kills composition: the viewer
+/// frames to the *bbox*, so the subject ends up as a tiny dot at center.
+///
+/// What
+/// ----
+/// For each axis compute the median and MAD (median absolute deviation),
+/// then drop splats whose position on any axis falls outside
+/// `[median - k*MAD, median + k*MAD]`. MAD is robust to the long-tailed
+/// floater distribution — a regular stdev would be dragged by the very
+/// outliers we want to remove.
+///
+/// Defaults
+/// --------
+/// `k_mad = 4.0` — empirically keeps the bonsai canopy + pot + ground
+/// plane while dropping the distant ceiling / floor floaters.
+#[derive(Debug, Clone)]
+pub struct SubjectCrop {
+    /// Number of median absolute deviations from the per-axis median
+    /// beyond which splats are dropped. Lower = tighter crop.
+    pub k_mad: f32,
+}
+
+impl Default for SubjectCrop {
+    fn default() -> Self {
+        Self { k_mad: 4.0 }
+    }
+}
+
+impl Pass for SubjectCrop {
+    fn name(&self) -> &'static str {
+        "SubjectCrop"
+    }
+    fn run(&self, scene: &mut SplatScene, _ctx: &mut PassContext) -> Result<PassStats> {
+        let before = scene.splats.len();
+        if before == 0 {
+            return Ok(PassStats::default());
+        }
+        let k_mad = self.k_mad.max(0.1);
+
+        // Per-axis median + MAD.
+        let mut bounds = [(0.0f32, 0.0f32, 0.0f32); 3]; // (lo, hi, median) per axis
+        for (axis, slot) in bounds.iter_mut().enumerate() {
+            let mut v: Vec<f32> = scene
+                .splats
+                .iter()
+                .map(|s| s.position[axis])
+                .filter(|x| x.is_finite())
+                .collect();
+            if v.is_empty() {
+                continue;
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let median = v[v.len() / 2];
+            let mut dev: Vec<f32> = v.iter().map(|x| (x - median).abs()).collect();
+            dev.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let mad = dev[dev.len() / 2].max(1e-6);
+            let half_window = k_mad * mad;
+            *slot = (median - half_window, median + half_window, median);
+        }
+
+        scene.splats.retain(|s| {
+            (0..3).all(|axis| {
+                let (lo, hi, _) = bounds[axis];
+                let p = s.position[axis];
+                p.is_finite() && p >= lo && p <= hi
+            })
+        });
+        let removed = before - scene.splats.len();
+        let notes = vec![format!(
+            "k_mad={:.2} dropped={} crop_x=[{:.3},{:.3}] crop_y=[{:.3},{:.3}] crop_z=[{:.3},{:.3}]",
+            k_mad,
+            removed,
+            bounds[0].0,
+            bounds[0].1,
+            bounds[1].0,
+            bounds[1].1,
+            bounds[2].0,
+            bounds[2].1,
+        )];
         Ok(PassStats {
             removed,
             notes,

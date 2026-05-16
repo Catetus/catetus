@@ -9,7 +9,7 @@ pub mod tileset;
 pub use passes::{
     AspectRatioPrune, BackgroundOverdrawPrune, BuildLOD, FloaterPrune, MortonSort,
     ObjectAwarePruneExperimental, OpacityPrune, Pass, PassContext, PassStats, QuantizePosition,
-    QuantizeRotation, QuantizeScale, ReduceSHDegree, RemoveInvalidSplats,
+    QuantizeRotation, QuantizeScale, ReduceSHDegree, RemoveInvalidSplats, SubjectCrop,
 };
 pub use pipeline::{Pipeline, PipelineReport};
 pub use presets::preset;

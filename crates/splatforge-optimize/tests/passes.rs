@@ -2,7 +2,7 @@ use splatforge_core::{Color, SemanticLabel, Splat, SplatScene};
 use splatforge_optimize::{
     preset, AspectRatioPrune, BackgroundOverdrawPrune, BuildLOD, FloaterPrune, MortonSort,
     ObjectAwarePruneExperimental, OpacityPrune, Pass, PassContext, Pipeline, ReduceSHDegree,
-    RemoveInvalidSplats,
+    RemoveInvalidSplats, SubjectCrop,
 };
 
 fn make_scene(n: usize) -> SplatScene {
@@ -703,4 +703,65 @@ fn hero_quality_preset_runs_clean() {
     let report = pipe.run(&mut scene).unwrap();
     assert!(report.splats_after <= report.splats_before);
     assert!(report.splats_after > 0);
+}
+
+// ----------------------------------------------------------------------------
+// SubjectCrop tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn subject_crop_drops_distant_floaters() {
+    let mut scene = SplatScene::new();
+    // 200 subject splats tightly clustered around origin.
+    for i in 0..200 {
+        let f = (i as f32 - 100.0) * 0.01;
+        scene.splats.push(splat_full([f, f * 0.5, -f], [0.1; 3], 0.8));
+    }
+    // 10 distant background floaters far on each axis.
+    for axis in 0..3 {
+        for i in 0..10 {
+            let mut pos = [0.0f32; 3];
+            pos[axis] = if i % 2 == 0 { 50.0 + i as f32 } else { -50.0 - i as f32 };
+            scene.splats.push(splat_full(pos, [0.5; 3], 0.3));
+        }
+    }
+    let before = scene.splats.len();
+    let mut ctx = PassContext::default();
+    let stats = SubjectCrop::default().run(&mut scene, &mut ctx).unwrap();
+    assert!(stats.removed >= 30, "expected to drop all 30 floaters, got {}", stats.removed);
+    assert!(scene.splats.len() <= before - 30);
+    // Subject (clustered at origin) should mostly survive.
+    assert!(scene.splats.len() >= 180);
+}
+
+#[test]
+fn subject_crop_handles_empty() {
+    let mut scene = SplatScene::new();
+    let mut ctx = PassContext::default();
+    let stats = SubjectCrop::default().run(&mut scene, &mut ctx).unwrap();
+    assert_eq!(stats.removed, 0);
+}
+
+#[test]
+fn subject_crop_is_deterministic() {
+    let make = || {
+        let mut sc = SplatScene::new();
+        for i in 0..100 {
+            let f = (i as f32) * 0.02 - 1.0;
+            sc.splats.push(splat_full([f, f * 0.3, f * -0.5], [0.05; 3], 0.7));
+        }
+        for i in 0..20 {
+            let f = 50.0 + i as f32;
+            sc.splats.push(splat_full([f, 0.0, 0.0], [0.2; 3], 0.4));
+        }
+        sc
+    };
+    let mut a = make();
+    let mut b = make();
+    let mut ctx = PassContext::default();
+    SubjectCrop::default().run(&mut a, &mut ctx).unwrap();
+    SubjectCrop::default().run(&mut b, &mut ctx).unwrap();
+    let pa: Vec<_> = a.splats.iter().map(|s| s.position).collect();
+    let pb: Vec<_> = b.splats.iter().map(|s| s.position).collect();
+    assert_eq!(pa, pb);
 }
