@@ -72,9 +72,11 @@ const clientData = scenes.map((s) => {
 
   <p class="methodology">
     {splatbench.aggregates.scenesTotal} scenes — {splatbench.aggregates.scenesReal} real
-    (Mip-NeRF 360 <code>bonsai</code>, <code>bicycle</code>) and {splatbench.aggregates.scenesSynthetic}
-    deterministic synthetic probes for per-class failure modes (texture, transparency,
-    motion, depth, banding, foliage, specular, lowlight, portrait, …) — run through the
+    (Mip-NeRF 360 + Dany Bittel <code>cluster_fly</code> LOD ladder, all CC-BY-4.0,
+    measured via the v2 ingest harness in <code>apps/bench-ingest</code>) and
+    {splatbench.aggregates.scenesSynthetic} deterministic synthetic probes for
+    per-class failure modes (texture, transparency, motion, depth, banding, foliage,
+    specular, lowlight, portrait, …) — run through the
     full <code>analyze → optimize → pack</code> pipeline at each preset. Compression is
     measured against the raw <code>.ply</code>; fidelity is mean CIE ΔE94 over 8
     deterministic orbit frames rendered through <code>@splatforge/viewer</code>, scaled
