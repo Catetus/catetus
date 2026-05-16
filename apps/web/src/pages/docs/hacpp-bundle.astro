@@ -1,0 +1,153 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const title = "SplatForge — HAC++ bundle format";
+const description =
+  "How to package a Scaffold-GS checkpoint as a SplatForge HAC++ bundle. The hacpp-lzma preset needs the anchor PLY plus three TorchScript MLPs in a single tar/tar.gz/zip archive.";
+
+const sampleBundleUrl =
+  "https://splatforge.dev/samples/bonsai_scaffold_bundle.tar";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="/#try" aria-current="page">Try it</a>
+    </div>
+  </nav>
+
+  <h1>HAC++ bundle format</h1>
+  <p class="lede">
+    The <code>hacpp-lzma</code> preset is the only SplatForge preset that
+    operates on a Scaffold-GS checkpoint instead of a single splat file.
+    Drop in a tarball (or <code>.tar.gz</code> / <code>.tgz</code>) and
+    the encoder will extract it, run anchor-entropy + lzma, and hand you
+    back a <code>.hacpp</code> container that decodes back into the same
+    Scaffold-GS shape.
+  </p>
+
+  <h2>Required layout</h2>
+  <p>
+    The archive must contain these four files, either at the root or one
+    level down inside a single subdirectory. Other files are ignored.
+  </p>
+  <pre><code>bundle.tar
+├── point_cloud.ply       # Scaffold-GS anchor PLY (~130 MB for bonsai)
+├── color_mlp.pt          # TorchScript color MLP
+├── cov_mlp.pt            # TorchScript covariance MLP
+└── opacity_mlp.pt        # TorchScript opacity MLP</code></pre>
+
+  <h2>One-liner to pack a checkpoint</h2>
+  <p>
+    From a Scaffold-GS training output directory (the one that contains
+    <code>point_cloud/iteration_30000/</code> and the three
+    <code>*_mlp.pt</code> files):
+  </p>
+  <pre><code>cd /path/to/scaffold_30k
+tar -cf bundle.tar \
+  point_cloud/iteration_30000/point_cloud.ply \
+  color_mlp.pt cov_mlp.pt opacity_mlp.pt \
+  --transform 's,.*/,,'   # flatten paths to the archive root</code></pre>
+  <p>
+    Then drop <code>bundle.tar</code> on the <a href="/#try">Try-it
+    surface</a> with <strong>HAC++ lzma</strong> selected.
+  </p>
+
+  <h2>Sample bundle</h2>
+  <p>
+    A reference bundle built from the public bonsai Scaffold-GS
+    checkpoint is hosted at
+    <code><a href={sampleBundleUrl}>{sampleBundleUrl}</a></code>. Use it to
+    verify that your tooling round-trips before packing your own
+    captures. Expect roughly
+    <code>130&nbsp;MB → 24&nbsp;MB</code> after encode (-0.18&nbsp;dB
+    render-PSNR vs. Scaffold-GS native).
+  </p>
+  <p class="note">
+    If the sample link returns 404, the bundle has not yet been
+    published to the public CDN; the layout above is still correct and
+    the encoder is the source of truth — see
+    <a
+      href="https://github.com/city-super/Scaffold-GS"
+      target="_blank"
+      rel="noreferrer noopener"
+      >Scaffold-GS upstream training instructions</a
+    > for producing a checkpoint of your own.
+  </p>
+
+  <h2>What happens server-side</h2>
+  <ol>
+    <li>Browser uploads the archive to R2 via a presigned PUT.</li>
+    <li>
+      The worker receives <code>{`{ preset: "hacpp-lzma", source_url }`}</code>
+      and forwards it to the private Modal endpoint.
+    </li>
+    <li>
+      The endpoint extracts the archive with <code>tarfile</code> in
+      <code>r:*</code> mode, so <code>tar</code>, <code>tar.gz</code>,
+      <code>tgz</code>, and <code>tar.xz</code> all unpack with the same
+      code path.
+    </li>
+    <li>
+      The encoder produces a single <code>scene.hacpp</code> container,
+      which is then uploaded to Vercel Blob and returned to the browser.
+    </li>
+  </ol>
+
+  <p>
+    <a href="/#try">← back to Try it</a>
+  </p>
+
+  <style>
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 0.4rem;
+    }
+    h2 {
+      margin-top: 2rem;
+      font-size: 1.25rem;
+    }
+    .lede {
+      opacity: 0.85;
+      max-width: 60ch;
+    }
+    pre {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.9rem 1.1rem;
+      border-radius: 0.6rem;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    p code,
+    li code {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.3rem;
+      font-size: 0.92em;
+    }
+    .note {
+      font-size: 0.88rem;
+      opacity: 0.7;
+      border-left: 2px solid rgba(139, 92, 246, 0.4);
+      padding-left: 0.75rem;
+    }
+    ol {
+      max-width: 60ch;
+    }
+    ol li {
+      margin: 0.35rem 0;
+    }
+  </style>
+</Base>

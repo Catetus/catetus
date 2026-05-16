@@ -12,6 +12,16 @@ const apiBase = import.meta.env.PUBLIC_API_BASE ?? "/api";
 const partnerHref =
   "https://github.com/montabano1/SplatForge/issues/new?title=design-partner-interest&body=Hi%20%E2%80%94%20I%27d%20like%20to%20run%20a%20splat%20through%20SplatForge";
 const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
+// Presets that require a bundled archive instead of a single splat file.
+// hacpp-lzma needs a Scaffold-GS checkpoint (point_cloud.ply + 3 MLPs).
+// The private encoder unpacks the archive with `tarfile.open(..., "r:*")`,
+// which transparently handles uncompressed tar, gzip, and xz — so this
+// list MUST stay synchronized with what tarfile recognizes. (.zip is NOT
+// included because the worker has no zipfile branch yet; advertising
+// .zip here would surface as a confusing post-upload encoder error.)
+// See /docs/hacpp-bundle for the exact layout.
+const bundleSupported = [".tar", ".tar.gz", ".tgz"];
+const bundlePresets = ["hacpp-lzma"];
 
 // Preset picker entries. The first is the default. Ratio claims are from
 // bonsai (273.7 MB Inria PLY) end-to-end Modal validation; real-world
@@ -94,9 +104,31 @@ const presetOptions = [
           ))}
         </select>
         <span class="preset-blurb" data-tryit-preset-blurb>{presetOptions[0].blurb}</span>
+        <a
+          class="preset-help"
+          data-tryit-bundle-help
+          href="/docs/hacpp-bundle"
+          target="_blank"
+          rel="noreferrer noopener"
+          hidden
+          aria-label="HAC++ bundle format docs"
+          title="HAC++ requires a Scaffold-GS bundle — click for the exact layout."
+        >?</a>
       </div>
-      <div class="format-chips" aria-label="Supported input formats">
-        {supported.map((ext) => <span class="chip">{ext}</span>)}
+      {/* Two chip groups: the default (single splat formats) and the
+         bundle group (archives). The data-tryit-format-chips container
+         picks which one is visible based on the active preset, so the
+         user sees the formats their selected preset actually accepts. */}
+      <div class="format-chips-wrap" data-tryit-format-chips data-mode="single">
+        <div class="format-chips format-chips-single" aria-label="Supported input formats">
+          {supported.map((ext) => <span class="chip">{ext}</span>)}
+        </div>
+        <div class="format-chips format-chips-bundle" aria-label="Bundle archive formats">
+          {bundleSupported.map((ext) => <span class="chip chip-bundle">{ext}</span>)}
+          <span class="chip-note">
+            Scaffold-GS bundle · <a href="/docs/hacpp-bundle">layout</a>
+          </span>
+        </div>
       </div>
     </div>
 
@@ -315,6 +347,41 @@ const presetOptions = [
     opacity: 0.55;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
+  /* Bundle-help glyph appears beside the picker only when the active
+     preset needs a bundle. Sized to read as a secondary affordance —
+     present but not competing with the picker itself. */
+  .preset-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: rgba(139, 92, 246, 0.18);
+    color: #c4b5fd;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid rgba(139, 92, 246, 0.32);
+  }
+  .preset-help:hover { background: rgba(139, 92, 246, 0.28); }
+  .preset-help[hidden] { display: none; }
+  /* Format-chip groups — only one is visible based on the picker's
+     current preset. Bundle mode also shows a small explainer chip so
+     users understand they need an archive, not a raw splat. */
+  .format-chips-wrap .format-chips-bundle { display: none; }
+  .format-chips-wrap[data-mode="bundle"] .format-chips-single { display: none; }
+  .format-chips-wrap[data-mode="bundle"] .format-chips-bundle { display: flex; }
+  .chip-bundle {
+    background: rgba(139, 92, 246, 0.12);
+    color: #c4b5fd;
+    border-color: rgba(139, 92, 246, 0.28);
+  }
+  .chip-note {
+    font-size: 0.78rem;
+    opacity: 0.7;
+  }
+  .chip-note a { color: inherit; text-decoration: underline; }
 
   /* Error region */
   .error-headline {
@@ -336,7 +403,7 @@ const presetOptions = [
   }
 </style>
 
-<script is:inline define:vars={{ apiBase, partnerHref, presetOptions }}>
+<script is:inline define:vars={{ apiBase, partnerHref, presetOptions, supported, bundleSupported, bundlePresets }}>
   (function () {
     const zone = document.querySelector("[data-uploader]");
     const input = document.querySelector("[data-file-input]");
@@ -357,18 +424,48 @@ const presetOptions = [
     const resultRatio = document.querySelector("[data-result-ratio]");
     const presetSelect = document.querySelector("[data-tryit-preset-select]");
     const presetBlurb = document.querySelector("[data-tryit-preset-blurb]");
+    const bundleHelp = document.querySelector("[data-tryit-bundle-help]");
+    const formatChipsWrap = document.querySelector("[data-tryit-format-chips]");
     if (!(zone instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
 
     function selectedPreset() {
       if (presetSelect instanceof HTMLSelectElement) return presetSelect.value || "web-mobile";
       return "web-mobile";
     }
+    // Bundle presets (e.g. hacpp-lzma) require an archive containing a
+    // Scaffold-GS checkpoint, not a single splat file. Centralize the
+    // logic here so the file input, the chip group, and the validator
+    // all agree on which extensions are accepted.
+    function isBundlePreset(preset) {
+      return bundlePresets.indexOf(preset) !== -1;
+    }
+    function acceptListFor(preset) {
+      return (isBundlePreset(preset) ? bundleSupported : supported).join(",");
+    }
+    function syncPresetUI() {
+      const preset = selectedPreset();
+      // Keep the input's accept attribute in sync with the chip group so
+      // the OS file picker also filters by the right extensions.
+      input.setAttribute("accept", acceptListFor(preset));
+      if (formatChipsWrap instanceof HTMLElement) {
+        formatChipsWrap.dataset.mode = isBundlePreset(preset) ? "bundle" : "single";
+      }
+      if (bundleHelp instanceof HTMLElement) {
+        if (isBundlePreset(preset)) bundleHelp.removeAttribute("hidden");
+        else bundleHelp.setAttribute("hidden", "");
+      }
+    }
     if (presetSelect instanceof HTMLSelectElement && presetBlurb instanceof HTMLElement) {
       presetSelect.addEventListener("change", function () {
         const opt = presetOptions.find(function (p) { return p.value === presetSelect.value; });
         if (opt) presetBlurb.textContent = opt.blurb;
+        syncPresetUI();
       });
     }
+    // Run once at mount so the input/chips match the default-selected
+    // option (in case the browser restored a different option from the
+    // bfcache).
+    syncPresetUI();
 
     let viewerHandle = null;
 
@@ -767,10 +864,20 @@ const presetOptions = [
     }
 
     async function handleFile(file) {
-      const supportedExts = [".ply", ".spz", ".gltf", ".glb", ".splat"];
+      // Validate against the extension set for the *currently selected*
+      // preset. Picking hacpp-lzma with a plain .ply used to fall through
+      // the picker's `accept=` filter (drag-drop bypasses it) and then
+      // explode on the worker — surface the mismatch up front instead.
+      const preset = selectedPreset();
+      const supportedExts = isBundlePreset(preset) ? bundleSupported : supported;
       const lower = file.name.toLowerCase();
       if (!supportedExts.some(function (ext) { return lower.endsWith(ext); })) {
-        fail("Unsupported file type. Try one of: " + supportedExts.join(", "));
+        const hint = isBundlePreset(preset)
+          ? "The " + preset + " preset needs a Scaffold-GS bundle archive (" +
+            supportedExts.join(", ") +
+            "). See /docs/hacpp-bundle for the layout."
+          : "Unsupported file type. Try one of: " + supportedExts.join(", ");
+        fail(hint);
         return;
       }
       // Move into the progress region immediately.
