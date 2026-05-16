@@ -90,6 +90,104 @@ impl Pass for OpacityPrune {
     }
 }
 
+/// Drop "needle" splats whose maximum/minimum scale ratio exceeds `max_ratio`.
+///
+/// Inria 3DGS training routinely emits extremely anisotropic gaussians where
+/// one eigenvalue dwarfs the other two (ratio > 100). When neighbouring detail
+/// splats are later quantized or pruned, these needles become visible spikes
+/// across the rendered scene. Dropping them at the optimizer stage eliminates
+/// the artifact without needing per-renderer mitigations.
+///
+/// Note on units: the in-memory `SplatScene.scale` is **linear** — importers
+/// (e.g. the Inria PLY reader) convert the log-space scales emitted by 3DGS
+/// training into linear space before populating the IR. So the ratio is simply
+/// `max(scale) / min(scale)` with no `exp()` involved.
+#[derive(Debug, Clone)]
+pub struct AspectRatioPrune {
+    /// Splats with `max(scale)/min(scale) > max_ratio` are dropped. Default 8.0.
+    pub max_ratio: f32,
+}
+
+impl Default for AspectRatioPrune {
+    fn default() -> Self {
+        Self { max_ratio: 8.0 }
+    }
+}
+
+impl Pass for AspectRatioPrune {
+    fn name(&self) -> &'static str {
+        "AspectRatioPrune"
+    }
+    fn run(&self, scene: &mut SplatScene, _ctx: &mut PassContext) -> Result<PassStats> {
+        let max_ratio = self.max_ratio.max(1.0);
+        let before = scene.splats.len();
+        // First pass: compute ratios + a keep mask so we can report median/max
+        // of the *dropped* set without an extra clone of the splat vec.
+        let mut dropped_ratios: Vec<f32> = Vec::new();
+        let keep: Vec<bool> = scene
+            .splats
+            .iter()
+            .map(|s| {
+                // Absolute values: Inria converts log-space to linear via
+                // `exp()`, so values should already be positive, but a few
+                // importers/test fixtures pass raw scales through. Guard
+                // against zero/negative without panicking.
+                let sx = s.scale[0].abs();
+                let sy = s.scale[1].abs();
+                let sz = s.scale[2].abs();
+                let smin = sx.min(sy).min(sz);
+                let smax = sx.max(sy).max(sz);
+                if !smin.is_finite() || !smax.is_finite() || smin <= 0.0 {
+                    // Degenerate scale → drop (consistent with RemoveInvalidSplats
+                    // intent; an axis of zero extent is unrenderable anyway).
+                    dropped_ratios.push(f32::INFINITY);
+                    return false;
+                }
+                let ratio = smax / smin;
+                if ratio > max_ratio {
+                    dropped_ratios.push(ratio);
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        let mut idx = 0usize;
+        scene.splats.retain(|_| {
+            let k = keep[idx];
+            idx += 1;
+            k
+        });
+        let removed = before - scene.splats.len();
+
+        // Stats: median + max of dropped ratios. Use partial_cmp; INFINITY
+        // values (degenerate splats) naturally sort to the top.
+        let mut notes = Vec::new();
+        if !dropped_ratios.is_empty() {
+            let mut sorted = dropped_ratios.clone();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let median = sorted[sorted.len() / 2];
+            let max = *sorted.last().unwrap();
+            notes.push(format!(
+                "max_ratio={:.2} dropped={} median_dropped_ratio={:.2} max_dropped_ratio={:.2}",
+                max_ratio, removed, median, max
+            ));
+        } else {
+            notes.push(format!(
+                "max_ratio={:.2} dropped=0 (no needle splats found)",
+                max_ratio
+            ));
+        }
+
+        Ok(PassStats {
+            removed,
+            notes,
+            ..Default::default()
+        })
+    }
+}
+
 /// Drop splats farther than `dist_sigma * σ` from the scene centroid.
 #[derive(Debug, Clone)]
 pub struct FloaterPrune {

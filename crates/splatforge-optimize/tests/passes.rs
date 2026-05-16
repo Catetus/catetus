@@ -1,7 +1,7 @@
 use splatforge_core::{Color, SemanticLabel, Splat, SplatScene};
 use splatforge_optimize::{
-    preset, BuildLOD, FloaterPrune, MortonSort, ObjectAwarePruneExperimental, OpacityPrune, Pass,
-    PassContext, Pipeline, ReduceSHDegree, RemoveInvalidSplats,
+    preset, AspectRatioPrune, BuildLOD, FloaterPrune, MortonSort, ObjectAwarePruneExperimental,
+    OpacityPrune, Pass, PassContext, Pipeline, ReduceSHDegree, RemoveInvalidSplats,
 };
 
 fn make_scene(n: usize) -> SplatScene {
@@ -399,4 +399,169 @@ fn floater_prune_reports_threshold_stats() {
             && notes_blob.contains("threshold="),
         "expected diagnostic notes, got: {notes_blob}"
     );
+}
+
+// --- AspectRatioPrune ----------------------------------------------------
+
+fn splat_with_scale(scale: [f32; 3]) -> Splat {
+    Splat {
+        position: [0.0, 0.0, 0.0],
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        scale,
+        opacity: 0.9,
+        color: Color::Rgb([0.5, 0.5, 0.5]),
+    }
+}
+
+#[test]
+fn aspect_ratio_prune_drops_needle_splat() {
+    // A "needle" splat: 1.0 / 0.001 = 1000.0 ratio, well above 5.0.
+    let mut scene = SplatScene::new();
+    scene.splats.push(splat_with_scale([1.0, 0.001, 0.001]));
+    let mut ctx = PassContext::default();
+    let stats = AspectRatioPrune { max_ratio: 5.0 }
+        .run(&mut scene, &mut ctx)
+        .unwrap();
+    assert_eq!(stats.removed, 1);
+    assert_eq!(scene.splats.len(), 0);
+}
+
+#[test]
+fn aspect_ratio_prune_keeps_normal_splat() {
+    // Isotropic 1:1:1 scale → ratio 1.0, far below 5.0.
+    let mut scene = SplatScene::new();
+    scene.splats.push(splat_with_scale([1.0, 1.0, 1.0]));
+    let mut ctx = PassContext::default();
+    let stats = AspectRatioPrune { max_ratio: 5.0 }
+        .run(&mut scene, &mut ctx)
+        .unwrap();
+    assert_eq!(stats.removed, 0);
+    assert_eq!(scene.splats.len(), 1);
+}
+
+#[test]
+fn aspect_ratio_prune_is_deterministic() {
+    // Same input → same output, twice in a row.
+    let mut a = SplatScene::new();
+    let mut b = SplatScene::new();
+    for s in [
+        [1.0, 1.0, 1.0],
+        [1.0, 0.001, 0.001],
+        [2.0, 1.0, 0.5],
+        [10.0, 0.1, 0.1],
+        [1.0, 0.5, 0.5],
+    ] {
+        a.splats.push(splat_with_scale(s));
+        b.splats.push(splat_with_scale(s));
+    }
+    let mut ctx = PassContext::default();
+    let sa = AspectRatioPrune { max_ratio: 8.0 }
+        .run(&mut a, &mut ctx)
+        .unwrap();
+    let sb = AspectRatioPrune { max_ratio: 8.0 }
+        .run(&mut b, &mut ctx)
+        .unwrap();
+    assert_eq!(sa.removed, sb.removed);
+    let pa: Vec<_> = a.splats.iter().map(|s| s.scale).collect();
+    let pb: Vec<_> = b.splats.iter().map(|s| s.scale).collect();
+    assert_eq!(pa, pb);
+}
+
+#[test]
+fn aspect_ratio_prune_surfaces_stats_notes() {
+    // After dropping a known needle, the notes vec must report the count,
+    // median dropped ratio, and max dropped ratio so an operator can
+    // sanity-check the pass without rerunning the pipeline.
+    let mut scene = SplatScene::new();
+    scene.splats.push(splat_with_scale([1.0, 1.0, 1.0])); // keeper
+    scene.splats.push(splat_with_scale([100.0, 1.0, 1.0])); // dropped ratio=100
+    scene.splats.push(splat_with_scale([1.0, 0.01, 1.0])); // dropped ratio=100
+    let mut ctx = PassContext::default();
+    let stats = AspectRatioPrune { max_ratio: 8.0 }
+        .run(&mut scene, &mut ctx)
+        .unwrap();
+    assert_eq!(stats.removed, 2);
+    let notes_blob = stats.notes.join(" ");
+    assert!(
+        notes_blob.contains("dropped=2")
+            && notes_blob.contains("median_dropped_ratio=")
+            && notes_blob.contains("max_dropped_ratio="),
+        "expected diagnostic notes, got: {notes_blob}"
+    );
+}
+
+#[test]
+fn aspect_ratio_prune_threshold_boundary() {
+    // Exact-ratio splat (ratio == threshold) is KEPT (strict >). One just
+    // above the threshold is DROPPED. Catches off-by-epsilon regressions.
+    let mut scene = SplatScene::new();
+    scene.splats.push(splat_with_scale([5.0, 1.0, 1.0])); // ratio exactly 5.0 → keep
+    scene.splats.push(splat_with_scale([5.01, 1.0, 1.0])); // ratio > 5.0 → drop
+    let mut ctx = PassContext::default();
+    let stats = AspectRatioPrune { max_ratio: 5.0 }
+        .run(&mut scene, &mut ctx)
+        .unwrap();
+    assert_eq!(stats.removed, 1);
+    assert_eq!(scene.splats.len(), 1);
+    assert_eq!(scene.splats[0].scale, [5.0, 1.0, 1.0]);
+}
+
+#[test]
+fn aspect_ratio_prune_handles_degenerate_zero_scale() {
+    // A zero-axis splat is degenerate (unrenderable). The pass drops it
+    // rather than dividing by zero.
+    let mut scene = SplatScene::new();
+    scene.splats.push(splat_with_scale([1.0, 0.0, 1.0]));
+    scene.splats.push(splat_with_scale([1.0, 1.0, 1.0]));
+    let mut ctx = PassContext::default();
+    let stats = AspectRatioPrune::default()
+        .run(&mut scene, &mut ctx)
+        .unwrap();
+    assert_eq!(stats.removed, 1);
+    assert_eq!(scene.splats.len(), 1);
+    assert_eq!(scene.splats[0].scale, [1.0, 1.0, 1.0]);
+}
+
+#[test]
+fn aspect_ratio_prune_in_web_mobile_preset() {
+    // The web-mobile preset must include AspectRatioPrune (between
+    // OpacityPrune and FloaterPrune) — a stuffed-with-needles scene must
+    // see them dropped before MortonSort/quantization.
+    let mut scene = SplatScene::new();
+    // 20 healthy splats spread in a small cube
+    for i in 0..20 {
+        let f = i as f32 * 0.05;
+        scene.splats.push(Splat {
+            position: [f, -f, f * 0.5],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [0.05, 0.05, 0.05],
+            opacity: 0.9,
+            color: Color::Rgb([0.5, 0.5, 0.5]),
+        });
+    }
+    // 10 needles
+    for i in 0..10 {
+        let f = i as f32 * 0.05 + 1.0;
+        scene.splats.push(Splat {
+            position: [f, f, f],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0, 0.001, 0.001], // ratio 1000
+            opacity: 0.9,
+            color: Color::Rgb([0.5, 0.5, 0.5]),
+        });
+    }
+    let before = scene.splats.len();
+    let pipe = preset("web-mobile").unwrap();
+    let report = pipe.run(&mut scene).unwrap();
+    assert!(report.splats_after < before);
+    // No survivor should have ratio > 10 (the preset threshold).
+    for s in &scene.splats {
+        let smin = s.scale[0].abs().min(s.scale[1].abs()).min(s.scale[2].abs());
+        let smax = s.scale[0].abs().max(s.scale[1].abs()).max(s.scale[2].abs());
+        assert!(
+            smin > 0.0 && smax / smin <= 10.0 + 1e-3,
+            "needle survived web-mobile: scale={:?}",
+            s.scale
+        );
+    }
 }

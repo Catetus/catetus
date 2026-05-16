@@ -3,8 +3,8 @@
 use anyhow::{anyhow, Result};
 
 use crate::passes::{
-    BuildLOD, FloaterPrune, MortonSort, OpacityPrune, QuantizePosition, QuantizeRotation,
-    QuantizeScale, ReduceSHDegree, RemoveInvalidSplats,
+    AspectRatioPrune, BuildLOD, FloaterPrune, MortonSort, OpacityPrune, QuantizePosition,
+    QuantizeRotation, QuantizeScale, ReduceSHDegree, RemoveInvalidSplats,
 };
 use crate::pipeline::Pipeline;
 
@@ -28,13 +28,20 @@ pub fn preset(name: &str) -> Result<Pipeline> {
         "lossless-repack" | "quality-max" => Pipeline::new()
             .push(Box::new(RemoveInvalidSplats))
             .push(Box::new(MortonSort)),
+        // `web-mobile`: default web target. AspectRatioPrune (max_ratio=10)
+        // drops Inria-3DGS needle splats before quantization so 12-bit scale
+        // /rotation quant can't visibly snap thin gaussians into spikes.
+        // Threshold 10.0 is slightly looser than the 8.0 prototype default
+        // because mobile bandwidth budget rewards keeping a few moderately
+        // anisotropic detail splats; 12-bit quant absorbs the residual risk.
         "web-mobile" => Pipeline::new()
             .push(Box::new(RemoveInvalidSplats))
             .push(Box::new(OpacityPrune { threshold: 0.02 }))
+            .push(Box::new(AspectRatioPrune { max_ratio: 10.0 }))
             .push(Box::new(FloaterPrune::default()))
             .push(Box::new(QuantizePosition { bits: 15 }))
-            .push(Box::new(QuantizeScale { bits: 8 }))
-            .push(Box::new(QuantizeRotation { bits: 8 }))
+            .push(Box::new(QuantizeScale { bits: 12 }))
+            .push(Box::new(QuantizeRotation { bits: 12 }))
             .push(Box::new(ReduceSHDegree { target_degree: 0 }))
             .push(Box::new(MortonSort))
             .push(Box::new(BuildLOD {
@@ -43,19 +50,21 @@ pub fn preset(name: &str) -> Result<Pipeline> {
         "web-desktop" => Pipeline::new()
             .push(Box::new(RemoveInvalidSplats))
             .push(Box::new(OpacityPrune { threshold: 0.01 }))
+            .push(Box::new(AspectRatioPrune { max_ratio: 10.0 }))
             .push(Box::new(FloaterPrune::default()))
             .push(Box::new(QuantizePosition { bits: 16 }))
-            .push(Box::new(QuantizeScale { bits: 8 }))
-            .push(Box::new(QuantizeRotation { bits: 8 }))
+            .push(Box::new(QuantizeScale { bits: 12 }))
+            .push(Box::new(QuantizeRotation { bits: 12 }))
             .push(Box::new(ReduceSHDegree { target_degree: 1 }))
             .push(Box::new(MortonSort)),
         "quest-browser" => Pipeline::new()
             .push(Box::new(RemoveInvalidSplats))
             .push(Box::new(OpacityPrune { threshold: 0.03 }))
+            .push(Box::new(AspectRatioPrune { max_ratio: 10.0 }))
             .push(Box::new(FloaterPrune::default()))
             .push(Box::new(QuantizePosition { bits: 14 }))
-            .push(Box::new(QuantizeScale { bits: 8 }))
-            .push(Box::new(QuantizeRotation { bits: 8 }))
+            .push(Box::new(QuantizeScale { bits: 12 }))
+            .push(Box::new(QuantizeRotation { bits: 12 }))
             .push(Box::new(ReduceSHDegree { target_degree: 0 }))
             .push(Box::new(MortonSort))
             .push(Box::new(BuildLOD { levels: vec![0.3] })),
@@ -70,10 +79,11 @@ pub fn preset(name: &str) -> Result<Pipeline> {
         "thumbnail-preview" => Pipeline::new()
             .push(Box::new(RemoveInvalidSplats))
             .push(Box::new(OpacityPrune { threshold: 0.05 }))
+            .push(Box::new(AspectRatioPrune { max_ratio: 10.0 }))
             .push(Box::new(FloaterPrune::default()))
             .push(Box::new(QuantizePosition { bits: 12 }))
-            .push(Box::new(QuantizeScale { bits: 8 }))
-            .push(Box::new(QuantizeRotation { bits: 8 }))
+            .push(Box::new(QuantizeScale { bits: 12 }))
+            .push(Box::new(QuantizeRotation { bits: 12 }))
             .push(Box::new(ReduceSHDegree { target_degree: 0 }))
             .push(Box::new(MortonSort)),
         // `geospatial`: produces a Cesium 3D Tiles 1.1 tileset (tileset.json +
@@ -99,10 +109,11 @@ pub fn preset(name: &str) -> Result<Pipeline> {
         "size-min" => Pipeline::new()
             .push(Box::new(RemoveInvalidSplats))
             .push(Box::new(OpacityPrune { threshold: 0.05 }))
+            .push(Box::new(AspectRatioPrune { max_ratio: 10.0 }))
             .push(Box::new(FloaterPrune::default()))
             .push(Box::new(QuantizePosition { bits: 12 }))
-            .push(Box::new(QuantizeScale { bits: 8 }))
-            .push(Box::new(QuantizeRotation { bits: 8 }))
+            .push(Box::new(QuantizeScale { bits: 12 }))
+            .push(Box::new(QuantizeRotation { bits: 12 }))
             .push(Box::new(ReduceSHDegree { target_degree: 0 }))
             .push(Box::new(MortonSort))
             .push(Box::new(BuildLOD {

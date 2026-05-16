@@ -7,9 +7,9 @@ pub mod presets;
 pub mod tileset;
 
 pub use passes::{
-    BuildLOD, FloaterPrune, MortonSort, ObjectAwarePruneExperimental, OpacityPrune, Pass,
-    PassContext, PassStats, QuantizePosition, QuantizeRotation, QuantizeScale, ReduceSHDegree,
-    RemoveInvalidSplats,
+    AspectRatioPrune, BuildLOD, FloaterPrune, MortonSort, ObjectAwarePruneExperimental,
+    OpacityPrune, Pass, PassContext, PassStats, QuantizePosition, QuantizeRotation, QuantizeScale,
+    ReduceSHDegree, RemoveInvalidSplats,
 };
 pub use pipeline::{Pipeline, PipelineReport};
 pub use presets::preset;
