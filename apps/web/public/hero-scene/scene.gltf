@@ -5,283 +5,132 @@
   },
   "extensionsUsed": [
     "KHR_gaussian_splatting",
-    "SF_spatial_streaming_index"
+    "KHR_mesh_quantization"
   ],
   "extensionsRequired": [
     "KHR_gaussian_splatting"
   ],
   "buffers": [
     {
-      "byteLength": 5600000,
+      "byteLength": 2628160,
       "uri": "buffers/chunk_0000.bin"
-    },
-    {
-      "byteLength": 5600000,
-      "uri": "buffers/chunk_0001.bin"
-    },
-    {
-      "byteLength": 2509640,
-      "uri": "buffers/chunk_0002.bin"
     }
   ],
   "bufferViews": [
     {
       "buffer": 0,
       "byteOffset": 0,
-      "byteLength": 1200000
+      "byteLength": 543756
     },
     {
       "buffer": 0,
-      "byteOffset": 1200000,
-      "byteLength": 1600000
+      "byteOffset": 543756,
+      "byteLength": 1450016
     },
     {
       "buffer": 0,
-      "byteOffset": 2800000,
-      "byteLength": 1200000
+      "byteOffset": 1993772,
+      "byteLength": 271878
     },
     {
       "buffer": 0,
-      "byteOffset": 4000000,
-      "byteLength": 400000
+      "byteOffset": 2265652,
+      "byteLength": 90626
     },
     {
       "buffer": 0,
-      "byteOffset": 4400000,
-      "byteLength": 1200000
-    },
-    {
-      "buffer": 1,
-      "byteOffset": 0,
-      "byteLength": 1200000
-    },
-    {
-      "buffer": 1,
-      "byteOffset": 1200000,
-      "byteLength": 1600000
-    },
-    {
-      "buffer": 1,
-      "byteOffset": 2800000,
-      "byteLength": 1200000
-    },
-    {
-      "buffer": 1,
-      "byteOffset": 4000000,
-      "byteLength": 400000
-    },
-    {
-      "buffer": 1,
-      "byteOffset": 4400000,
-      "byteLength": 1200000
-    },
-    {
-      "buffer": 2,
-      "byteOffset": 0,
-      "byteLength": 537780
-    },
-    {
-      "buffer": 2,
-      "byteOffset": 537780,
-      "byteLength": 717040
-    },
-    {
-      "buffer": 2,
-      "byteOffset": 1254820,
-      "byteLength": 537780
-    },
-    {
-      "buffer": 2,
-      "byteOffset": 1792600,
-      "byteLength": 179260
-    },
-    {
-      "buffer": 2,
-      "byteOffset": 1971860,
-      "byteLength": 537780
+      "byteOffset": 2356280,
+      "byteLength": 271878
     }
   ],
   "accessors": [
     {
       "bufferView": 0,
-      "componentType": 5126,
-      "count": 100000,
+      "componentType": 5123,
+      "count": 90626,
       "type": "VEC3",
+      "normalized": true,
       "min": [
-        -22.682503,
-        -13.336483,
-        -22.65214
+        -10.336652,
+        -5.0689435,
+        -3.936585
       ],
       "max": [
-        15.57637,
-        19.970753,
-        19.358007
+        6.202403,
+        9.951706,
+        12.596495
       ]
     },
     {
       "bufferView": 1,
       "componentType": 5126,
-      "count": 100000,
+      "count": 90626,
       "type": "VEC4"
     },
     {
       "bufferView": 2,
-      "componentType": 5126,
-      "count": 100000,
-      "type": "VEC3"
+      "componentType": 5121,
+      "count": 90626,
+      "type": "VEC3",
+      "normalized": true,
+      "min": [
+        0.000006139421,
+        0.0000064355186,
+        7.821717e-7
+      ],
+      "max": [
+        0.5585535,
+        0.49614355,
+        0.50131637
+      ]
     },
     {
       "bufferView": 3,
-      "componentType": 5126,
-      "count": 100000,
-      "type": "SCALAR"
+      "componentType": 5121,
+      "count": 90626,
+      "type": "SCALAR",
+      "normalized": true,
+      "min": [
+        0.0
+      ],
+      "max": [
+        1.0
+      ]
     },
     {
       "bufferView": 4,
-      "componentType": 5126,
-      "count": 100000,
-      "type": "VEC3"
-    },
-    {
-      "bufferView": 5,
-      "componentType": 5126,
-      "count": 100000,
+      "componentType": 5121,
+      "count": 90626,
       "type": "VEC3",
+      "normalized": true,
       "min": [
-        -21.574995,
-        -11.708096,
-        -1.6467457
+        0.0,
+        0.0,
+        0.0
       ],
       "max": [
-        17.640026,
-        10.853003,
-        18.160559
+        1.0,
+        1.0,
+        1.0
       ]
-    },
-    {
-      "bufferView": 6,
-      "componentType": 5126,
-      "count": 100000,
-      "type": "VEC4"
-    },
-    {
-      "bufferView": 7,
-      "componentType": 5126,
-      "count": 100000,
-      "type": "VEC3"
-    },
-    {
-      "bufferView": 8,
-      "componentType": 5126,
-      "count": 100000,
-      "type": "SCALAR"
-    },
-    {
-      "bufferView": 9,
-      "componentType": 5126,
-      "count": 100000,
-      "type": "VEC3"
-    },
-    {
-      "bufferView": 10,
-      "componentType": 5126,
-      "count": 44815,
-      "type": "VEC3",
-      "min": [
-        -12.611561,
-        3.3173885,
-        -1.6467457
-      ],
-      "max": [
-        12.055111,
-        12.489012,
-        9.875196
-      ]
-    },
-    {
-      "bufferView": 11,
-      "componentType": 5126,
-      "count": 44815,
-      "type": "VEC4"
-    },
-    {
-      "bufferView": 12,
-      "componentType": 5126,
-      "count": 44815,
-      "type": "VEC3"
-    },
-    {
-      "bufferView": 13,
-      "componentType": 5126,
-      "count": 44815,
-      "type": "SCALAR"
-    },
-    {
-      "bufferView": 14,
-      "componentType": 5126,
-      "count": 44815,
-      "type": "VEC3"
     }
   ],
   "meshes": [
     {
       "primitives": [
         {
-          "attributes": {
-            "KHR_gaussian_splatting:OPACITY": 3,
-            "KHR_gaussian_splatting:ROTATION": 1,
-            "KHR_gaussian_splatting:SCALE": 2,
-            "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0": 4,
-            "POSITION": 0
-          },
           "extensions": {
             "KHR_gaussian_splatting": {
-              "colorSpace": "srgb_rec709_display",
-              "kernel": "ellipse",
-              "projection": "perspective",
-              "shDegree": 0,
-              "sortingMethod": "cameraDistance"
+              "attributes": {
+                "POSITION": 0,
+                "_COLOR_DC": 4,
+                "_OPACITY": 3,
+                "_ROTATION": 1,
+                "_SCALE": 2
+              },
+              "shDegree": 0
             }
-          },
-          "mode": 0
-        },
-        {
-          "attributes": {
-            "KHR_gaussian_splatting:OPACITY": 8,
-            "KHR_gaussian_splatting:ROTATION": 6,
-            "KHR_gaussian_splatting:SCALE": 7,
-            "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0": 9,
-            "POSITION": 5
-          },
-          "extensions": {
-            "KHR_gaussian_splatting": {
-              "colorSpace": "srgb_rec709_display",
-              "kernel": "ellipse",
-              "projection": "perspective",
-              "shDegree": 0,
-              "sortingMethod": "cameraDistance"
-            }
-          },
-          "mode": 0
-        },
-        {
-          "attributes": {
-            "KHR_gaussian_splatting:OPACITY": 13,
-            "KHR_gaussian_splatting:ROTATION": 11,
-            "KHR_gaussian_splatting:SCALE": 12,
-            "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0": 14,
-            "POSITION": 10
-          },
-          "extensions": {
-            "KHR_gaussian_splatting": {
-              "colorSpace": "srgb_rec709_display",
-              "kernel": "ellipse",
-              "projection": "perspective",
-              "shDegree": 0,
-              "sortingMethod": "cameraDistance"
-            }
-          },
-          "mode": 0
+          }
         }
       ]
     }
@@ -290,96 +139,18 @@
     "KHR_gaussian_splatting": {
       "bbox": {
         "max": [
-          17.640026092529297,
-          19.970752716064453,
-          19.358007431030273
+          6.2024030685424805,
+          9.951705932617188,
+          12.596494674682617
         ],
         "min": [
-          -22.68250274658203,
-          -13.336483001708984,
-          -22.65213966369629
+          -10.336651802062988,
+          -5.068943500518799,
+          -3.936584949493408
         ]
       },
       "shDegree": 0,
-      "splatCount": 244815
-    },
-    "SF_spatial_streaming_index": {
-      "chunkCount": 3,
-      "chunks": [
-        {
-          "bbox": {
-            "max": [
-              15.576370239257812,
-              19.970752716064453,
-              19.358007431030273
-            ],
-            "min": [
-              -22.68250274658203,
-              -13.336483001708984,
-              -22.65213966369629
-            ]
-          },
-          "buffer": 0,
-          "byteLength": 5600000,
-          "byteOffset": 0,
-          "checksum": "blake3:c4fffa03075d1ebf684c15802808eb6f5f6e07ccbde233935bc6e7bce00a1ed2",
-          "loadPriority": 0,
-          "lod": 0,
-          "splatCount": 100000,
-          "uri": "buffers/chunk_0000.bin"
-        },
-        {
-          "bbox": {
-            "max": [
-              17.640026092529297,
-              10.853002548217773,
-              18.160558700561523
-            ],
-            "min": [
-              -21.574995040893555,
-              -11.70809555053711,
-              -1.6467456817626953
-            ]
-          },
-          "buffer": 1,
-          "byteLength": 5600000,
-          "byteOffset": 0,
-          "checksum": "blake3:8e7b8f178a8d04fb64dc29da1d2e72ccda24e39d1700f363c72817c54a057eb2",
-          "loadPriority": 1,
-          "lod": 0,
-          "splatCount": 100000,
-          "uri": "buffers/chunk_0001.bin"
-        },
-        {
-          "bbox": {
-            "max": [
-              12.055110931396484,
-              12.489011764526367,
-              9.87519645690918
-            ],
-            "min": [
-              -12.611560821533203,
-              3.3173885345458984,
-              -1.6467456817626953
-            ]
-          },
-          "buffer": 2,
-          "byteLength": 2509640,
-          "byteOffset": 0,
-          "checksum": "blake3:3d384e64b0c3eab3e32ce8610461d851222cdc9aed585a298c665b15f592dd24",
-          "loadPriority": 2,
-          "lod": 0,
-          "splatCount": 44815,
-          "uri": "buffers/chunk_0002.bin"
-        }
-      ],
-      "lods": [
-        {
-          "level": 0,
-          "splatFraction": 1.0
-        }
-      ],
-      "ordering": "morton"
+      "splatCount": 90626
     }
   }
 }

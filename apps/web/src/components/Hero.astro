@@ -52,7 +52,7 @@ const version = splatbench.splatforgeVersion;
     <div class="splat-frame"></div>
     <div class="splat-caption">
       <span class="live" data-hero-status>booting splat viewer…</span>
-      <span class="tabular">bonsai · 250k splats · 13 MB · hero preset</span>
+      <span class="tabular">bonsai · 91k splats · 2.5 MB · web-mobile</span>
     </div>
   </div>
 </section>
@@ -125,11 +125,9 @@ const version = splatbench.splatforgeVersion;
             autoRotateSpeed: 8,
             // The default orbit pulls the camera back 2.5× the bbox
             // half-diagonal — perfect for visual-regression frames but a
-            // little airy as a hero. The bonsai_real bbox is padded by
-            // background floaters (FloaterPrune removed 0 in scene.json)
-            // so the actual subject lives in maybe 25% of the bbox volume;
-            // pull the framing in hard so the bonsai fills the canvas.
-            autoRotateFraming: 0.45,
+            // little airy as a hero. 0.45 pushes the camera close enough
+            // that the bonsai fills most of the canvas.
+            autoRotateFraming: 0.75,
           });
           viewer.on("firstRender", () => {
             setStatus("live · auto-orbit");
