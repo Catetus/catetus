@@ -3,7 +3,7 @@ import Base from "../../layouts/Base.astro";
 
 const title = "SplatForge — Hosted Neural preset";
 const description =
-  "On-demand per-scene neural codec. Fits a tiny hash-grid hyperprior to your scene on an A100 and returns encoded bytes. ~120 s per scene, ~$0.13. Best ROI on outdoor scenes (7-8x / +8 dB).";
+  "On-demand per-scene neural codec. Fits a tiny hash-grid hyperprior to your scene on an A100 and returns encoded bytes. ~9-10 min per bicycle-scale scene, ~$0.35. Endpoint-native N=3 on bicycle: 4.18x neural-byte ratio at +4.29 dB delta-PSNR vs the opacity-prune baseline.";
 ---
 
 <Base title={title} description={description}>
@@ -57,15 +57,16 @@ const description =
   <h2>When to use it</h2>
   <ul>
     <li>
-      <strong>Any scene where ~120 s of encode-time is acceptable.</strong>
+      <strong>Any scene where ~9-10 min of encode-time is acceptable.</strong>
       The preset works on any scene class; outdoor captures (bicycle,
       garden, stump) just happen to benefit the most because the v0.2
       opacity-prune baseline leaves a lot of dB on the table there.
     </li>
     <li>
-      <strong>Best ROI on outdoor.</strong> Bicycle outdoor lands at
-      ~7.5× compression with +8 dB ΔPSNR vs the opacity-prune baseline.
-      Indoor scenes (bonsai, kitchen) hit ~3-5× at +1 dB.
+      <strong>Outdoor ROI (endpoint-native N=3).</strong> Bicycle outdoor
+      currently lands at ~4.2× neural-byte ratio with +4.3 dB ΔPSNR vs the
+      opacity-prune baseline. Indoor scenes (bonsai, kitchen) hit ~3-5× at
+      ~+1 dB on the same RD schedule.
     </li>
     <li>
       <strong>You want the bytes today, decoder later.</strong> The
@@ -78,18 +79,22 @@ const description =
   <h2>Cost model</h2>
   <p>
     Cost is dominated by the A100 training pass. A typical bicycle-scale
-    scene (~855 MB Inria PLY) runs <strong>~120 s on A100</strong> and
-    bills at roughly <strong>$0.13/scene</strong> through the SplatForge
-    rate card (PER_COMPUTE_SECOND_CENTS = $0.001/sec + $0.01 flat).
-    Smaller indoor scenes land lower; the per-MB slope is small because
-    the iteration budget dominates wall-clock.
+    scene (~855 MB Inria PLY) runs <strong>~545 s on A100</strong> (1000
+    iterations, 512 px supervision) plus ~60-180 s of tar packaging and
+    blob upload, for an end-to-end wall of <strong>~9-12 min/scene</strong>
+    and a Modal compute bill of roughly <strong>$0.32-$0.40/scene</strong>
+    at the published A100 rate. Smaller indoor scenes land lower; the
+    per-MB slope is small because the iteration budget dominates wall-clock.
   </p>
 
-  <h2>Validated numbers (N=3 multi-seed, bicycle outdoor)</h2>
+  <h2>Validated numbers (N=3 endpoint-native, bicycle outdoor)</h2>
   <p>
     Per <a href="/#bench">Principle 2 (render-PSNR + N=3 multi-seed)</a>,
     every codec rung's headline claim is N=3 multi-seed on real-photo
-    corpus. Bicycle outdoor at <code>target_neural_ratio = 0.05</code>,
+    corpus. Numbers below are <strong>endpoint-native</strong> — fired
+    directly at the deployed <code>splatforge-hosted-neural</code> Modal
+    app via <code>run_hosted_neural</code>, not at a private research
+    branch. Bicycle outdoor at <code>target_neural_ratio = 0.05</code>,
     1000 iterations, 512 px supervision:
   </p>
   <table>
@@ -102,23 +107,27 @@ const description =
       </tr>
     </thead>
     <tbody>
-      <tr><td>0</td><td>7.54×</td><td>+8.385</td><td>1,808,054</td></tr>
-      <tr><td>1</td><td>8.08×</td><td>+8.550</td><td>1,808,054</td></tr>
-      <tr><td>2</td><td>7.21×</td><td>+8.253</td><td>1,808,054</td></tr>
+      <tr><td>0</td><td>3.84×</td><td>+4.186</td><td>1,808,054</td></tr>
+      <tr><td>1</td><td>4.39×</td><td>+4.382</td><td>1,808,054</td></tr>
+      <tr><td>2</td><td>4.31×</td><td>+4.306</td><td>1,808,054</td></tr>
       <tr>
-        <td><strong>Median</strong></td>
-        <td><strong>7.54×</strong></td>
-        <td><strong>+8.39</strong></td>
+        <td><strong>Mean ± stdev</strong></td>
+        <td><strong>4.18× ± 0.29</strong></td>
+        <td><strong>+4.29 ± 0.10</strong></td>
         <td>1,808,054</td>
       </tr>
     </tbody>
   </table>
   <p class="footnote">
-    Source: <code>apps/diff-repack/results-neural-m3-final.json</code> on
-    the private <code>research/neural-codec-v0.1-m3</code> branch
-    (commit <code>aaadf09</code>, 2026-05-15). The endpoint serving the
-    customer-facing preset uses the same encoder source — endpoint-side
-    re-runs of seed 0 match the source-code seed-0 cell within rounding.
+    The earlier 7.54× / +8.39 dB cell on this page was a source-code
+    median measured on the private <code>research/neural-codec-v0.1-m3</code>
+    branch (commit <code>aaadf09</code>). The deployed endpoint at
+    <code>deploy/hosted-neural-endpoint</code> (commit <code>ff9b700</code>)
+    consistently produces roughly half the compression and half the
+    ΔPSNR — a documented drift between the M3 research cell and the
+    productized encoder. Numbers above are the endpoint-native N=3
+    fired on 2026-05-16; raw run records are in
+    <code>splatforge-private/worktrees/sf-155-hosted-neural-n3/tasks/scripts/task-155/results/n3_endpoint_runs.json</code>.
   </p>
 
   <h2>Indoor numbers</h2>
