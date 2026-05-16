@@ -184,6 +184,20 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // see benches/encoders/qat-scaffold-gs/README.md).
         // Anchor: bonsai 130 MB Scaffold PLY → ~360 s end-to-end.
         "splatforge-qat-scaffold" => (320.0, 0.32),
+        // splatforge-qat-bundle — PREMIUM tier, full QAT recipe.
+        // Customer-uploaded bundle (point_cloud.ply + 3 MLPs +
+        // cameras.json + cfg_args + images/) → int8 f_anchor_feat
+        // retrain on A100 (5000 iters, ~5 min on bonsai-scale) →
+        // constant-strip → smaller PLY. Per-scene results vary by
+        // capture: bonsai +0.58 dB / 40.5% save; flowers +0.03 dB /
+        // 33.8% save (see benches/encoders/qat-scaffold-gs). The
+        // wall-clock is dominated by the A100 finetune + the
+        // render.py / metrics.py eval (each adds ~30-60 s on top).
+        // Anchor: bonsai 130 MB bundle → ~600 s end-to-end at ~$0.50
+        // Modal pass-through; per-MB slope is small because most of
+        // the wall-clock comes from the fixed-iter finetune, not the
+        // input size.
+        "splatforge-qat-bundle" => (600.0, 0.50),
         // capture-and-compress — photos.zip → COLMAP → 3DGS training →
         // compression. The full "no PLY required" pipeline. This is the
         // single preset that closes the loop vs Polycam/Luma — buyers

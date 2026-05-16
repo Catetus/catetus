@@ -21,7 +21,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
 // .zip here would surface as a confusing post-upload encoder error.)
 // See /docs/hacpp-bundle for the exact layout.
 const bundleSupported = [".tar", ".tar.gz", ".tgz"];
-const bundlePresets = ["hacpp-lzma"];
+const bundlePresets = ["hacpp-lzma", "splatforge-qat-bundle"];
 
 // Preset picker entries. The first is the default. Ratio claims are from
 // bonsai (273.7 MB Inria PLY) end-to-end Modal validation; real-world
@@ -81,7 +81,20 @@ const presetOptions = [
   {
     value: "splatforge-qat-scaffold",
     label: "QAT-Scaffold (Scaffold-GS PLY)",
-    blurb: "Scaffold-GS PLY → ~10% smaller, lossless single-PLY prefix. Full benchmark recipe (37% save / +0.17 dB) requires GT cameras — premium tier.",
+    blurb: "Scaffold-GS PLY → ~10% smaller, lossless single-PLY prefix. Full benchmark recipe (37% save / +0.17 dB) requires GT cameras — pick QAT-Bundle below.",
+  },
+  // QAT-Bundle — premium tier. Full retrain recipe (int8 f_anchor_feat
+  // finetune + constant-strip) requires a bundle with GT cameras +
+  // images so the trainer can absorb feature-quant noise via L1+SSIM
+  // loss on the customer's own captures. ~$0.50/scene, ~10 min on
+  // A100. Per-scene results vary — bonsai +0.58 dB / 40.5% save;
+  // flowers +0.03 dB / 33.8% save (see /docs/qat-bundle for the
+  // honest table). Routed through splatforge-worker →
+  // splatforge-qat-bundle Modal app.
+  {
+    value: "splatforge-qat-bundle",
+    label: "QAT-Bundle (premium — full recipe)",
+    blurb: "Full retrain · +PSNR & ~30-40% PLY save · needs Scaffold-GS .tar bundle with GT cams + images",
   },
 ];
 ---
@@ -137,8 +150,8 @@ const presetOptions = [
           target="_blank"
           rel="noreferrer noopener"
           hidden
-          aria-label="HAC++ bundle format docs"
-          title="HAC++ requires a Scaffold-GS bundle — click for the exact layout."
+          aria-label="Scaffold-GS bundle format docs"
+          title="This preset requires a Scaffold-GS bundle — click for the exact layout."
         >?</a>
       </div>
       {/* Two chip groups: the default (single splat formats) and the
@@ -477,8 +490,23 @@ const presetOptions = [
         formatChipsWrap.dataset.mode = isBundlePreset(preset) ? "bundle" : "single";
       }
       if (bundleHelp instanceof HTMLElement) {
-        if (isBundlePreset(preset)) bundleHelp.removeAttribute("hidden");
-        else bundleHelp.setAttribute("hidden", "");
+        if (isBundlePreset(preset)) {
+          // Each bundle preset has its own docs page describing the
+          // exact required layout. Keep this map in sync with
+          // `bundlePresets` above so adding a new bundle preset never
+          // leaks a stale help link.
+          const docsByPreset = {
+            "hacpp-lzma": "/docs/hacpp-bundle",
+            "splatforge-qat-bundle": "/docs/qat-bundle",
+          };
+          bundleHelp.setAttribute(
+            "href",
+            docsByPreset[preset] || "/docs/hacpp-bundle",
+          );
+          bundleHelp.removeAttribute("hidden");
+        } else {
+          bundleHelp.setAttribute("hidden", "");
+        }
       }
     }
     if (presetSelect instanceof HTMLSelectElement && presetBlurb instanceof HTMLElement) {

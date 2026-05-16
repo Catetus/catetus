@@ -103,6 +103,17 @@ PRESET_DISPATCH_URLS = {
     # compressed PLY, and POSTs the terminal `{status, output_url}`
     # back to `callback_url`.
     "splatforge-qat-scaffold": os.environ.get("SPLATFORGE_QAT_SCAFFOLD_URL"),
+    # splatforge-qat-bundle — premium-tier full QAT recipe. Takes a
+    # bundle (point_cloud.ply + 3 MLPs + cameras.json + cfg_args +
+    # images/) instead of a single PLY because the int8 retrain leg
+    # needs GT cameras + images to absorb feature-quant noise. ~$0.50
+    # per scene, ~10 min on A100. Same /enqueue contract as the other
+    # forwarded presets; the private Modal app POSTs the terminal
+    # `{status, output_url, ply_save_pct, delta_psnr_db}` back to
+    # `callback_url`. Numbers are honest per-scene — bonsai best-case
+    # +0.58 dB / 40.5% save; flowers worst-case +0.03 dB / 33.8% save
+    # (see benches/encoders/qat-scaffold-gs).
+    "splatforge-qat-bundle": os.environ.get("SPLATFORGE_QAT_BUNDLE_URL"),
 }
 
 image = (
@@ -129,8 +140,8 @@ image = (
 
 
 # Modal workspace caps web functions at 8 across all deployed apps. With
-# 6 splatforge presets (codec-gs-mixed + fcgs + hacpp-lzma + hosted-neural + qat-scaffold
-# + this worker) and the personal linecall-machine app, separate
+# 7 splatforge presets (codec-gs-mixed + fcgs + hacpp-lzma + hosted-neural + qat-scaffold
+# + qat-bundle [premium] + this worker) and the personal linecall-machine app, separate
 # `enqueue` + `healthz` endpoints push us over. We collapse the worker's
 # two HTTP routes into a single ASGI app so both routes share one web
 # function slot. The URLs the API + operators consume stay the same shape
@@ -629,6 +640,7 @@ def _expected_env_var_for_preset(preset: str) -> str:
         "hacpp-lzma": "SPLATFORGE_HACPP_LZMA_URL",
         "hosted-neural": "SPLATFORGE_HOSTED_NEURAL_URL",
         "splatforge-qat-scaffold": "SPLATFORGE_QAT_SCAFFOLD_URL",
+        "splatforge-qat-bundle": "SPLATFORGE_QAT_BUNDLE_URL",
     }
     return mapping.get(preset, "SPLATFORGE_<PRESET>_URL")
 
@@ -720,6 +732,7 @@ def healthz() -> dict:
                 "SPLATFORGE_HACPP_LZMA_URL",
                 "SPLATFORGE_HOSTED_NEURAL_URL",
                 "SPLATFORGE_QAT_SCAFFOLD_URL",
+                "SPLATFORGE_QAT_BUNDLE_URL",
             ],
         )
     ],

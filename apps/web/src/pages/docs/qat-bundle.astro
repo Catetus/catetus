@@ -1,0 +1,248 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const title = "SplatForge — QAT-Bundle format (premium tier)";
+const description =
+  "How to package a Scaffold-GS checkpoint as a SplatForge QAT-Bundle for the premium full-retrain recipe. Includes the required layout, per-scene expectations from the public bench, and what the worker does end-to-end.";
+
+// Per-scene expectations come from the QAT-Scaffold bench column in
+// benches/encoders/qat-scaffold-gs/README.md (commit c3387b3). These
+// are the canonical numbers we charge against — if a customer's
+// bundle returns numbers materially worse than the bench, they should
+// reach out so we can debug.
+const benchExpectations = [
+  { scene: "bonsai",   psnr: "+0.58 dB", save: "40.5%",  note: "best-case (indoor, dense cams)" },
+  { scene: "garden",   psnr: "+0.19 dB", save: "40.5%",  note: "high-quality outdoor" },
+  { scene: "bicycle",  psnr: "+0.09 dB", save: "40.5%",  note: "challenging outdoor" },
+  { scene: "stump",    psnr: "+0.04 dB", save: "33.9%",  note: "outdoor with sky" },
+  { scene: "treehill", psnr: "+0.07 dB", save: "33.7%",  note: "outdoor foliage" },
+  { scene: "flowers",  psnr: "+0.03 dB", save: "33.8%",  note: "worst-case (close-up, low cam count)" },
+];
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="/#try" aria-current="page">Try it</a>
+    </div>
+  </nav>
+
+  <h1>QAT-Bundle format (premium)</h1>
+  <p class="lede">
+    The <code>splatforge-qat-bundle</code> preset is the
+    <strong>full-retrain recipe</strong> behind the SplatBench QAT-Scaffold
+    column (37.25% aggregate PLY save, +0.17 dB mean PSNR across 6
+    Mip-NeRF 360 scenes). It needs a Scaffold-GS bundle that includes
+    GT cameras + images so the int8 finetune can absorb feature-quant
+    noise via L1+SSIM loss on your own captures.
+  </p>
+  <p class="lede">
+    <strong>Price:</strong> ~$0.50 per scene (Modal A100 pass-through). 
+    <strong>Wall-clock:</strong> ~10 min end-to-end (5000-iter finetune
+    dominates). <strong>Output:</strong> a smaller Scaffold-GS PLY plus
+    int8 sidecars; the saved PLY decodes against any Scaffold-GS-aware
+    renderer that honors the canonical loader patch.
+  </p>
+
+  <h2>Required layout</h2>
+  <p>
+    Pack a Scaffold-GS training output (the directory that contains
+    <code>point_cloud/iteration_30000/</code>) plus the Mip-NeRF-360-style
+    GT scene root (the <code>images/</code> + optional COLMAP
+    <code>sparse/0/</code> + <code>input.ply</code>) into a single tar
+    archive. Files may be at the archive root OR one level down inside
+    a single top-level subdirectory (so <code>tar -czf bonsai.tar.gz
+    bonsai/</code> works without flattening).
+  </p>
+  <pre><code>bundle.tar.gz
+├── point_cloud.ply       # Scaffold-GS anchor PLY (~130 MB for bonsai)
+├── color_mlp.pt          # TorchScript color MLP
+├── cov_mlp.pt            # TorchScript covariance MLP
+├── opacity_mlp.pt        # TorchScript opacity MLP
+├── cfg_args              # Scaffold-GS Namespace dump (feat_dim, n_offsets, ...)
+├── cameras.json          # Scaffold-GS Scene cameras (training views)
+├── input.ply             # COLMAP sparse points (Scaffold-GS init)
+├── images/               # GT images referenced by cameras.json
+│   ├── DSCF0001.JPG
+│   └── ...
+└── sparse/0/             # OPTIONAL: COLMAP sparse model
+    ├── cameras.bin
+    ├── images.bin
+    └── points3D.bin</code></pre>
+
+  <h2>Pack from a Scaffold-GS output directory</h2>
+  <p>
+    From the trainer output (the one that contains
+    <code>point_cloud/iteration_30000/</code> and a sibling
+    <code>scene/</code> source):
+  </p>
+  <pre><code>cd /path/to/scaffold_30k
+tar -czf bonsai_bundle.tar.gz \
+  point_cloud/iteration_30000/point_cloud.ply \
+  point_cloud/iteration_30000/color_mlp.pt \
+  point_cloud/iteration_30000/cov_mlp.pt \
+  point_cloud/iteration_30000/opacity_mlp.pt \
+  cfg_args \
+  cameras.json \
+  input.ply \
+  -C /path/to/scaffold_30k/scene images \
+  -C /path/to/scaffold_30k/scene sparse \
+  --transform 's,.*/,,'   # flatten paths to the archive root</code></pre>
+  <p>
+    Then drop <code>bonsai_bundle.tar.gz</code> on the
+    <a href="/#try">Try-it surface</a> with <strong>QAT-Bundle</strong>
+    selected.
+  </p>
+
+  <h2>Constraints</h2>
+  <ul>
+    <li><strong>Max bundle size:</strong> 1 GB total (compressed). Most
+      Mip-NeRF 360 scenes pack to ~400-800 MB with images included.</li>
+    <li><strong>Min GT images:</strong> 8. The trainer's train/test split
+      needs both halves; bundles below this floor are rejected with a
+      clear error before any compute spend.</li>
+    <li><strong>Free tier:</strong> 1 bundle per month per account. The
+      retrain is expensive — we gate generously rather than charging by
+      surprise.</li>
+    <li><strong>Paid tier:</strong> $0.50 per bundle flat. Billed via
+      the existing Stripe meter (<code>splatforge_repack_runs</code> +
+      <code>splatforge_repack_seconds</code>); no new product needed.</li>
+  </ul>
+
+  <h2>Per-scene expectations</h2>
+  <p>
+    These numbers come from the public bench column at
+    <a href="/bench">/bench</a> (commit <code>c3387b3</code>). Your
+    capture may land anywhere on this distribution — we report the
+    honest measured delta in the API callback so you can verify
+    before downloading.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Scene</th><th>ΔPSNR</th><th>PLY save</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      {benchExpectations.map((row) => (
+        <tr>
+          <td><code>{row.scene}</code></td>
+          <td>{row.psnr}</td>
+          <td>{row.save}</td>
+          <td>{row.note}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  <p class="note">
+    Individual scene results vary. The trainer reports
+    <code>delta_psnr_db</code> and <code>ply_save_pct</code> in the
+    job callback — if your scene returns numbers more than 0.3 dB
+    worse than the bench expectation, please file an issue with the
+    bundle hash so we can investigate.
+  </p>
+
+  <h2>What happens server-side</h2>
+  <ol>
+    <li>Browser uploads the archive to Vercel Blob via a presigned PUT.</li>
+    <li>
+      The worker validates the preset + bundle size cap and forwards
+      <code>{`{ preset: "splatforge-qat-bundle", blob_url, callback_url }`}</code>
+      to the private Modal endpoint.
+    </li>
+    <li>
+      The endpoint downloads the bundle, runs
+      <code>extract_and_validate</code> against the layout above, and
+      fails fast with a customer-actionable error if anything is
+      missing.
+    </li>
+    <li>
+      A 5000-iter int8 QAT finetune runs on A100 against the bundle's
+      own GT cameras. The renderer's
+      <code>generate_neural_gaussians</code> is monkey-patched so
+      gradients flow through the int8 lattice via STE.
+    </li>
+    <li>
+      The finetuned PLY is run through the canonical
+      <code>render.py</code> + <code>metrics.py</code> pipeline to
+      compute honest PSNR/SSIM/LPIPS on the test cams.
+    </li>
+    <li>
+      The lossless constant-strip transform is applied on top of the
+      finetuned PLY, then the result is uploaded to Vercel Blob and
+      returned via the callback.
+    </li>
+  </ol>
+
+  <h2>API callback shape</h2>
+  <pre><code>{`{
+  "status": "done",
+  "output_url": "https://...vercel-storage.com/jobs/<id>/scaffold_qat_bundle.ply",
+  "size_bytes_in": 134217728,
+  "size_bytes_out": 79847936,
+  "ply_save_pct": 40.51,
+  "projected_ply_save_pct": 40.51,
+  "delta_psnr_db": 0.581,
+  "psnr_baseline": 32.83,
+  "psnr_canonical": 33.41,
+  "feat_compress_x": 4.0,
+  "finetune_iters": 5000,
+  "train_wall_secs": 312.4,
+  "constants_detected": ["nx", "ny", "nz", "opacity", "rot_0", "rot_1", "rot_2", "rot_3"],
+  "constant_strip_bitexact": true
+}`}</code></pre>
+
+  <p>
+    <a href="/#try">← back to Try it</a>
+    &nbsp;·&nbsp;
+    <a href="/docs/api/qat-scaffold">QAT-Scaffold (single-PLY tier)</a>
+    &nbsp;·&nbsp;
+    <a href="/bench">SplatBench</a>
+  </p>
+
+  <style>
+    h1 { font-size: 2rem; margin-bottom: 0.4rem; }
+    h2 { margin-top: 2rem; font-size: 1.25rem; }
+    .lede { opacity: 0.85; max-width: 60ch; }
+    pre {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.9rem 1.1rem;
+      border-radius: 0.6rem;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    p code, li code, td code {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.3rem;
+      font-size: 0.92em;
+    }
+    .note {
+      font-size: 0.88rem;
+      opacity: 0.7;
+      border-left: 2px solid rgba(139, 92, 246, 0.4);
+      padding-left: 0.75rem;
+    }
+    ol, ul { max-width: 60ch; }
+    ol li, ul li { margin: 0.35rem 0; }
+    table {
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      font-size: 0.92rem;
+    }
+    th, td {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 0.4rem 0.7rem;
+      text-align: left;
+    }
+    th { background: rgba(255, 255, 255, 0.04); font-weight: 600; }
+  </style>
+</Base>

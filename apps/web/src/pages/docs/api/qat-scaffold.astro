@@ -54,10 +54,20 @@ const apiBase = import.meta.env.PUBLIC_API_BASE ?? "https://api.splatforge.com";
     plus int8 quant-aware retrain of <code>f_anchor_feat</code> plus int4
     per-anchor quant of <code>f_offset</code>. The retrain pass needs
     the original training images + COLMAP cameras to evaluate against,
-    so it is exposed via a separate <strong>bundle-upload</strong>
-    workflow (premium tier, ~$0.50/scene, ~10&nbsp;min on A100). Contact
-    <a href="mailto:monte@splatforge.dev">monte@splatforge.dev</a> for
-    early access while the bundle-upload UI is in build.
+    so it ships as a separate
+    <a href="/docs/qat-bundle"><strong>QAT-Bundle</strong></a> preset
+    (~$0.50/scene, ~10&nbsp;min on A100). Pick <em>QAT-Bundle (premium)</em>
+    in the Try-it preset picker and drop a Scaffold-GS bundle archive —
+    see <a href="/docs/qat-bundle">/docs/qat-bundle</a> for the exact
+    layout and the per-scene expectations table.
+  </p>
+  <p class="footnote">
+    Tier-1 of QAT-Bundle ships the int8 <code>f_anchor_feat</code>
+    finetune + lossless constant-strip; int4 offset stacking (the
+    extra ~7 percentage points to hit the headline 37% aggregate)
+    lands in a follow-up. Each job returns honest per-scene numbers
+    in the callback, so the customer always sees the actual ΔPSNR
+    their capture earned.
   </p>
 
   <h2>Bench numbers — full recipe, 6 scenes, 2026-05-16</h2>
