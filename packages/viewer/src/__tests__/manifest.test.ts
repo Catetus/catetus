@@ -247,3 +247,101 @@ describe('parseManifest', () => {
     });
   });
 });
+
+describe('parseManifest — multi-primitive multi-buffer', () => {
+  // Regression for the SH-1 branch bug: the encoder emits one primitive per
+  // chunk (each pointing at its own buffer with chunk-local accessor indices).
+  // The parser previously extracted attributes from only the first primitive,
+  // so chunks 1..N would fail the bufferIdx match in `normalizeChunk` and
+  // fall through to the legacy 14-float interleaved AoS path, decoding SoA
+  // bytes as garbage AoS.
+  it('uses per-primitive attribute tables for chunks in different buffers', () => {
+    // Helper: build accessor indices for one chunk worth of SoA attributes
+    // (POSITION, ROTATION, SCALE, OPACITY, COLOR_DC) all pointing at the same
+    // bufferIdx through five sequential bufferViews.
+    const buildChunk = (bufferIdx: number, splatCount: number, startBvIdx: number) => {
+      const bytesPerSplat = { pos: 12, rot: 16, scl: 12, op: 4, dc: 12 };
+      const bvs = [
+        { buffer: bufferIdx, byteOffset: 0, byteLength: bytesPerSplat.pos * splatCount },
+        { buffer: bufferIdx, byteOffset: bytesPerSplat.pos * splatCount, byteLength: bytesPerSplat.rot * splatCount },
+        { buffer: bufferIdx, byteOffset: (bytesPerSplat.pos + bytesPerSplat.rot) * splatCount, byteLength: bytesPerSplat.scl * splatCount },
+        { buffer: bufferIdx, byteOffset: (bytesPerSplat.pos + bytesPerSplat.rot + bytesPerSplat.scl) * splatCount, byteLength: bytesPerSplat.op * splatCount },
+        { buffer: bufferIdx, byteOffset: (bytesPerSplat.pos + bytesPerSplat.rot + bytesPerSplat.scl + bytesPerSplat.op) * splatCount, byteLength: bytesPerSplat.dc * splatCount },
+      ];
+      const accessors = [
+        { bufferView: startBvIdx + 0, componentType: 5126, count: splatCount, type: 'VEC3' },
+        { bufferView: startBvIdx + 1, componentType: 5126, count: splatCount, type: 'VEC4' },
+        { bufferView: startBvIdx + 2, componentType: 5126, count: splatCount, type: 'VEC3' },
+        { bufferView: startBvIdx + 3, componentType: 5126, count: splatCount, type: 'SCALAR' },
+        { bufferView: startBvIdx + 4, componentType: 5126, count: splatCount, type: 'VEC3' },
+      ];
+      const primitive = {
+        mode: 0,
+        attributes: {
+          // POSITION is bare (core glTF 2.0 attribute); the rest carry the
+          // KHR_gaussian_splatting namespace. Mirrors the Rust encoder
+          // (`crates/splatforge-gltf/src/lib.rs`, `attr_name`).
+          POSITION: startBvIdx + 0,
+          'KHR_gaussian_splatting:ROTATION': startBvIdx + 1,
+          'KHR_gaussian_splatting:SCALE': startBvIdx + 2,
+          'KHR_gaussian_splatting:OPACITY': startBvIdx + 3,
+          'KHR_gaussian_splatting:SH_DEGREE_0_COEF_0': startBvIdx + 4,
+        },
+        extensions: {
+          KHR_gaussian_splatting: { shDegree: 0 },
+        },
+      };
+      return { bvs, accessors, primitive };
+    };
+
+    const chunkA = buildChunk(0, 100, 0);
+    const chunkB = buildChunk(1, 50, 5);
+    const chunkC = buildChunk(2, 25, 10);
+
+    const json = JSON.stringify({
+      asset: { version: '2.0' },
+      buffers: [
+        { byteLength: 5600000, uri: 'buffers/chunk_0000.bin' },
+        { byteLength: 2800000, uri: 'buffers/chunk_0001.bin' },
+        { byteLength: 1400000, uri: 'buffers/chunk_0002.bin' },
+      ],
+      bufferViews: [...chunkA.bvs, ...chunkB.bvs, ...chunkC.bvs],
+      accessors: [...chunkA.accessors, ...chunkB.accessors, ...chunkC.accessors],
+      meshes: [{ primitives: [chunkA.primitive, chunkB.primitive, chunkC.primitive] }],
+      extensionsUsed: ['KHR_gaussian_splatting', 'SF_spatial_streaming_index'],
+      extensions: {
+        KHR_gaussian_splatting: {
+          splatCount: 175,
+          shDegree: 0,
+          bbox: { min: [-1, -1, -1], max: [1, 1, 1] },
+        },
+        SF_spatial_streaming_index: {
+          chunks: [
+            { uri: 'buffers/chunk_0000.bin', buffer: 0, byteOffset: 0, byteLength: 5600000, splatCount: 100, bbox: { min: [-1, -1, -1], max: [1, 1, 1] }, lod: 0, checksum: '', loadPriority: 0 },
+            { uri: 'buffers/chunk_0001.bin', buffer: 1, byteOffset: 0, byteLength: 2800000, splatCount: 50, bbox: { min: [-1, -1, -1], max: [1, 1, 1] }, lod: 0, checksum: '', loadPriority: 1 },
+            { uri: 'buffers/chunk_0002.bin', buffer: 2, byteOffset: 0, byteLength: 1400000, splatCount: 25, bbox: { min: [-1, -1, -1], max: [1, 1, 1] }, lod: 0, checksum: '', loadPriority: 2 },
+          ],
+        },
+      },
+    });
+
+    const m = parseManifest(json);
+    expect(m.chunks).toHaveLength(3);
+
+    // Every chunk must get a SoA attributeLayout. The bug caused chunks 1 and 2
+    // to come back with `attributeLayout === undefined`, falling through to the
+    // legacy 14-float AoS decoder and producing viewport-filling garbage.
+    for (let i = 0; i < 3; i++) {
+      const layout = m.chunks[i]!.attributeLayout;
+      expect(layout, `chunk[${i}] attributeLayout`).toBeDefined();
+      const splatCount = m.chunks[i]!.splatCount;
+      expect(layout!.positions.byteLength).toBe(12 * splatCount);
+      expect(layout!.rotations.byteLength).toBe(16 * splatCount);
+      expect(layout!.scales.byteLength).toBe(12 * splatCount);
+      expect(layout!.opacities.byteLength).toBe(4 * splatCount);
+      expect(layout!.colorDC.byteLength).toBe(12 * splatCount);
+      // Chunk-relative offsets: POSITION sits at the start of every chunk.
+      expect(layout!.positions.byteOffset).toBe(0);
+    }
+  });
+});

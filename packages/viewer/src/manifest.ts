@@ -236,62 +236,122 @@ const RC_ATTR_KEYS = {
 } as const;
 
 /**
- * Extract the attribute → accessor index table from the first splat primitive,
+ * Extract the attribute → accessor index table from a single splat primitive,
  * supporting both the RC (namespaced keys on `primitive.attributes`) and
  * legacy (bare keys inside `prim.extensions.KHR_gaussian_splatting.attributes`)
- * layouts. Schema sniff: presence of any `KHR_gaussian_splatting:*` key on a
+ * layouts. Schema sniff: presence of any `KHR_gaussian_splatting:*` key on the
  * primitive's `attributes` map is taken as authoritative for RC; otherwise we
  * fall back to legacy.
+ *
+ * Returns `undefined` if the primitive carries no splat-attribute table at all
+ * (e.g. a non-splat mesh primitive co-resident in the same glTF).
+ */
+function extractAttributesFromPrimitive(
+  prim: NonNullable<NonNullable<RawGltf['meshes']>[number]['primitives']>[number],
+): { attrs: RawGaussianAttributes; layout: GaussianAttributeLayout } | undefined {
+  const primAttrs = prim.attributes;
+  if (isObject(primAttrs)) {
+    const pa = primAttrs as Record<string, number>;
+    const hasRc = Object.keys(pa).some((k) => k.startsWith(`${GS_EXT}:`));
+    if (hasRc) {
+      const dcIdx =
+        typeof pa[RC_ATTR_KEYS.COLOR_DC] === 'number'
+          ? pa[RC_ATTR_KEYS.COLOR_DC]
+          : typeof pa[RC_ATTR_KEYS.COLOR_DC_RC] === 'number'
+            ? pa[RC_ATTR_KEYS.COLOR_DC_RC]
+            : undefined;
+      // POSITION is a core glTF 2.0 attribute and is emitted under the bare
+      // `POSITION` key — never namespaced — per the KHR_gaussian_splatting
+      // RC (which only namespaces the GS-specific attributes). The Rust
+      // encoder does this; older drafts namespaced it, so accept either.
+      const posIdx =
+        typeof pa['POSITION'] === 'number'
+          ? pa['POSITION']
+          : typeof pa[RC_ATTR_KEYS.POSITION] === 'number'
+            ? pa[RC_ATTR_KEYS.POSITION]
+            : undefined;
+      return {
+        attrs: {
+          POSITION: posIdx,
+          _ROTATION: typeof pa[RC_ATTR_KEYS.ROTATION] === 'number' ? pa[RC_ATTR_KEYS.ROTATION] : undefined,
+          _SCALE: typeof pa[RC_ATTR_KEYS.SCALE] === 'number' ? pa[RC_ATTR_KEYS.SCALE] : undefined,
+          _OPACITY: typeof pa[RC_ATTR_KEYS.OPACITY] === 'number' ? pa[RC_ATTR_KEYS.OPACITY] : undefined,
+          _COLOR_DC: dcIdx,
+          _COLOR_SH: typeof pa[RC_ATTR_KEYS.COLOR_SH] === 'number' ? pa[RC_ATTR_KEYS.COLOR_SH] : undefined,
+          _SH1_COEF_0:
+            typeof pa[RC_ATTR_KEYS.SH1_COEF_0] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_0] : undefined,
+          _SH1_COEF_1:
+            typeof pa[RC_ATTR_KEYS.SH1_COEF_1] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_1] : undefined,
+          _SH1_COEF_2:
+            typeof pa[RC_ATTR_KEYS.SH1_COEF_2] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_2] : undefined,
+        },
+        layout: 'rc',
+      };
+    }
+  }
+  const e = prim.extensions?.[GS_EXT];
+  if (isObject(e)) {
+    const legacy = (e as RawGaussianSplatting).attributes;
+    if (isObject(legacy)) {
+      return { attrs: legacy as RawGaussianAttributes, layout: 'legacy' };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extract the attribute → accessor index table from the FIRST splat primitive.
+ * Used for scene-level decisions (splatCount fallback, shDegree). Per-chunk
+ * decoding must use {@link gatherPrimitiveAttributes} instead so multi-buffer
+ * assets (one primitive per chunk) decode correctly.
  */
 function extractGaussianAttributes(
   g: RawGltf,
 ): { attrs: RawGaussianAttributes; layout: GaussianAttributeLayout } {
   for (const mesh of g.meshes ?? []) {
     for (const prim of mesh.primitives ?? []) {
-      const primAttrs = prim.attributes;
-      if (isObject(primAttrs)) {
-        const pa = primAttrs as Record<string, number>;
-        const hasRc = Object.keys(pa).some((k) => k.startsWith(`${GS_EXT}:`));
-        if (hasRc) {
-          // RC DC may live under either `COLOR_DC` (early RC drafts and the
-          // SOG synthesizer) or the canonical SH-degree-0 slot
-          // (`SH_DEGREE_0_COEF_0`, what the Rust writer emits). Prefer the
-          // explicit COLOR_DC key, fall back to SH_DEGREE_0_COEF_0.
-          const dcIdx =
-            typeof pa[RC_ATTR_KEYS.COLOR_DC] === 'number'
-              ? pa[RC_ATTR_KEYS.COLOR_DC]
-              : typeof pa[RC_ATTR_KEYS.COLOR_DC_RC] === 'number'
-                ? pa[RC_ATTR_KEYS.COLOR_DC_RC]
-                : undefined;
-          return {
-            attrs: {
-              POSITION: typeof pa[RC_ATTR_KEYS.POSITION] === 'number' ? pa[RC_ATTR_KEYS.POSITION] : undefined,
-              _ROTATION: typeof pa[RC_ATTR_KEYS.ROTATION] === 'number' ? pa[RC_ATTR_KEYS.ROTATION] : undefined,
-              _SCALE: typeof pa[RC_ATTR_KEYS.SCALE] === 'number' ? pa[RC_ATTR_KEYS.SCALE] : undefined,
-              _OPACITY: typeof pa[RC_ATTR_KEYS.OPACITY] === 'number' ? pa[RC_ATTR_KEYS.OPACITY] : undefined,
-              _COLOR_DC: dcIdx,
-              _COLOR_SH: typeof pa[RC_ATTR_KEYS.COLOR_SH] === 'number' ? pa[RC_ATTR_KEYS.COLOR_SH] : undefined,
-              _SH1_COEF_0:
-                typeof pa[RC_ATTR_KEYS.SH1_COEF_0] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_0] : undefined,
-              _SH1_COEF_1:
-                typeof pa[RC_ATTR_KEYS.SH1_COEF_1] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_1] : undefined,
-              _SH1_COEF_2:
-                typeof pa[RC_ATTR_KEYS.SH1_COEF_2] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_2] : undefined,
-            },
-            layout: 'rc',
-          };
-        }
-      }
-      const e = prim.extensions?.[GS_EXT];
-      if (isObject(e)) {
-        const legacy = (e as RawGaussianSplatting).attributes;
-        if (isObject(legacy)) {
-          return { attrs: legacy as RawGaussianAttributes, layout: 'legacy' };
-        }
-      }
+      const got = extractAttributesFromPrimitive(prim);
+      if (got) return got;
     }
   }
   return { attrs: {}, layout: 'legacy' };
+}
+
+/**
+ * Collect attribute tables for EVERY splat primitive in the glTF. The Rust
+ * encoder emits one primitive per chunk with chunk-local accessor indices,
+ * so per-chunk decoding must pick the primitive whose POSITION accessor
+ * actually points at the chunk's buffer.
+ */
+function gatherPrimitiveAttributes(g: RawGltf): RawGaussianAttributes[] {
+  const out: RawGaussianAttributes[] = [];
+  for (const mesh of g.meshes ?? []) {
+    for (const prim of mesh.primitives ?? []) {
+      const got = extractAttributesFromPrimitive(prim);
+      if (got) out.push(got.attrs);
+    }
+  }
+  return out;
+}
+
+/**
+ * Pick the per-primitive attribute table whose POSITION accessor lives in
+ * the given buffer index. Falls back to `fallback` (the first primitive's
+ * attrs) when no match exists, which preserves the legacy single-primitive
+ * behaviour for assets that don't share the multi-buffer layout.
+ */
+function selectAttributesForBuffer(
+  g: RawGltf,
+  allAttrs: RawGaussianAttributes[],
+  bufIdx: number | undefined,
+  fallback: RawGaussianAttributes,
+): RawGaussianAttributes {
+  if (bufIdx === undefined) return fallback;
+  for (const a of allAttrs) {
+    const s = accessorSlice(g, a.POSITION);
+    if (s && s.bufferIdx === bufIdx) return a;
+  }
+  return fallback;
 }
 
 function findStreamingIndex(g: RawGltf): RawStreamingIndex | undefined {
@@ -365,6 +425,10 @@ export function parseManifest(json: string): Manifest {
   // Auto-detect RC (namespaced primitive-level attributes) vs legacy
   // (bare attributes inside the per-primitive extension object).
   const { attrs } = extractGaussianAttributes(g);
+  // Multi-primitive assets (one primitive per chunk, distinct buffers) need
+  // per-primitive attribute lookup at chunk-decode time. Single-primitive
+  // assets get the same `attrs` for every chunk via the fallback.
+  const allPrimAttrs = gatherPrimitiveAttributes(g);
   const posSlice = accessorSlice(g, attrs.POSITION);
   const rotSlice = accessorSlice(g, attrs._ROTATION);
   const sclSlice = accessorSlice(g, attrs._SCALE);
@@ -409,9 +473,11 @@ export function parseManifest(json: string): Manifest {
   let chunks: ChunkDescriptor[];
 
   if (index && Array.isArray(index.chunks) && index.chunks.length > 0) {
-    chunks = index.chunks.map((c, i) =>
-      normalizeChunk(c, i, bbox, splatCount, g, attrs),
-    );
+    chunks = index.chunks.map((c, i) => {
+      const bufIdx = typeof c.buffer === 'number' ? c.buffer : undefined;
+      const chunkAttrs = selectAttributesForBuffer(g, allPrimAttrs, bufIdx, attrs);
+      return normalizeChunk(c, i, bbox, splatCount, g, chunkAttrs);
+    });
   } else {
     // Synthetic single chunk pointing at the primary buffer. The SoA layout is
     // derived from the per-primitive attribute accessors so the renderer can
