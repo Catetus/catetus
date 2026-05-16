@@ -31,9 +31,9 @@ assert(
 await page.locator('#tryit-preset-select').selectOption('splatforge-qat-scaffold');
 await page.waitForTimeout(150);
 const blurb = (await page.locator('[data-tryit-preset-blurb]').textContent()) ?? '';
-assert(blurb.includes('50%'), `blurb missing 50%: ${blurb}`);
+assert(blurb.includes('37%'), `blurb missing 37%: ${blurb}`);
 assert(blurb.includes('+0.17'), `blurb missing +0.17 dB: ${blurb}`);
-assert(/[Bb]it-exact/.test(blurb), `blurb missing bit-exact: ${blurb}`);
+assert(/lossless/i.test(blurb), `blurb missing lossless: ${blurb}`);
 
 // 3. Screenshot for visual audit.
 await page.locator('.region-idle').screenshot({ path: `${outDir}/tryit-qat-selected.png` });

@@ -88,20 +88,20 @@ PRESET_DISPATCH_URLS = {
     # bundle (point_cloud.ply + cameras.json + images/) or a registered
     # Mip-NeRF 360 scene name in `filename`. Same /enqueue contract.
     "hosted-neural": os.environ.get("SPLATFORGE_HOSTED_NEURAL_URL"),
-    # splatforge-qat-scaffold — Quant-Aware Retrain compression for
-    # Scaffold-GS PLYs. Validated 2026-05-16 across 6 Mip-NeRF 360 scenes
-    # (bonsai, bicycle, garden, stump, treehill, flowers): ~50% size
-    # reduction with a MEAN +0.172 dB PSNR GAIN vs the Scaffold-GS
-    # baseline (best per-scene +0.31 dB, worst +0.04 dB). Reconstruction
-    # is bit-exact relative to the retrained Scaffold checkpoint (the dB
-    # delta is the baseline-comparison number, not a lossy delta). Input
-    # is a Scaffold-GS PLY; output is a compressed .ply containing
-    # quantized anchor-feature + offset streams alongside the residual
-    # fp16 channels. The encoder lives in a private Modal app
-    # (`splatforge-qat-scaffold`); same /enqueue contract as the other
-    # forwarded presets — the private app downloads the input,
-    # retrains + quantizes, uploads the compressed bitstream, and POSTs
-    # the terminal `{status, output_url}` back to `callback_url`.
+    # splatforge-qat-scaffold — post-training QAT codec for Scaffold-GS
+    # PLYs. Public bench numbers (benches/encoders/qat-scaffold-gs,
+    # c3387b3, 2026-05-16): aggregate 37.25% PLY-size save across 6
+    # Mip-NeRF 360 scenes (bonsai, bicycle, garden, stump, treehill,
+    # flowers); +PSNR on every scene (min +0.032 dB, max +0.581 dB,
+    # mean +0.172 dB) plus SSIM / LPIPS improvements measured on the
+    # same training-time eval cameras. The codec is lossless in the
+    # codec sense (deterministic dequant) and the output is a smaller
+    # Scaffold-GS PLY. Wall-clock dominated by the Modal GPU pass.
+    # Encoder lives in a private Modal app (`splatforge-qat-scaffold`);
+    # same /enqueue contract as the other forwarded presets — the
+    # private app downloads the input, runs the QAT pass, uploads the
+    # compressed PLY, and POSTs the terminal `{status, output_url}`
+    # back to `callback_url`.
     "splatforge-qat-scaffold": os.environ.get("SPLATFORGE_QAT_SCAFFOLD_URL"),
 }
 

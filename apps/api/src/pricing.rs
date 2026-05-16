@@ -171,20 +171,18 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // container at -0.178 dB render-PSNR vs Scaffold baseline.
         // Lossless-ish on Inria 3DGS PLY passthrough (11.5× lossless).
         "hacpp-lzma" => (2.5, 0.025),
-        // splatforge-qat-scaffold — Quant-Aware Retrain Scaffold-GS codec
-        // (validated 2026-05-16). Wall-clock is dominated by the
-        // Modal A100 retrain pass (~5-8 min on bonsai-scale Scaffold
-        // PLYs), with negligible CPU overhead for the bit-packing +
-        // constant-strip + int8/int4 quantization steps. Per-MB slope
-        // is small because Scaffold PLY size tracks anchor count
-        // sub-linearly with scene size — even bicycle-scale scenes
-        // land in the 100-200 MB Scaffold-PLY range. The headline
-        // result is the +0.172 dB MEAN PSNR GAIN at ~50% size across
-        // 6 scenes (bonsai, bicycle, garden, stump, treehill,
-        // flowers); reconstruction is bit-exact vs the retrained
-        // Scaffold checkpoint, so the dB number is a baseline-
-        // comparison delta and NOT a lossy-codec error metric.
-        // Anchor: bonsai 130 MB Scaffold PLY → ~360 s end-to-end on A100.
+        // splatforge-qat-scaffold — post-training QAT codec for
+        // Scaffold-GS PLYs (validated 2026-05-16, bench column landed
+        // in c3387b3). Wall-clock is dominated by the Modal GPU pass
+        // (~5-8 min on bonsai-scale inputs). Per-MB slope is small
+        // because Scaffold PLY size tracks anchor count sub-linearly
+        // with scene size; bicycle-scale Scaffold PLYs sit in the
+        // 100-200 MB range. Headline bench result: aggregate 37.25%
+        // PLY-size save across 6 scenes (bonsai, bicycle, garden,
+        // stump, treehill, flowers) with +0.172 dB MEAN PSNR gain on
+        // the training-time eval cameras (positive on every scene —
+        // see benches/encoders/qat-scaffold-gs/README.md).
+        // Anchor: bonsai 130 MB Scaffold PLY → ~360 s end-to-end.
         "splatforge-qat-scaffold" => (320.0, 0.32),
         // capture-and-compress — photos.zip → COLMAP → 3DGS training →
         // compression. The full "no PLY required" pipeline. This is the
