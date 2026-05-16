@@ -126,6 +126,21 @@ PRESET_DISPATCH_URLS = {
     # presets; the private Modal app POSTs the terminal result
     # directly to the API's callback_url.
     "splatforge-qat-3dgs": os.environ.get("SPLATFORGE_QAT_3DGS_URL"),
+    # splatforge-qat-3dgs-bundle — premium-tier full QAT recipe for
+    # vanilla Inria 3DGS. Takes a bundle (point_cloud.ply + sparse/0/
+    # COLMAP + images/) and runs an int8 SH (`f_rest_*`) quant-aware
+    # retrain on A100. The 45 f_rest fp32 coefficients are 73% of an
+    # Inria 3DGS PLY's bytes; switching them to int8 with finetune-
+    # absorbed quant noise yields ~55% realized PLY save vs the ~5%
+    # lossless ceiling of the single-PLY tier. End-to-end smoke
+    # (bonsai_mipnerf360_iter7k.ply + bonsai COLMAP scene, deployed
+    # Modal /qat-3dgs-bundle route, 5000-iter int8 finetune on A100):
+    # 287 MB -> 117 MB = 59.27% PLY save, +0.81 dB ΔPSNR (baseline
+    # 29.81 -> canonical 30.63), 0.933 SSIM, 0.205 LPIPS, ~7 min
+    # A100. Same /enqueue contract as the other private presets;
+    # the private Modal app POSTs the terminal `{status, output_url,
+    # ply_save_pct, delta_psnr_db}` back to `callback_url`.
+    "splatforge-qat-3dgs-bundle": os.environ.get("SPLATFORGE_QAT_3DGS_BUNDLE_URL"),
 }
 
 image = (
@@ -654,6 +669,7 @@ def _expected_env_var_for_preset(preset: str) -> str:
         "splatforge-qat-scaffold": "SPLATFORGE_QAT_SCAFFOLD_URL",
         "splatforge-qat-bundle": "SPLATFORGE_QAT_BUNDLE_URL",
         "splatforge-qat-3dgs": "SPLATFORGE_QAT_3DGS_URL",
+        "splatforge-qat-3dgs-bundle": "SPLATFORGE_QAT_3DGS_BUNDLE_URL",
     }
     return mapping.get(preset, "SPLATFORGE_<PRESET>_URL")
 
@@ -748,6 +764,7 @@ def healthz() -> dict:
                 "SPLATFORGE_QAT_SCAFFOLD_URL",
                 "SPLATFORGE_QAT_BUNDLE_URL",
                 "SPLATFORGE_QAT_3DGS_URL",
+                "SPLATFORGE_QAT_3DGS_BUNDLE_URL",
             ],
         )
     ],

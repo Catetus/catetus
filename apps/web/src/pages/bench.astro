@@ -64,8 +64,29 @@ const otherEncoders = [
     org: "SplatForge",
     license: "Apache-2.0",
     status: "shipped",
-    note: "Vanilla Inria 3DGS single-PLY codec. 4.84% lossless save on bonsai mipnerf360 iter-7k (287 MB -> 273 MB); bit-exact round-trip; 0 dB delta by construction. Strips nx/ny/nz (always zero in Inria PLYs) from the body. Full int8-SH retrain tier (~55% projected) needs GT cameras — qat-3dgs-bundle ships next.",
+    note: "Vanilla Inria 3DGS single-PLY codec. 4.84% lossless save on bonsai mipnerf360 iter-7k (287 MB -> 273 MB); bit-exact round-trip; 0 dB delta by construction. Strips nx/ny/nz (always zero in Inria PLYs) from the body. Full int8-SH retrain tier ships as qat-3dgs-bundle below.",
     url: "/docs/qat-3dgs",
+  },
+  {
+    // qat-3dgs-bundle — premium tier for vanilla Inria 3DGS. int8 SH
+    // (f_rest_*) quant-aware retrain on A100 with per-channel scales
+    // + STE. Bonsai smoke (N=1, deployed Modal /qat-3dgs-bundle route,
+    // 287 MB bonsai_mipnerf360_iter7k.ply + bonsai COLMAP scene):
+    //   ply_save_pct        59.27% (287 MB -> 117 MB)
+    //   delta_psnr_db       +0.81 (baseline 29.81 -> canonical 30.63)
+    //   ssim                 0.933
+    //   lpips                0.205
+    //   finetune_iters       5000
+    //   train_wall_secs      404.9 (~7 min A100)
+    // Per-scene variation expected; multi-scene generalization lands
+    // in a follow-up commit. This row is N=1 -- the bench gate is
+    // honesty about scene coverage.
+    name: "qat-3dgs-bundle",
+    org: "SplatForge",
+    license: "Apache-2.0",
+    status: "shipped",
+    note: "Vanilla Inria 3DGS premium tier. int8 SH (f_rest_*) quant-aware retrain on A100 (5000 iters, per-channel scales, STE). Bonsai N=1 smoke: 59.27% PLY save / +0.81 dB PSNR / 0.933 SSIM / 7 min A100. Multi-scene generalization in follow-up.",
+    url: "/docs/qat-3dgs-bundle",
   },
   {
     name: "splat-transform",

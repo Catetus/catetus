@@ -21,7 +21,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
 // .zip here would surface as a confusing post-upload encoder error.)
 // See /docs/hacpp-bundle for the exact layout.
 const bundleSupported = [".tar", ".tar.gz", ".tgz"];
-const bundlePresets = ["hacpp-lzma", "splatforge-qat-bundle"];
+const bundlePresets = ["hacpp-lzma", "splatforge-qat-bundle", "splatforge-qat-3dgs-bundle"];
 
 // Preset picker entries. The first is the default. Ratio claims are from
 // bonsai (273.7 MB Inria PLY) end-to-end Modal validation; real-world
@@ -113,6 +113,20 @@ const presetOptions = [
     value: "splatforge-qat-3dgs",
     label: "QAT-3DGS (Inria PLY)",
     blurb: "Vanilla Inria 3DGS PLY → ~5% smaller, lossless. Drops zero-valued normals (nx/ny/nz) from the body and stores them in the header. Full SH int8 recipe (~55% save) requires GT cameras — bundle tier coming next.",
+  },
+  // QAT-3DGS-Bundle — premium tier for vanilla Inria 3DGS. Takes a
+  // bundle (point_cloud.ply + sparse/0/ COLMAP + images/) and runs
+  // an int8 SH (`f_rest_*`) quant-aware retrain on A100. The 45
+  // f_rest fp32 coefficients are 73% of an Inria 3DGS PLY's bytes;
+  // switching them to int8 with finetune-absorbed quant noise lands
+  // ~55% realized save vs the ~5% lossless ceiling of the single-PLY
+  // tier. Bonsai N=1 smoke: 59.27% PLY save / +0.81 dB ΔPSNR.
+  // Routed through splatforge-worker → splatforge-qat-3dgs-bundle
+  // Modal app. /docs/qat-3dgs-bundle has the full contract.
+  {
+    value: "splatforge-qat-3dgs-bundle",
+    label: "QAT-3DGS Bundle (premium — full SH retrain)",
+    blurb: "Vanilla Inria 3DGS PLY + GT cameras → ~55% smaller, retrained for +PSNR. Premium tier.",
   },
 ];
 ---
@@ -516,6 +530,7 @@ const presetOptions = [
           const docsByPreset = {
             "hacpp-lzma": "/docs/hacpp-bundle",
             "splatforge-qat-bundle": "/docs/qat-bundle",
+            "splatforge-qat-3dgs-bundle": "/docs/qat-3dgs-bundle",
           };
           bundleHelp.setAttribute(
             "href",

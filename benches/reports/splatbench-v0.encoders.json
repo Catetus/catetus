@@ -1,9 +1,10 @@
 {
   "schema": "splatforge.splatbench.encoders/0.1",
-  "generatedAt": "2026-05-16T09:12:56.279Z",
+  "generatedAt": "2026-05-16T16:30:00.000Z",
   "encoders": [
     "splat-transform",
-    "qat-scaffold-gs"
+    "qat-scaffold-gs",
+    "qat-3dgs-bundle"
   ],
   "scenes": [
     {
@@ -59,6 +60,24 @@
           "wallSeconds": 0,
           "wallMs": 0,
           "ratio": 1.68
+        }
+      }
+    },
+    {
+      "scene": "bonsai_inria_3dgs",
+      "inputBytes": 286972500,
+      "runs": {
+        "qat-3dgs-bundle": {
+          "ok": true,
+          "version": "v0.1.0",
+          "outputBytes": 116873078,
+          "wallSeconds": 404.91,
+          "wallMs": 404910,
+          "ratio": 2.46,
+          "deltaPsnrDb": 0.8141,
+          "ssim": 0.933,
+          "lpips": 0.205,
+          "lossless": false
         }
       }
     },
