@@ -707,7 +707,7 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
     // Stage 6+7 (sf-154): multi-page splats requires the fused project_gather
     // path (only path that supports >33M splats per page). Single-page
     // levels behave identically with this flag set.
-    state.pipeline = new state.ComputeDecodePipeline({ device: state.device, capacity, useFusedProject: true });
+    state.pipeline = new state.ComputeDecodePipeline({ device: state.device, capacity, useFusedProject: true, useCull: false });
 
     state.loader = new state.LodgeChunkLoader(state.manifest, {
       baseUrl: lodgeManifestUrl, // chunk paths are absolute URLs in this manifest
