@@ -114,6 +114,18 @@ PRESET_DISPATCH_URLS = {
     # +0.58 dB / 40.5% save; flowers worst-case +0.03 dB / 33.8% save
     # (see benches/encoders/qat-scaffold-gs).
     "splatforge-qat-bundle": os.environ.get("SPLATFORGE_QAT_BUNDLE_URL"),
+    # splatforge-qat-3dgs — vanilla Inria 3DGS single-PLY constant-strip
+    # codec for the de-facto consumer PLY format (Luma, Polycam,
+    # Scaniverse, graphdeco-inria trainer outputs; 62 fp32 columns per
+    # vertex incl. f_dc_0..2 + f_rest_0..44 SH coefficients). Lossless
+    # by construction — drops empirically-constant columns from the
+    # body and stores them in the PLY header. Validated end-to-end
+    # against the deployed Modal /qat-3dgs route on 287 MB bonsai
+    # mipnerf360 iter-7k: 4.84% lossless PLY save, bit-exact round-
+    # trip, 0 dB delta. Same /enqueue contract as the other private
+    # presets; the private Modal app POSTs the terminal result
+    # directly to the API's callback_url.
+    "splatforge-qat-3dgs": os.environ.get("SPLATFORGE_QAT_3DGS_URL"),
 }
 
 image = (
@@ -140,8 +152,8 @@ image = (
 
 
 # Modal workspace caps web functions at 8 across all deployed apps. With
-# 7 splatforge presets (codec-gs-mixed + fcgs + hacpp-lzma + hosted-neural + qat-scaffold
-# + qat-bundle [premium] + this worker) and the personal linecall-machine app, separate
+# 8 splatforge presets (codec-gs-mixed + fcgs + hacpp-lzma + hosted-neural + qat-scaffold
+# + qat-bundle [premium] + qat-3dgs + this worker) and the personal linecall-machine app, separate
 # `enqueue` + `healthz` endpoints push us over. We collapse the worker's
 # two HTTP routes into a single ASGI app so both routes share one web
 # function slot. The URLs the API + operators consume stay the same shape
@@ -641,6 +653,7 @@ def _expected_env_var_for_preset(preset: str) -> str:
         "hosted-neural": "SPLATFORGE_HOSTED_NEURAL_URL",
         "splatforge-qat-scaffold": "SPLATFORGE_QAT_SCAFFOLD_URL",
         "splatforge-qat-bundle": "SPLATFORGE_QAT_BUNDLE_URL",
+        "splatforge-qat-3dgs": "SPLATFORGE_QAT_3DGS_URL",
     }
     return mapping.get(preset, "SPLATFORGE_<PRESET>_URL")
 
@@ -734,6 +747,7 @@ def healthz() -> dict:
                 "SPLATFORGE_HOSTED_NEURAL_URL",
                 "SPLATFORGE_QAT_SCAFFOLD_URL",
                 "SPLATFORGE_QAT_BUNDLE_URL",
+                "SPLATFORGE_QAT_3DGS_URL",
             ],
         )
     ],

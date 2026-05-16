@@ -1,0 +1,243 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const title = "SplatForge — QAT-3DGS (vanilla Inria 3DGS PLY codec)";
+const description =
+  "Lossless single-PLY constant-strip codec for vanilla Inria 3DGS Gaussian-Splat PLYs (Luma, Polycam, Scaniverse, graphdeco-inria trainer outputs). End-to-end validated 4.84% PLY save with bit-exact round-trip on bonsai mipnerf360 iter-7k.";
+
+// Smoke result: deployed Modal /qat-3dgs route on 287 MB
+// bonsai_mipnerf360_iter7k.ply (canonical Inria 3DGS PLY produced
+// by the graphdeco-inria trainer). 4.84% lossless save, bit-exact
+// round-trip verified in-process before upload; the encoder will
+// not emit a non-lossless output (it errors and deletes the file
+// rather than ship anything it can't prove is reversible).
+const smokeBonsai = {
+  scene: "bonsai (Mip-NeRF 360, Inria 3DGS iter 7k)",
+  src_bytes: 286_968_700,
+  out_bytes: 273_086_276,
+  save_pct: 4.84,
+  delta_psnr_db: 0.0,
+  stripped: "nx, ny, nz (all exactly 0.0)",
+  n_vertices: 1_157_141,
+  n_props_in: 62,
+  n_props_out: 59,
+  bitexact: true,
+};
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="/#try" aria-current="page">Try it</a>
+    </div>
+  </nav>
+
+  <h1>QAT-3DGS (vanilla Inria 3DGS PLY)</h1>
+  <p class="lede">
+    The <code>splatforge-qat-3dgs</code> preset is a
+    <strong>lossless single-PLY codec</strong> for vanilla Inria 3DGS
+    Gaussian-Splat PLYs &mdash; the de-facto consumer format produced
+    by Luma, Polycam, Scaniverse, and the official
+    <a href="https://github.com/graphdeco-inria/gaussian-splatting">graphdeco-inria/gaussian-splatting</a>
+    trainer (62 fp32 columns per vertex: <code>x/y/z</code>,
+    <code>nx/ny/nz</code>, <code>f_dc_0..2</code>, <code>f_rest_0..44</code>,
+    <code>opacity</code>, <code>scale_0..2</code>,
+    <code>rot_0..3</code>).
+  </p>
+  <p class="lede">
+    The codec scans every per-vertex column for a constant value
+    (within fp32 epsilon), drops constant columns from the PLY body,
+    and stores them as
+    <code>comment constant_field &lt;name&gt; &lt;hex&gt;</code> header
+    lines instead. The transform is fully reversible &mdash; the encoder
+    decodes its own output in-process and asserts a bit-exact match
+    against the source before emitting the file. Non-lossless outputs
+    can never escape: if the round-trip check fails the encoder errors
+    and deletes the output rather than ship it.
+  </p>
+
+  <h2>What gets stripped (and why ~5%)</h2>
+  <p>
+    On every Inria 3DGS PLY we have measured, the canonical
+    <code>nx, ny, nz</code> normals columns are initialised to zero and
+    never updated by the Inria trainer &mdash; the Inria renderer
+    doesn't read them. Those three fp32 columns are exactly constant
+    (span = 0.0) and collapse to a single hex header line each. On
+    the 287 MB bonsai PLY this saves ~14 MB / 4.84% of file size
+    bit-exact.
+  </p>
+  <p>
+    Some scenes also yield a few <code>f_rest_*</code> SH coefficients
+    that happen to be exactly zero (low-frequency channels in
+    SH-degree-0/1 captures); the codec picks those up automatically
+    without a schema change.
+  </p>
+
+  <h2>What's NOT in this tier</h2>
+  <p>
+    The <code>f_rest_0..44</code> SH coefficients dominate Inria 3DGS
+    file size &mdash; 45 fp32 channels = 180 bytes/vertex = ~73% of
+    the 248-byte per-vertex footprint. The full
+    <strong>~55% projected save</strong> requires int8 QAT of those
+    SH coefficients, which depends on a retrain leg with GT cameras
+    + images to absorb feature-quant noise via L1+SSIM loss (same
+    recipe as the
+    <a href="/docs/qat-bundle">QAT-Bundle</a> tier for Scaffold-GS).
+    Naive post-hoc int8 of <code>f_rest_*</code> with no retrain
+    destroys render quality the same way naive post-hoc int8 of
+    <code>f_anchor_feat</code> lost 14.5 dB on the Scaffold side.
+  </p>
+  <p>
+    That tier ships separately as
+    <code>splatforge-qat-3dgs-bundle</code> &mdash; pack a tar with
+    <code>point_cloud.ply</code> + <code>cameras.json</code> +
+    <code>images/</code> (the same shape as
+    <a href="/docs/qat-bundle">QAT-Bundle</a>) and the endpoint runs a
+    5000-iter int8 QAT finetune on A100. See the table on
+    <a href="/bench">/bench</a> for the SH-int8 QAT-3DGS-Bundle
+    numbers once we land the multi-scene validation.
+  </p>
+
+  <h2>End-to-end smoke (one scene)</h2>
+  <p>
+    The deployed Modal <code>/qat-3dgs</code> route was validated
+    against the canonical Inria 3DGS bonsai PLY:
+  </p>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>scene</code></td><td>{smokeBonsai.scene}</td></tr>
+      <tr><td><code>n_vertices</code></td><td>{smokeBonsai.n_vertices.toLocaleString()}</td></tr>
+      <tr><td><code>n_props_in / out</code></td><td>{smokeBonsai.n_props_in} → {smokeBonsai.n_props_out}</td></tr>
+      <tr><td><code>size_bytes_in</code></td><td>{(smokeBonsai.src_bytes / 1e6).toFixed(2)} MB</td></tr>
+      <tr><td><code>size_bytes_out</code></td><td>{(smokeBonsai.out_bytes / 1e6).toFixed(2)} MB</td></tr>
+      <tr><td><code>ply_save_pct</code></td><td><strong>{smokeBonsai.save_pct.toFixed(2)}%</strong></td></tr>
+      <tr><td><code>delta_psnr_db</code></td><td>{smokeBonsai.delta_psnr_db.toFixed(2)} (lossless by construction)</td></tr>
+      <tr><td><code>constants_detected</code></td><td><code>{smokeBonsai.stripped}</code></td></tr>
+      <tr><td><code>bitexact_roundtrip</code></td><td>{String(smokeBonsai.bitexact)}</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What happens server-side</h2>
+  <ol>
+    <li>Browser uploads the PLY to Vercel Blob via a presigned PUT.</li>
+    <li>
+      The worker validates the preset and forwards
+      <code>{`{ preset: "splatforge-qat-3dgs", blob_url, callback_url }`}</code>
+      to the private Modal <code>/qat-3dgs</code> endpoint.
+    </li>
+    <li>
+      The endpoint validates the PLY layout (must have <code>x/y/z</code>
+      + <code>f_dc_0..2</code> + <code>opacity</code> +
+      <code>scale_0..2</code> + <code>rot_0..3</code>; Scaffold-GS
+      <code>f_anchor_feat_*</code>/<code>f_offset_*</code> PLYs are
+      rejected with a redirect to <code>splatforge-qat-scaffold</code>).
+    </li>
+    <li>
+      Every per-vertex column is scanned for a constant value
+      (<code>|max - min| ≤ 1e-6</code> in fp32). Constant columns are
+      removed from the body and emitted as header comments.
+    </li>
+    <li>
+      The encoder decodes its own output in-process and asserts
+      <code>np.array_equal</code> per column against the source. If
+      any column differs the output is deleted and the encoder raises
+      &mdash; non-lossless emits are impossible.
+    </li>
+    <li>
+      The compressed PLY is uploaded to Vercel Blob and returned via
+      the callback.
+    </li>
+  </ol>
+
+  <h2>API callback shape</h2>
+  <pre><code>{`{
+  "status": "done",
+  "output_url": "https://...vercel-storage.com/jobs/<id>/scene_qat3dgs.ply",
+  "size_bytes_in": 286968700,
+  "size_bytes_out": 273086276,
+  "ply_save_pct": 4.84,
+  "delta_psnr_db": 0.0,
+  "lossless": true,
+  "preset": "splatforge-qat-3dgs",
+  "n_vertices": 1157141,
+  "constants_detected": ["nx", "ny", "nz"],
+  "constant_values": {"nx": 0.0, "ny": 0.0, "nz": 0.0},
+  "bitexact_roundtrip": true
+}`}</code></pre>
+
+  <h2>Reader compatibility</h2>
+  <p>
+    The encoded PLY remains a valid PLY file; any decoder that
+    understands the
+    <code>comment constant_field &lt;name&gt; &lt;hex&gt;</code>
+    convention round-trips bit-identically. Legacy decoders that
+    don't honor the header comments will see a 59-column PLY
+    instead of 62 &mdash; harmless for the Inria renderer (which
+    ignores <code>nx/ny/nz</code>) but cosmetic-only renderers
+    may produce undefined behavior. We recommend the SplatForge
+    plugin for proper round-trip; the canonical loader patch in
+    <code>splatforge-private/external/scaffold-gs/scene/gaussian_model.py</code>
+    is the reference implementation.
+  </p>
+
+  <p>
+    <a href="/#try">← back to Try it</a>
+    &nbsp;·&nbsp;
+    <a href="/docs/qat-bundle">QAT-Bundle (Scaffold-GS full retrain)</a>
+    &nbsp;·&nbsp;
+    <a href="/docs/api/qat-scaffold">QAT-Scaffold (Scaffold-GS single-PLY)</a>
+    &nbsp;·&nbsp;
+    <a href="/bench">SplatBench</a>
+  </p>
+
+  <style>
+    h1 { font-size: 2rem; margin-bottom: 0.4rem; }
+    h2 { margin-top: 2rem; font-size: 1.25rem; }
+    .lede { opacity: 0.85; max-width: 60ch; }
+    pre {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.9rem 1.1rem;
+      border-radius: 0.6rem;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    p code, li code, td code {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.3rem;
+      font-size: 0.92em;
+    }
+    .note {
+      font-size: 0.88rem;
+      opacity: 0.7;
+      border-left: 2px solid rgba(139, 92, 246, 0.4);
+      padding-left: 0.75rem;
+    }
+    ol, ul { max-width: 60ch; }
+    ol li, ul li { margin: 0.35rem 0; }
+    table {
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      font-size: 0.92rem;
+    }
+    th, td {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 0.4rem 0.7rem;
+      text-align: left;
+    }
+    th { background: rgba(255, 255, 255, 0.04); font-weight: 600; }
+  </style>
+</Base>

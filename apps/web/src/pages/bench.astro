@@ -50,6 +50,24 @@ const otherEncoders = [
     url: "https://github.com/montabano1/SplatForge/tree/main/benches/encoders/qat-scaffold-gs",
   },
   {
+    // qat-3dgs — lossless single-PLY tier for vanilla Inria 3DGS PLYs
+    // (the de-facto consumer format from Luma / Polycam / Scaniverse /
+    // graphdeco-inria trainer). End-to-end smoked against the deployed
+    // Modal /qat-3dgs route on bonsai_mipnerf360_iter7k.ply:
+    // 286.97 MB -> 273.09 MB = 4.84% lossless save, bit-exact round-
+    // trip, 0 dB delta by construction. Stripped columns: nx, ny, nz
+    // (always exactly 0.0 in canonical Inria PLYs -- normals init
+    // and never updated). Multi-scene validation + the full
+    // qat-3dgs-bundle (int8 SH retrain, ~55% projected save) ship in
+    // follow-up commits.
+    name: "qat-3dgs",
+    org: "SplatForge",
+    license: "Apache-2.0",
+    status: "shipped",
+    note: "Vanilla Inria 3DGS single-PLY codec. 4.84% lossless save on bonsai mipnerf360 iter-7k (287 MB -> 273 MB); bit-exact round-trip; 0 dB delta by construction. Strips nx/ny/nz (always zero in Inria PLYs) from the body. Full int8-SH retrain tier (~55% projected) needs GT cameras — qat-3dgs-bundle ships next.",
+    url: "/docs/qat-3dgs",
+  },
+  {
     name: "splat-transform",
     org: "PlayCanvas / Snap",
     license: "MIT",

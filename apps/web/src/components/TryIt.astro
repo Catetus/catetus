@@ -96,6 +96,24 @@ const presetOptions = [
     label: "QAT-Bundle (premium — full recipe)",
     blurb: "Full retrain · +PSNR & ~30-40% PLY save · needs Scaffold-GS .tar bundle with GT cams + images",
   },
+  // QAT-3DGS — vanilla Inria 3DGS single-PLY tier. Targets the
+  // de-facto consumer PLY format (Luma / Polycam / Scaniverse /
+  // graphdeco-inria trainer outputs, 62 fp32 columns per vertex).
+  // Lossless constant-strip drops empirically-constant columns
+  // (nx, ny, nz on every Inria 3DGS PLY tested) and emits a
+  // smaller-but-bit-identical PLY. End-to-end Modal smoke (deployed
+  // /qat-3dgs route, 287 MB bonsai mipnerf360 iter-7k): 4.84% lossless
+  // save, bit-exact round-trip verified, 0 dB delta by construction.
+  // The full ~55% projected save (45 fp32 f_rest_* SH coefficients →
+  // 45 int8) requires the retrain leg with GT cameras + images; that
+  // tier ships separately as `splatforge-qat-3dgs-bundle`.
+  // Routed through splatforge-worker → splatforge-qat-3dgs Modal app.
+  // /docs/qat-3dgs has the full contract.
+  {
+    value: "splatforge-qat-3dgs",
+    label: "QAT-3DGS (Inria PLY)",
+    blurb: "Vanilla Inria 3DGS PLY → ~5% smaller, lossless. Drops zero-valued normals (nx/ny/nz) from the body and stores them in the header. Full SH int8 recipe (~55% save) requires GT cameras — bundle tier coming next.",
+  },
 ];
 ---
 
