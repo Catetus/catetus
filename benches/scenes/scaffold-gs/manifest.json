@@ -1,0 +1,66 @@
+{
+  "schema": "splatforge.splatbench.scaffold-gs/0.1",
+  "description": "Scaffold-GS-trained source PLYs used by the qat-scaffold-gs bench column. PLY bytes themselves are NOT committed (sizes range 130-290 MB). Each entry is reproducible by training Scaffold-GS on the listed source scene with default hyperparameters; the `qatScaffoldGs` field on the corresponding row in benches/reports/splatbench-v0.json reports the codec's measured save fraction and PSNR delta on that PLY.",
+  "scenes": [
+    {
+      "id": "bonsai_scaffold_gs",
+      "filename": "bonsai_scaffold_gs.ply",
+      "n_anchors": 411066,
+      "src_ply_bytes": 129899089,
+      "after_bytes": 77282930,
+      "license": "Mip-NeRF 360 dataset (open research). Original capture and scene (c) Mip-NeRF 360 authors (Barron et al., CVPR 2022). Re-trained as Scaffold-GS for the qat-scaffold-gs bench column; the trained PLY is reproducible from the source scene with default Scaffold-GS hyperparameters.",
+      "class": "indoor-real-estate",
+      "kind": "scaffold-gs"
+    },
+    {
+      "id": "bicycle_scaffold_gs",
+      "filename": "bicycle_scaffold_gs.ply",
+      "n_anchors": 912445,
+      "src_ply_bytes": 288334853,
+      "after_bytes": 171542182,
+      "license": "Mip-NeRF 360 dataset (open research).",
+      "class": "outdoor-scene",
+      "kind": "scaffold-gs"
+    },
+    {
+      "id": "garden_scaffold_gs",
+      "filename": "garden_scaffold_gs.ply",
+      "n_anchors": 745121,
+      "src_ply_bytes": 235460469,
+      "after_bytes": 140085270,
+      "license": "Mip-NeRF 360 dataset (open research).",
+      "class": "outdoor-scene",
+      "kind": "scaffold-gs"
+    },
+    {
+      "id": "stump_scaffold_gs",
+      "filename": "stump_scaffold_gs.ply",
+      "n_anchors": 746258,
+      "src_ply_bytes": 211939666,
+      "after_bytes": 140299026,
+      "license": "Mip-NeRF 360 dataset (open research).",
+      "class": "outdoor-scene",
+      "kind": "scaffold-gs"
+    },
+    {
+      "id": "treehill_scaffold_gs",
+      "filename": "treehill_scaffold_gs.ply",
+      "n_anchors": 720712,
+      "src_ply_bytes": 204684602,
+      "after_bytes": 135496378,
+      "license": "Mip-NeRF 360 dataset (open research).",
+      "class": "outdoor-scene",
+      "kind": "scaffold-gs"
+    },
+    {
+      "id": "flowers_scaffold_gs",
+      "filename": "flowers_scaffold_gs.ply",
+      "n_anchors": 705051,
+      "src_ply_bytes": 200236878,
+      "after_bytes": 132552110,
+      "license": "Mip-NeRF 360 dataset (open research).",
+      "class": "outdoor-scene",
+      "kind": "scaffold-gs"
+    }
+  ]
+}

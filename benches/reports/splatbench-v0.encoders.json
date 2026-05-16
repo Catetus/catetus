@@ -1,8 +1,9 @@
 {
   "schema": "splatforge.splatbench.encoders/0.1",
-  "generatedAt": "2026-05-15T14:14:52.581Z",
+  "generatedAt": "2026-05-16T09:12:56.279Z",
   "encoders": [
-    "splat-transform"
+    "splat-transform",
+    "qat-scaffold-gs"
   ],
   "scenes": [
     {
@@ -20,6 +21,20 @@
       }
     },
     {
+      "scene": "bicycle_scaffold_gs",
+      "inputBytes": 288334853,
+      "runs": {
+        "qat-scaffold-gs": {
+          "ok": true,
+          "version": "v1",
+          "outputBytes": 171542182,
+          "wallSeconds": 0,
+          "wallMs": 0,
+          "ratio": 1.68
+        }
+      }
+    },
+    {
       "scene": "bonsai_mipnerf360_iter7k",
       "inputBytes": 286972500,
       "runs": {
@@ -30,6 +45,20 @@
           "wallSeconds": 85.177,
           "wallMs": 85195,
           "ratio": 16.53
+        }
+      }
+    },
+    {
+      "scene": "bonsai_scaffold_gs",
+      "inputBytes": 129899089,
+      "runs": {
+        "qat-scaffold-gs": {
+          "ok": true,
+          "version": "v1",
+          "outputBytes": 77282930,
+          "wallSeconds": 0,
+          "wallMs": 0,
+          "ratio": 1.68
         }
       }
     },
@@ -100,6 +129,34 @@
           "wallSeconds": 288.206,
           "wallMs": 288228,
           "ratio": 15.79
+        }
+      }
+    },
+    {
+      "scene": "flowers_scaffold_gs",
+      "inputBytes": 200236878,
+      "runs": {
+        "qat-scaffold-gs": {
+          "ok": true,
+          "version": "v1",
+          "outputBytes": 132552110,
+          "wallSeconds": 0,
+          "wallMs": 0,
+          "ratio": 1.51
+        }
+      }
+    },
+    {
+      "scene": "garden_scaffold_gs",
+      "inputBytes": 235460469,
+      "runs": {
+        "qat-scaffold-gs": {
+          "ok": true,
+          "version": "v1",
+          "outputBytes": 140085270,
+          "wallSeconds": 0,
+          "wallMs": 0,
+          "ratio": 1.68
         }
       }
     },
@@ -296,6 +353,34 @@
           "wallSeconds": 928.689,
           "wallMs": 928689,
           "ratio": 18.4
+        }
+      }
+    },
+    {
+      "scene": "stump_scaffold_gs",
+      "inputBytes": 211939666,
+      "runs": {
+        "qat-scaffold-gs": {
+          "ok": true,
+          "version": "v1",
+          "outputBytes": 140299026,
+          "wallSeconds": 0,
+          "wallMs": 0,
+          "ratio": 1.51
+        }
+      }
+    },
+    {
+      "scene": "treehill_scaffold_gs",
+      "inputBytes": 204684602,
+      "runs": {
+        "qat-scaffold-gs": {
+          "ok": true,
+          "version": "v1",
+          "outputBytes": 135496378,
+          "wallSeconds": 0,
+          "wallMs": 0,
+          "ratio": 1.51
         }
       }
     }
