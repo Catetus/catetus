@@ -98,16 +98,17 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
       <div class="scale-card">
         <h2 class="scale-card-title">LOD level</h2>
         <div class="scale-lod-picker" data-lod-picker role="radiogroup" aria-label="LOD level">
-          <!-- L2 still OOMs in-browser on most adapters (wgpu maxBufferSize). L0/L1 ride Stage 6+7 multi-page. -->
-          <button type="button" class="scale-lod-btn" data-lod="0">
+          <!-- Disabled levels: L0..L2 either OOM in-browser or have no published chunks yet. -->
+          <!-- L0/L1 code-path proven via Stage 6+7 multi-page; awaiting Vercel Blob upload of L0/L1 chunks. -->
+          <button type="button" class="scale-lod-btn" data-lod="0" disabled aria-disabled="true">
             <span class="scale-lod-name">L0</span>
             <span class="scale-lod-splats">119.8M</span>
-            <span class="scale-lod-tip">heavy on M-series Mac</span>
+            <span class="scale-lod-tip">4090-only · awaiting blob upload</span>
           </button>
-          <button type="button" class="scale-lod-btn" data-lod="1">
+          <button type="button" class="scale-lod-btn" data-lod="1" disabled aria-disabled="true">
             <span class="scale-lod-name">L1</span>
             <span class="scale-lod-splats">54.2M</span>
-            <span class="scale-lod-tip">heavy on M-series Mac</span>
+            <span class="scale-lod-tip">4090-only · awaiting blob upload</span>
           </button>
           <button type="button" class="scale-lod-btn" data-lod="2" disabled aria-disabled="true">
             <span class="scale-lod-name">L2</span>
