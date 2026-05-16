@@ -1,0 +1,24 @@
+{
+  "schema": "splatforge.splatbench-v3.cell/0.1",
+  "commit": "9234cc19e34ea9486b456c1b99d3a75f8dcccb62",
+  "ref": "main",
+  "preset": "hacpp-lzma",
+  "scene_id": "tnt_truck",
+  "scene_class": "outdoor-object",
+  "scene_dataset": "tanks-and-temples",
+  "run_id": "sbv3-bba27ed886d686e2",
+  "timestamp": "2026-05-16T15:31:53.962239+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}
