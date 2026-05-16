@@ -83,11 +83,23 @@
     log('pipeline: capacity=' + capacity + ', splat pages=' + pipeline.pager.numPages + ', instance pages=' + pipeline.instancePages.length);
     window.__sf.numPages = pipeline.instancePages.length;
 
-    // Setup canvas
+    // Setup canvas + offscreen render target.
     const ctx = canvas.getContext('webgpu');
     const format = navigator.gpu.getPreferredCanvasFormat();
     canvas.width = 1280; canvas.height = 720;
     ctx.configure({ device, format, alphaMode: 'premultiplied' });
+    // Offscreen target with COPY_SRC so we can readback for PNG capture.
+    const rt = device.createTexture({
+      size: { width: canvas.width, height: canvas.height },
+      format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    // Staging buffer for readback (row-aligned to 256 B/WebGPU spec).
+    const bytesPerRow = Math.ceil(canvas.width * 4 / 256) * 256;
+    const stagingBuffer = device.createBuffer({
+      size: bytesPerRow * canvas.height,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
 
     // Minimal render pipeline (copy of scale.astro's)
     const WGSL = `
@@ -180,9 +192,10 @@ struct VsOut { @builtin(position) clip : vec4<f32>, @location(0) offset : vec2<f
 
       const enc = device.createCommandEncoder();
       pipeline.encode(enc, view, viewProj, [focalY, focalY], [canvas.width, canvas.height]);
-      const tex = ctx.getCurrentTexture();
+      // Render to offscreen RT (so we can both copy-to-canvas for visual + copy-to-buffer for readback).
+      const canvasTex = ctx.getCurrentTexture();
       const pass = enc.beginRenderPass({
-        colorAttachments: [{ view: tex.createView(), clearValue: { r: 0.02, g: 0.04, b: 0.08, a: 1 }, loadOp: 'clear', storeOp: 'store' }],
+        colorAttachments: [{ view: rt.createView(), clearValue: { r: 0.02, g: 0.04, b: 0.08, a: 1 }, loadOp: 'clear', storeOp: 'store' }],
       });
       pass.setPipeline(renderPipeline);
       pass.setBindGroup(0, bindGroup);
@@ -197,19 +210,47 @@ struct VsOut { @builtin(position) clip : vec4<f32>, @location(0) offset : vec2<f
         drawCount++;
       }
       pass.end();
+      // Blit rt -> canvas (for visual feedback) and rt -> stagingBuffer (for readback).
+      enc.copyTextureToTexture({ texture: rt }, { texture: canvasTex }, { width: canvas.width, height: canvas.height });
+      enc.copyTextureToBuffer(
+        { texture: rt },
+        { buffer: stagingBuffer, bytesPerRow, rowsPerImage: canvas.height },
+        { width: canvas.width, height: canvas.height },
+      );
       device.queue.submit([enc.finish()]);
       await device.queue.onSubmittedWorkDone();
 
-      // Expose pose for playwright-side screenshot capture.
-      window.__sf.currentPose = i;
-      frameCaptures.push({ pose: i, yaw: poses[i], drawCount });
+      // Map staging, read pixels, encode PNG.
+      await stagingBuffer.mapAsync(GPUMapMode.READ);
+      const rawBytes = new Uint8Array(stagingBuffer.getMappedRange().slice(0));
+      stagingBuffer.unmap();
+
+      // The buffer is row-padded; pack into tight RGBA (and BGRA -> RGBA swizzle).
+      const W = canvas.width, H = canvas.height;
+      const tight = new Uint8ClampedArray(W * H * 4);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const src = y * bytesPerRow + x * 4;
+          const dst = (y * W + x) * 4;
+          tight[dst + 0] = rawBytes[src + 2]; // R <- B
+          tight[dst + 1] = rawBytes[src + 1]; // G
+          tight[dst + 2] = rawBytes[src + 0]; // B <- R
+          tight[dst + 3] = rawBytes[src + 3]; // A
+        }
+      }
+      // Encode PNG via OffscreenCanvas + convertToBlob (browser-native).
+      const off = new OffscreenCanvas(W, H);
+      const octx = off.getContext('2d');
+      octx.putImageData(new ImageData(tight, W, H), 0, 0);
+      const blob = await off.convertToBlob({ type: 'image/png' });
+      const reader = new FileReader();
+      const dataUrl = await new Promise((res, rej) => { reader.onload = () => res(reader.result); reader.onerror = rej; reader.readAsDataURL(blob); });
+
+      frameCaptures.push({ pose: i, yaw: poses[i], drawCount, dataUrl });
       window.__sf.frames++;
       window.__sf.drawCalls = drawCount;
-      log('pose ' + i + ': ' + drawCount + ' draws (frame ready for screenshot)');
-      // Wait so the playwright driver can grab a screenshot of this pose.
-      await new Promise((resolve) => {
-        window.__sf.awaitScreenshot = resolve;
-      });
+      const kb = Math.round(dataUrl.length / 1024);
+      log('pose ' + i + ': ' + drawCount + ' draws, ' + kb + ' KB png (readback)');
     }
 
     window.__sf.captures = frameCaptures;
