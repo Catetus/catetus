@@ -362,12 +362,18 @@ export async function main(): Promise<void> {
   // 2147483648 / 48 ≈ 44.7 M splats. We round down to a multiple of
   // 256 for workgroup alignment.
   const INSTANCE_BYTES = 12 * 4; // FLOATS_PER_INSTANCE × 4
+  // Stage 6 (sf-154): BOTH the decoded-splats buffer and the instance
+  // buffer are now paged. The remaining single-binding ceilings are the
+  // sort key/value buffers (4 B/splat) and the instance buffer at the
+  // RENDERER vertex-bind site (single GPUBuffer). For the bench (no draws)
+  // only the allocation matters, which is paged. The sort buffers cap at
+  // 2 GiB / 4 B = ~530M splats — well above LODGE L0 (~119M).
+  const sortCap = Math.floor(want.maxBufferSize / 4);
   const instanceCap = Math.floor(want.maxBufferSize / INSTANCE_BYTES);
-  // Old splats-buffer cap kept as a diagnostic so we can spot when the
-  // BufferPager isn't engaged (e.g. pre-Stage-6 builds).
   const bufferCap = Math.floor(want.maxBufferSize / BYTES_PER_DECODED_SPLAT) - 1;
-  const capacityCap = instanceCap;
-  log(`bench: capacityCap = ${capacityCap} splats (instanceCap=${instanceCap}, splatsBufferCap=${bufferCap} — Stage 6 pages above this)`);
+  // Cap = sort buffer ceiling (the only remaining unbounded single binding).
+  const capacityCap = sortCap;
+  log(`bench: capacityCap = ${capacityCap} splats (sortCap=${sortCap}, instanceCap=${instanceCap} paged, splatsBufferCap=${bufferCap} paged)`);
 
   const results: LodgeSceneResult[] = [];
   for (const name of scenes) {
