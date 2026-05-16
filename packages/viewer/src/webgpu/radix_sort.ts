@@ -65,6 +65,20 @@ const RADIX = 256;
 const PASSES = 4;
 const BITS_PER_PASS = 8;
 
+// WebGPU 1.0 ceiling on `dispatchWorkgroups(x, _, _)`. At workgroup_size=256,
+// a single dispatch covers up to 65535 * 256 = 16_776_960 splats. Sorting
+// more than that requires per-chunk dispatch + merge (Stage 5).
+const WEBGPU_MAX_DISPATCH_PER_DIM = 65535;
+const SPLAT_DISPATCH_CAP = WEBGPU_MAX_DISPATCH_PER_DIM * WG_SIZE;
+
+// Chunk size used when splitting a sort that exceeds the dispatch cap.
+// We choose a multiple of WG_SIZE just under the cap so every chunk has
+// numWgs <= 65535 and we get clean alignment for the merge step.
+//
+// Set to SPLAT_DISPATCH_CAP exactly — divisible by WG_SIZE (RADIX==WG_SIZE)
+// and inside the cap.
+const SORT_CHUNK_SPLATS = SPLAT_DISPATCH_CAP;
+
 export interface RadixSortPipelines {
   histogram: GPUComputePipeline;
   scan: GPUComputePipeline;
@@ -78,6 +92,18 @@ export interface RadixSortPipelines {
    * `histogramSubgroupWgsl` AND has confirmed the device supports subgroups.
    */
   histogramSubgroup?: GPUComputePipeline;
+  /**
+   * Optional pairwise merge pipeline (Stage 5 chunked sort). Created when
+   * `radixMergeWgsl` is non-empty. Without it the sorter throws on
+   * `count > SPLAT_DISPATCH_CAP` to make the missing capability loud.
+   */
+  merge?: MergePipelines;
+}
+
+/** Pairwise merge pipeline + its bind-group layout. */
+export interface MergePipelines {
+  pipeline: GPUComputePipeline;
+  bindGroupLayout: GPUBindGroupLayout;
 }
 
 /** Multi-block exclusive prefix-sum pipelines (see `scan_multiblock.wgsl`). */
@@ -127,6 +153,7 @@ export function createRadixSortPipelines(
   wgslSource: string,
   multiBlockScanWgsl: string = '',
   histogramSubgroupWgsl: string = '',
+  radixMergeWgsl: string = '',
 ): RadixSortPipelines {
   const module = device.createShaderModule({ code: wgslSource });
   const bindGroupLayout = device.createBindGroupLayout({
@@ -177,6 +204,28 @@ export function createRadixSortPipelines(
     });
   }
 
+  let merge: MergePipelines | undefined;
+  if (radixMergeWgsl.length > 0) {
+    const mgModule = device.createShaderModule({ code: radixMergeWgsl });
+    const mgBgl = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+      ],
+    });
+    const mgLayout = device.createPipelineLayout({ bindGroupLayouts: [mgBgl] });
+    merge = {
+      pipeline: device.createComputePipeline({
+        layout: mgLayout,
+        compute: { module: mgModule, entryPoint: 'cs_radix_merge' },
+      }),
+      bindGroupLayout: mgBgl,
+    };
+  }
+
   return {
     histogram: mk('cs_histogram'),
     scan: mk('cs_scan'),
@@ -184,6 +233,7 @@ export function createRadixSortPipelines(
     bindGroupLayout,
     ...(scanMb ? { scanMb } : {}),
     ...(histogramSubgroup ? { histogramSubgroup } : {}),
+    ...(merge ? { merge } : {}),
   };
 }
 
@@ -229,6 +279,16 @@ export class RadixSort {
   private readonly mbBlockSums?: GPUBuffer;
   private readonly mbUniform?: GPUBuffer;
   private readonly mbBindGroup?: GPUBindGroup;
+
+  /**
+   * Pairwise merge state (Stage 5 chunked sort). One uniform buffer per
+   * concurrent merge invocation (we need at most K/2 = 4 in any single pass,
+   * but we recycle them across passes by submitting each merge fully before
+   * issuing the next). Bind groups come in two directions (A→B and B→A).
+   */
+  private readonly mergeUniformPool: GPUBuffer[] = [];
+  private mergeBindGroupAtoB?: GPUBindGroup[];
+  private mergeBindGroupBtoA?: GPUBindGroup[];
 
   constructor(
     device: GPUDevice,
@@ -285,6 +345,48 @@ export class RadixSort {
       );
     }
 
+    // Merge pool (Stage 5). One uniform buffer per possible concurrent merge
+    // pair (at most ceil(K/2) = 4 for K up to 8 chunks; we allocate 4 with
+    // headroom). Each merge invocation owns one uniform buffer.
+    if (pipes.merge) {
+      const MAX_CONCURRENT_MERGES = 4;
+      const a2b: GPUBindGroup[] = [];
+      const b2a: GPUBindGroup[] = [];
+      for (let i = 0; i < MAX_CONCURRENT_MERGES; i++) {
+        const ub = device.createBuffer({
+          size: 64, // 8 u32 = 32B; pad to 64 for >=32B binding floor + headroom
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        this.mergeUniformPool.push(ub);
+        a2b.push(
+          device.createBindGroup({
+            layout: pipes.merge.bindGroupLayout,
+            entries: [
+              { binding: 0, resource: { buffer: this.keysA } },
+              { binding: 1, resource: { buffer: this.valuesA } },
+              { binding: 2, resource: { buffer: this.keysB } },
+              { binding: 3, resource: { buffer: this.valuesB } },
+              { binding: 4, resource: { buffer: ub } },
+            ],
+          }),
+        );
+        b2a.push(
+          device.createBindGroup({
+            layout: pipes.merge.bindGroupLayout,
+            entries: [
+              { binding: 0, resource: { buffer: this.keysB } },
+              { binding: 1, resource: { buffer: this.valuesB } },
+              { binding: 2, resource: { buffer: this.keysA } },
+              { binding: 3, resource: { buffer: this.valuesA } },
+              { binding: 4, resource: { buffer: ub } },
+            ],
+          }),
+        );
+      }
+      this.mergeBindGroupAtoB = a2b;
+      this.mergeBindGroupBtoA = b2a;
+    }
+
     // Multi-block scan scratch + bind group.
     if (this.useMultiBlockScan && pipes.scanMb) {
       // total histogram entries scanned per pass = maxWgs * RADIX.
@@ -338,6 +440,7 @@ export class RadixSort {
       u[0] = count;
       u[1] = pass * BITS_PER_PASS;
       u[2] = numWgs;
+      u[3] = 0; // chunk_offset_splats unused in timed bench paths
       this.device.queue.writeBuffer(this.uniformBuffers[pass]!, 0, u.buffer);
     }
     let numScanWgs = 0;
@@ -426,6 +529,7 @@ export class RadixSort {
       u[0] = count;
       u[1] = pass * BITS_PER_PASS;
       u[2] = numWgs;
+      u[3] = 0; // chunk_offset_splats unused in timed bench paths
       this.device.queue.writeBuffer(this.uniformBuffers[pass]!, 0, u.buffer);
     }
     let numScanWgs = 0;
@@ -527,21 +631,118 @@ export class RadixSort {
     if (count > this.capacity) {
       throw new Error(`RadixSort: count ${count} exceeds capacity ${this.capacity}`);
     }
-    const numWgs = Math.ceil(count / WG_SIZE);
-    // Update the per-pass uniform buffers. 32 B each (only the first 16 B
-    // is meaningful; the trailing 16 B is required by the binding-size
-    // floor enforced by the bind-group validation).
+    if (count <= SPLAT_DISPATCH_CAP) {
+      // Fast / common path: single chunk, no merge needed.
+      this.encodeChunkInPlace(encoder, 0, count);
+      return;
+    }
+    // Stage 5: chunked sort + binary merge tree.
+    if (!this.pipes.merge) {
+      throw new Error(
+        `RadixSort: count ${count} exceeds dispatch cap ${SPLAT_DISPATCH_CAP} but ` +
+          `merge pipeline is not compiled. Pass radixMergeWgsl into ` +
+          `createRadixSortPipelines() to enable chunked sort.`,
+      );
+    }
+    // Step 1: per-chunk sort. Each chunk's sort lands back in keysA/valuesA
+    // at [chunkOffset, chunkOffset + chunkCount). PASSES is even (4) so the
+    // final ping-pong leaves data in the A buffers for every chunk.
+    const chunks: Array<{ offset: number; len: number }> = [];
+    for (let off = 0; off < count; off += SORT_CHUNK_SPLATS) {
+      const len = Math.min(SORT_CHUNK_SPLATS, count - off);
+      chunks.push({ offset: off, len });
+      this.encodeChunkInPlace(encoder, off, len);
+    }
+    // Step 2: binary merge tree. We pairwise-merge adjacent runs:
+    //   round 0: A → B  (pairs of chunks)
+    //   round 1: B → A
+    //   ...
+    // After log2(K) rounds, we have one sorted run. If that run ends up in
+    // keysB (odd number of rounds), copy back to keysA. We compute the
+    // round count up-front so callers always see the result in keysA.
+    let curRuns = chunks;
+    let dirAtoB = true;
+    while (curRuns.length > 1) {
+      const nextRuns: Array<{ offset: number; len: number }> = [];
+      const bgPool = dirAtoB ? this.mergeBindGroupAtoB! : this.mergeBindGroupBtoA!;
+      let slot = 0;
+      for (let i = 0; i < curRuns.length; i += 2) {
+        const a = curRuns[i]!;
+        const b = i + 1 < curRuns.length ? curRuns[i + 1]! : { offset: a.offset + a.len, len: 0 };
+        const mergedLen = a.len + b.len;
+        const mergedBase = a.offset;
+        // Encode a merge for this pair. The merge kernel reads from the
+        // "in" side of the current direction. Per-chunk dispatch carves the
+        // mergedLen elements into <= 65535-WG sub-dispatches; each
+        // sub-dispatch advances chunk_offset_splats.
+        this.encodeMerge(
+          encoder,
+          bgPool[slot % bgPool.length]!,
+          this.mergeUniformPool[slot % this.mergeUniformPool.length]!,
+          count,
+          mergedBase,
+          mergedLen,
+          a.offset,
+          a.len,
+          b.offset,
+          b.len,
+        );
+        nextRuns.push({ offset: mergedBase, len: mergedLen });
+        slot += 1;
+      }
+      curRuns = nextRuns;
+      dirAtoB = !dirAtoB;
+    }
+    // After the loop, the sorted result is in keysA if dirAtoB is still true
+    // (no rounds happened, or even number of rounds). Otherwise it's in
+    // keysB and we need to copy back to keysA so the public API contract
+    // ("final sorted lands in keysA / valuesA") holds.
+    if (!dirAtoB) {
+      // Odd round count: data lives in keysB / valuesB. Copy back to A.
+      encoder.copyBufferToBuffer(this.keysB, 0, this.keysA, 0, count * 4);
+      encoder.copyBufferToBuffer(this.valuesB, 0, this.valuesA, 0, count * 4);
+    }
+  }
+
+  /**
+   * Sort a sub-range [chunkOffset, chunkOffset + chunkCount) of keysA in
+   * place. Used both by the fast path (chunkOffset=0, chunkCount=count) and
+   * by the chunked path (one call per chunk).
+   *
+   * Preconditions:
+   *   - chunkCount <= SPLAT_DISPATCH_CAP (caller's responsibility).
+   *   - chunkCount * 4 fits in the histogram buffer (allocated for capacity).
+   *
+   * The histogram buffer is shared with other chunks but since each chunk
+   * fully completes its 4 passes before the next chunk starts (encoder
+   * orders dispatches by submission), there's no race.
+   */
+  private encodeChunkInPlace(
+    encoder: GPUCommandEncoder,
+    chunkOffset: number,
+    chunkCount: number,
+  ): void {
+    if (chunkCount <= 1) {
+      // Trivial chunk: skip the sort but the value is already in keysA so
+      // there's nothing to do.
+      return;
+    }
+    const numWgs = Math.ceil(chunkCount / WG_SIZE);
+    if (numWgs > WEBGPU_MAX_DISPATCH_PER_DIM) {
+      throw new Error(
+        `RadixSort: chunkCount ${chunkCount} would dispatch ${numWgs} workgroups > 65535`,
+      );
+    }
+    // Update per-pass uniforms. 32 B layout: count, bit_shift, num_wgs,
+    // chunk_offset_splats, then 16 B pad.
     for (let pass = 0; pass < PASSES; pass++) {
       const u = new Uint32Array(8);
-      u[0] = count;
+      u[0] = chunkCount;
       u[1] = pass * BITS_PER_PASS;
       u[2] = numWgs;
+      u[3] = chunkOffset;
       this.device.queue.writeBuffer(this.uniformBuffers[pass]!, 0, u.buffer);
     }
-
-    // Multi-block scan uniforms. `total` = numWgs * RADIX (the histogram
-    // length we want an exclusive prefix sum over). `num_scan_wgs` = number
-    // of scan-tile workgroups = ceil(total / WG_SIZE).
     let numScanWgs = 0;
     if (this.useMultiBlockScan) {
       const total = numWgs * RADIX;
@@ -551,20 +752,15 @@ export class RadixSort {
       su[1] = numScanWgs;
       this.device.queue.writeBuffer(this.mbUniform!, 0, su.buffer);
     }
-
-    // Pick the histogram kernel once per encode. Bind-group layout is
-    // identical between the atomic and subgroup variants.
     const histogramPipe = this.useSubgroupHistogram
       ? this.pipes.histogramSubgroup!
       : this.pipes.histogram;
-
     for (let pass = 0; pass < PASSES; pass++) {
       const pp = encoder.beginComputePass();
       pp.setBindGroup(0, this.bindGroups[pass]!);
       pp.setPipeline(histogramPipe);
       pp.dispatchWorkgroups(numWgs);
       if (this.useMultiBlockScan && this.pipes.scanMb) {
-        // Switch bind groups to the scan layout (separate layout).
         pp.setBindGroup(0, this.mbBindGroup!);
         pp.setPipeline(this.pipes.scanMb.perWg);
         pp.dispatchWorkgroups(numScanWgs);
@@ -572,7 +768,6 @@ export class RadixSort {
         pp.dispatchWorkgroups(1);
         pp.setPipeline(this.pipes.scanMb.addBlockSums);
         pp.dispatchWorkgroups(numScanWgs);
-        // Restore radix bind group for scatter.
         pp.setBindGroup(0, this.bindGroups[pass]!);
       } else {
         pp.setPipeline(this.pipes.scan);
@@ -581,6 +776,71 @@ export class RadixSort {
       pp.setPipeline(this.pipes.scatter);
       pp.dispatchWorkgroups(numWgs);
       pp.end();
+    }
+  }
+
+  /**
+   * Encode one pairwise merge from `bg` direction. Merges
+   * [runAStart, runAStart+runALen) and [runBStart, runBStart+runBLen) into
+   * [mergedBase, mergedBase+mergedLen) on the OUTPUT side of `bg`.
+   *
+   * Carves the merge into <= 65535-WG sub-dispatches using a per-chunk
+   * chunk_offset_splats uniform. One uniform buffer is shared across the
+   * sub-dispatches of THIS merge (per-merge uniform; per-pair, not per
+   * sub-dispatch). For chunked merges the chunk_offset_splats is rewritten
+   * between sub-dispatches via queue.writeBuffer.
+   */
+  private encodeMerge(
+    encoder: GPUCommandEncoder,
+    bindGroup: GPUBindGroup,
+    uniformBuffer: GPUBuffer,
+    totalCount: number,
+    mergedBase: number,
+    mergedLen: number,
+    runAStart: number,
+    runALen: number,
+    runBStart: number,
+    runBLen: number,
+  ): void {
+    if (mergedLen === 0) return;
+    if (!this.pipes.merge) {
+      throw new Error('encodeMerge: merge pipeline missing');
+    }
+    // Pack uniform: 8 u32 (32 B effective, 64 B alloc).
+    //   [0] count                — total output count (used by guard only)
+    //   [1] chunk_offset_splats  — per sub-dispatch (rewritten below)
+    //   [2] merge_out_base
+    //   [3] merge_out_len
+    //   [4] run_a_start
+    //   [5] run_a_len
+    //   [6] run_b_start
+    //   [7] run_b_len
+    const u = new Uint32Array(8);
+    u[0] = totalCount;
+    u[1] = 0;
+    u[2] = mergedBase;
+    u[3] = mergedLen;
+    u[4] = runAStart;
+    u[5] = runALen;
+    u[6] = runBStart;
+    u[7] = runBLen;
+    this.device.queue.writeBuffer(uniformBuffer, 0, u.buffer);
+
+    // Per-chunk dispatch carving for this merge's mergedLen output slots.
+    const chunkBuf = new Uint32Array(1);
+    let off = 0;
+    while (off < mergedLen) {
+      const slice = Math.min(SPLAT_DISPATCH_CAP, mergedLen - off);
+      const wgs = Math.ceil(slice / WG_SIZE);
+      chunkBuf[0] = off >>> 0;
+      // chunk_offset_splats is the 2nd u32 in the uniform (byte offset 4).
+      this.device.queue.writeBuffer(uniformBuffer, 4, chunkBuf.buffer, 0, 4);
+      const pp = encoder.beginComputePass();
+      pp.setBindGroup(0, bindGroup);
+      pp.setPipeline(this.pipes.merge.pipeline);
+      pp.dispatchWorkgroups(wgs);
+      pp.end();
+      off += slice;
     }
   }
 
@@ -593,6 +853,7 @@ export class RadixSort {
     for (const u of this.uniformBuffers) u.destroy();
     this.mbBlockSums?.destroy();
     this.mbUniform?.destroy();
+    for (const u of this.mergeUniformPool) u.destroy();
   }
 }
 

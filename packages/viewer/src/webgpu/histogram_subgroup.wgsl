@@ -38,7 +38,9 @@ struct Uniforms {
   count: u32,
   bit_shift: u32,
   num_wgs: u32,
-  _pad: u32,
+  // Per-chunk sort base offset (Stage 5): kept in lockstep with
+  // `radix_sort.wgsl::Uniforms`. See that file for the contract.
+  chunk_offset_splats: u32,
 };
 
 @group(0) @binding(0) var<storage, read>       keys_in    : array<u32>;
@@ -68,7 +70,7 @@ fn cs_histogram_subgroup(
   // for wg_hist, so the sentinel never reaches atomicAdd.
   var bin: u32 = RADIX;
   if (live) {
-    let k = keys_in[i];
+    let k = keys_in[i + u.chunk_offset_splats];
     bin = (k >> u.bit_shift) & RADIX_MASK;
   }
 

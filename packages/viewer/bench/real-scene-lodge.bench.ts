@@ -333,30 +333,23 @@ export async function main(): Promise<void> {
     return;
   }
 
-  // Dispatch cap: WebGPU 1.0 limits dispatchWorkgroups to 65535 per
-  // dimension. At workgroup_size=256, that's 65535 * 256 = 16 776 960
-  // splats per single dispatch.
+  // WebGPU 1.0 limits dispatchWorkgroups to 65535 per dimension. At
+  // workgroup_size=256, that's 65535 * 256 = 16 776 960 splats per single
+  // dispatch.
   //
   // Per-splat compute kernels (decode, project, gather, cull, lod_blend,
-  // tile_bin, wsr_accumulate) NOW carve large dispatches into <= 65535
-  // chunks via packages/viewer/src/webgpu/multi-dispatch.ts (added in
-  // feat/wgpu-multidispatch). The dispatch limit no longer caps those.
+  // tile_bin, wsr_accumulate) carve large dispatches into <= 65535-wg chunks
+  // via packages/viewer/src/webgpu/multi-dispatch.ts (Stage 1-4,
+  // feat/wgpu-multidispatch).
   //
-  // The radix sort (packages/viewer/src/webgpu/radix_sort.ts) is NOT yet
-  // chunked — its histogram / scan / scatter kernels each dispatch at
-  // numWgs = ceil(splat_count / 256), which still hits the 65535 cap at
-  // splat_count > 16.7 M. See tasks/scripts/wgpu-multidispatch-followup.md
-  // for the radix-sort retrofit plan (Stage 5).
-  //
-  // Until radix-sort chunking lands we leave the bench cap in place so
-  // L1/L0 don't OOM-by-dispatch silently. Once the sort is chunked, drop
-  // `dispatchCap` from the min() and the bench will attempt L1 (54 M) and
-  // L0 (119 M) on real hardware. The bufferCap (per-buffer max) is the
-  // remaining ceiling and a separate maxBufferSize-followup.
-  const dispatchCap = 65535 * 256; // 16 776 960 — radix-sort gate, NOT compute-kernel gate
+  // The radix sort (packages/viewer/src/webgpu/radix_sort.ts) now chunks
+  // sorts that exceed 16.7M splats via per-chunk sort + binary merge tree
+  // (Stage 5, feat/wgpu-multidispatch-stage5). The dispatchCap is therefore
+  // dropped here: the only remaining ceiling is the device's maxBufferSize
+  // for the decoded-splat / instance buffers, which is a separate followup.
   const bufferCap = Math.floor(want.maxBufferSize / BYTES_PER_DECODED_SPLAT) - 1;
-  const capacityCap = Math.min(dispatchCap, bufferCap);
-  log(`bench: capacityCap = ${capacityCap} splats (dispatchCap=${dispatchCap}, bufferCap=${bufferCap})`);
+  const capacityCap = bufferCap;
+  log(`bench: capacityCap = ${capacityCap} splats (bufferCap=${bufferCap})`);
 
   const results: LodgeSceneResult[] = [];
   for (const name of scenes) {

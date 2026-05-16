@@ -39,7 +39,13 @@
  * key resolve in scatter order, which is deterministic for a fixed dispatch.
  */
 
-import { DECODE_WGSL, RADIX_SORT_WGSL, PROJECT_GATHER_WGSL } from './shaders.generated.js';
+import {
+  DECODE_WGSL,
+  RADIX_SORT_WGSL,
+  PROJECT_GATHER_WGSL,
+  SCAN_MULTIBLOCK_WGSL,
+  RADIX_MERGE_WGSL,
+} from './shaders.generated.js';
 import { createRadixSortPipelines, RadixSort, type RadixSortPipelines } from './radix_sort.js';
 import { createCullPipelines, CullPipeline } from './cull.js';
 import { WSRPipeline, WSR_DEFAULT_BG_WEIGHT } from './wsr.js';
@@ -449,7 +455,17 @@ export class ComputeDecodePipeline {
     this.useFusedProject = init.useFusedProject ?? false;
     this.dilation = init.dilation ?? 0.3;
     this.pipes = createDecodePipelines(this.device, this.useFusedProject, this.dilation);
-    this.radixPipes = createRadixSortPipelines(this.device, RADIX_SORT_WGSL);
+    // Stage 5: pass the multi-block scan + merge WGSL so the sorter can
+    // handle splat counts above the WebGPU 1.0 dispatch cap (16.7M). The
+    // subgroup-histogram path stays opt-in (requires a 'subgroups'-enabled
+    // device); we pass '' to keep the older atomic-add histogram.
+    this.radixPipes = createRadixSortPipelines(
+      this.device,
+      RADIX_SORT_WGSL,
+      SCAN_MULTIBLOCK_WGSL,
+      '',
+      RADIX_MERGE_WGSL,
+    );
 
     const decodedSize = Math.max(this.capacity * BYTES_PER_DECODED_SPLAT, BYTES_PER_DECODED_SPLAT);
     this.splatsBuffer = this.device.createBuffer({

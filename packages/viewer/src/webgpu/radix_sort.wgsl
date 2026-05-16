@@ -51,8 +51,16 @@ const PASSES  : u32 = 4u;        // 32 bits / 8 bits
 struct Uniforms {
   count: u32,
   bit_shift: u32,    // 0, 8, 16, 24
-  num_wgs: u32,      // ceil(count / WG_SIZE)
-  _pad: u32,
+  num_wgs: u32,      // ceil(count / WG_SIZE) — chunk-local at large N
+  // Per-chunk sort base offset (Stage 5): when the caller chunks a sort that
+  // exceeds the WebGPU 1.0 dispatch cap (16.7M splats), the orchestrator
+  // sorts each chunk in-place at [chunk_offset_splats, chunk_offset_splats +
+  // count). Reads of `keys_in/values_in` and writes of `keys_out/values_out`
+  // both add this base. The histogram array is still chunk-local
+  // (size num_wgs * RADIX) because per-chunk sort recomputes it.
+  // For non-chunked sorts (count <= 16.7M) chunk_offset_splats = 0 and the
+  // shader behaves identically to the original code.
+  chunk_offset_splats: u32,
 };
 
 @group(0) @binding(0) var<storage, read>       keys_in    : array<u32>;
@@ -91,7 +99,7 @@ fn cs_histogram(
 
   let i = gid.x;
   if (i < u.count) {
-    let k = keys_in[i];
+    let k = keys_in[i + u.chunk_offset_splats];
     let bin = (k >> u.bit_shift) & RADIX_MASK;
     atomicAdd(&wg_hist[bin], 1u);
   }
@@ -101,7 +109,8 @@ fn cs_histogram(
   // [bin * num_wgs + wgid]. This bin-major layout means the global exclusive
   // scan naturally places all of bin 0's workgroups first, then bin 1's,
   // etc. — i.e. ascending sort order without an extra grouping pass after
-  // the scan.
+  // the scan. The histogram is chunk-local; the orchestrator reuses the
+  // same buffer across chunks but reset/scanned per chunk.
   let h = atomicLoad(&wg_hist[lid.x]);
   histograms[lid.x * u.num_wgs + wgid.x] = h;
 }
@@ -191,8 +200,8 @@ fn cs_scatter(
   var local_rank: u32 = 0u;
   var live: bool = false;
   if (i < u.count) {
-    key = keys_in[i];
-    val = values_in[i];
+    key = keys_in[i + u.chunk_offset_splats];
+    val = values_in[i + u.chunk_offset_splats];
     bin = (key >> u.bit_shift) & RADIX_MASK;
     // atomicAdd returns the old value -> that's the rank of this element
     // within its bin for this workgroup.
@@ -202,7 +211,10 @@ fn cs_scatter(
   workgroupBarrier();
 
   if (live) {
-    let dst = wg_offsets[bin] + local_rank;
+    // wg_offsets[bin] is the chunk-local exclusive prefix from the scan
+    // over the chunk's histogram. Add chunk_offset_splats to land the
+    // sorted output in the correct chunk slot of the output buffer.
+    let dst = wg_offsets[bin] + local_rank + u.chunk_offset_splats;
     keys_out[dst]   = key;
     values_out[dst] = val;
   }
