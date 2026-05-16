@@ -354,9 +354,20 @@ export async function main(): Promise<void> {
   // (Stage 5, feat/wgpu-multidispatch-stage5). The dispatchCap is therefore
   // dropped here: the only remaining ceiling is the device's maxBufferSize
   // for the decoded-splat / instance buffers, which is a separate followup.
+  // Stage 6 (sf-154): the canonical decoded-splat buffer can now span
+  // multiple pages (BufferPager), so the splats-per-binding cap no
+  // longer applies. The remaining single-binding ceiling is the
+  // instance buffer (12 floats × 4 B = 48 B / splat) which is bound
+  // as a vertex buffer (so still single-binding). At 2 GiB that's
+  // 2147483648 / 48 ≈ 44.7 M splats. We round down to a multiple of
+  // 256 for workgroup alignment.
+  const INSTANCE_BYTES = 12 * 4; // FLOATS_PER_INSTANCE × 4
+  const instanceCap = Math.floor(want.maxBufferSize / INSTANCE_BYTES);
+  // Old splats-buffer cap kept as a diagnostic so we can spot when the
+  // BufferPager isn't engaged (e.g. pre-Stage-6 builds).
   const bufferCap = Math.floor(want.maxBufferSize / BYTES_PER_DECODED_SPLAT) - 1;
-  const capacityCap = bufferCap;
-  log(`bench: capacityCap = ${capacityCap} splats (bufferCap=${bufferCap})`);
+  const capacityCap = instanceCap;
+  log(`bench: capacityCap = ${capacityCap} splats (instanceCap=${instanceCap}, splatsBufferCap=${bufferCap} — Stage 6 pages above this)`);
 
   const results: LodgeSceneResult[] = [];
   for (const name of scenes) {
