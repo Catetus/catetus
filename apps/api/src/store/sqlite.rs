@@ -419,6 +419,28 @@ impl JobStoreApi for SqliteJobStore {
         .await?;
         rows.into_iter().map(row_to_audit).collect()
     }
+
+    /// Last `limit` audit events for a single `key_prefix`, newest
+    /// first. Same shape as `list_audit_events` but with a WHERE clause
+    /// — used by `GET /v1/me/usage` to scope the customer dashboard
+    /// view to the requester's own key. The (key_prefix, created_at)
+    /// pair is already indexed by migration 0005 so this is cheap
+    /// even at six-figure row counts.
+    async fn list_audit_events_by_prefix(
+        &self,
+        key_prefix: &str,
+        limit: u32,
+    ) -> Result<Vec<super::AuditEvent>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT id, key_prefix, route, method, status, body_size, duration_ms, error, created_at \
+             FROM audit_events WHERE key_prefix = ?1 ORDER BY created_at DESC LIMIT ?2",
+        )
+        .bind(key_prefix)
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(row_to_audit).collect()
+    }
 }
 
 fn row_to_audit(row: sqlx::sqlite::SqliteRow) -> Result<super::AuditEvent, StoreError> {
