@@ -1,7 +1,8 @@
 use splatforge_core::{Color, SemanticLabel, Splat, SplatScene};
 use splatforge_optimize::{
-    preset, AspectRatioPrune, BuildLOD, FloaterPrune, MortonSort, ObjectAwarePruneExperimental,
-    OpacityPrune, Pass, PassContext, Pipeline, ReduceSHDegree, RemoveInvalidSplats,
+    preset, AspectRatioPrune, BackgroundOverdrawPrune, BuildLOD, FloaterPrune, MortonSort,
+    ObjectAwarePruneExperimental, OpacityPrune, Pass, PassContext, Pipeline, ReduceSHDegree,
+    RemoveInvalidSplats,
 };
 
 fn make_scene(n: usize) -> SplatScene {
@@ -564,4 +565,142 @@ fn aspect_ratio_prune_in_web_mobile_preset() {
             s.scale
         );
     }
+}
+
+// ----------------------------------------------------------------------------
+// BackgroundOverdrawPrune tests
+// ----------------------------------------------------------------------------
+
+fn splat_full(pos: [f32; 3], scale: [f32; 3], opacity: f32) -> Splat {
+    Splat {
+        position: pos,
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        scale,
+        opacity,
+        color: Color::Rgb([0.5, 0.5, 0.5]),
+    }
+}
+
+#[test]
+fn background_overdraw_prune_drops_large_faint_splats() {
+    // 100 small bright "subject" splats + 5 huge faint "background" splats.
+    // top_fraction=0.05 => 5 candidates; all 5 should match the faint test.
+    let mut scene = SplatScene::new();
+    for _ in 0..100 {
+        scene.splats.push(splat_full([0.0; 3], [0.01, 0.01, 0.01], 0.95));
+    }
+    for _ in 0..5 {
+        scene.splats.push(splat_full([10.0; 3], [3.0, 3.0, 3.0], 0.1));
+    }
+    let mut ctx = PassContext::default();
+    let pass = BackgroundOverdrawPrune::default();
+    let stats = pass.run(&mut scene, &mut ctx).unwrap();
+    assert_eq!(stats.removed, 5, "expected to drop 5 large faint splats");
+    assert_eq!(scene.splats.len(), 100);
+    // All survivors should be the small bright ones.
+    for s in &scene.splats {
+        assert!(s.opacity > 0.9);
+    }
+    assert!(!stats.notes.is_empty());
+}
+
+#[test]
+fn background_overdraw_prune_protects_bright_overdrawers() {
+    // 100 small bright subject splats + 5 huge BRIGHT splats (highlights).
+    // The huge bright ones are top-by-cost but should NOT be dropped because
+    // opacity >= opacity_keep_above (default 0.5).
+    let mut scene = SplatScene::new();
+    for _ in 0..100 {
+        scene.splats.push(splat_full([0.0; 3], [0.01, 0.01, 0.01], 0.95));
+    }
+    for _ in 0..5 {
+        scene.splats.push(splat_full([10.0; 3], [3.0, 3.0, 3.0], 0.9));
+    }
+    let mut ctx = PassContext::default();
+    let stats = BackgroundOverdrawPrune::default()
+        .run(&mut scene, &mut ctx)
+        .unwrap();
+    assert_eq!(
+        stats.removed, 0,
+        "bright splats should be immune even when cost is in top fraction"
+    );
+    assert_eq!(scene.splats.len(), 105);
+}
+
+#[test]
+fn background_overdraw_prune_is_deterministic() {
+    let make = || {
+        let mut sc = SplatScene::new();
+        for i in 0..200 {
+            let big = i % 17 == 0;
+            let scale = if big { 4.0 } else { 0.05 };
+            let op = if big { 0.2 } else { 0.8 };
+            sc.splats
+                .push(splat_full([i as f32, 0.0, 0.0], [scale, scale, scale], op));
+        }
+        sc
+    };
+    let mut a = make();
+    let mut b = make();
+    let mut ctx = PassContext::default();
+    BackgroundOverdrawPrune::default()
+        .run(&mut a, &mut ctx)
+        .unwrap();
+    BackgroundOverdrawPrune::default()
+        .run(&mut b, &mut ctx)
+        .unwrap();
+    let pa: Vec<_> = a.splats.iter().map(|s| s.position).collect();
+    let pb: Vec<_> = b.splats.iter().map(|s| s.position).collect();
+    assert_eq!(pa, pb);
+}
+
+#[test]
+fn background_overdraw_prune_handles_empty_scene() {
+    let mut scene = SplatScene::new();
+    let mut ctx = PassContext::default();
+    let stats = BackgroundOverdrawPrune::default()
+        .run(&mut scene, &mut ctx)
+        .unwrap();
+    assert_eq!(stats.removed, 0);
+}
+
+#[test]
+fn background_overdraw_prune_respects_top_fraction_zero() {
+    let mut scene = SplatScene::new();
+    for _ in 0..100 {
+        scene.splats.push(splat_full([0.0; 3], [0.01, 0.01, 0.01], 0.95));
+    }
+    for _ in 0..5 {
+        scene.splats.push(splat_full([10.0; 3], [3.0, 3.0, 3.0], 0.1));
+    }
+    let mut ctx = PassContext::default();
+    let pass = BackgroundOverdrawPrune {
+        top_fraction: 0.0,
+        opacity_keep_above: 0.5,
+    };
+    let stats = pass.run(&mut scene, &mut ctx).unwrap();
+    assert_eq!(stats.removed, 0, "top_fraction=0 should drop nothing");
+}
+
+#[test]
+fn hero_quality_preset_runs_clean() {
+    let pipe = preset("hero-quality").unwrap();
+    assert!(!pipe.passes.is_empty());
+    // Build a small mixed scene: bright subject + faint background overdraw +
+    // a needle to exercise AspectRatioPrune within the pipeline.
+    let mut scene = SplatScene::new();
+    for i in 0..200 {
+        scene
+            .splats
+            .push(splat_full([i as f32 * 0.01, 0.0, 0.0], [0.05; 3], 0.8));
+    }
+    for _ in 0..10 {
+        scene.splats.push(splat_full([5.0; 3], [3.0, 3.0, 3.0], 0.1));
+    }
+    scene
+        .splats
+        .push(splat_full([0.0; 3], [10.0, 0.05, 0.05], 0.9));
+    let report = pipe.run(&mut scene).unwrap();
+    assert!(report.splats_after <= report.splats_before);
+    assert!(report.splats_after > 0);
 }

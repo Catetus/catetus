@@ -3,8 +3,8 @@
 use anyhow::{anyhow, Result};
 
 use crate::passes::{
-    AspectRatioPrune, BuildLOD, FloaterPrune, MortonSort, OpacityPrune, QuantizePosition,
-    QuantizeRotation, QuantizeScale, ReduceSHDegree, RemoveInvalidSplats,
+    AspectRatioPrune, BackgroundOverdrawPrune, BuildLOD, FloaterPrune, MortonSort, OpacityPrune,
+    QuantizePosition, QuantizeRotation, QuantizeScale, ReduceSHDegree, RemoveInvalidSplats,
 };
 use crate::pipeline::Pipeline;
 
@@ -20,6 +20,7 @@ pub const PRESETS: &[&str] = &[
     "size-min",
     "geospatial",
     "hero",
+    "hero-quality",
 ];
 
 /// Build a `Pipeline` from a named preset.
@@ -133,6 +134,39 @@ pub fn preset(name: &str) -> Result<Pipeline> {
             .push(Box::new(QuantizeScale { bits: 16 }))
             .push(Box::new(QuantizeRotation { bits: 16 }))
             .push(Box::new(ReduceSHDegree { target_degree: 0 }))
+            .push(Box::new(MortonSort)),
+        // `hero-quality`: marketing-hero / showcase preset tuned for tight
+        // framing on a single subject (e.g. the bonsai). Drops the
+        // low-opacity isotropic background ring that dominates fillrate at
+        // hero framing (the post-mortem from the previous rebuild traced
+        // jank + dim-blob artefacts to fillrate from those splats, not the
+        // anisotropic needles that AspectRatioPrune handles).
+        //
+        // Order is deliberate:
+        //   1. RemoveInvalidSplats — strip NaN/Inf before any geometric work.
+        //   2. OpacityPrune(0.04) — drop the faintest splats that pure
+        //      overdraw cost can't justify.
+        //   3. FloaterPrune — k-NN isolation pass for sparse-densification halo.
+        //   4. AspectRatioPrune(8.0) — kills the Inria needle artefacts.
+        //   5. BackgroundOverdrawPrune — drops the top 5% by screen-coverage
+        //      cost when also faint (opacity < 0.5). This is the new pass
+        //      that handles the background ring specifically.
+        //   6-8. Quant: 14-bit position / 12-bit scale / 12-bit rotation.
+        //      12-bit scale/rot matches the spike-fix from the AspectRatioPrune
+        //      commit; 14-bit position because the camera is tight and we
+        //      benefit from a hair more spatial precision than web-desktop.
+        //   9. ReduceSHDegree(1) — viewer has SH-1 since dd3dae9.
+        //   10. MortonSort — render order for tile-based viewer.
+        "hero-quality" => Pipeline::new()
+            .push(Box::new(RemoveInvalidSplats))
+            .push(Box::new(OpacityPrune { threshold: 0.04 }))
+            .push(Box::new(FloaterPrune::default()))
+            .push(Box::new(AspectRatioPrune { max_ratio: 8.0 }))
+            .push(Box::new(BackgroundOverdrawPrune::default()))
+            .push(Box::new(QuantizePosition { bits: 14 }))
+            .push(Box::new(QuantizeScale { bits: 12 }))
+            .push(Box::new(QuantizeRotation { bits: 12 }))
+            .push(Box::new(ReduceSHDegree { target_degree: 1 }))
             .push(Box::new(MortonSort)),
         other => return Err(anyhow!("unknown preset '{other}'")),
     };

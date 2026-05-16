@@ -913,3 +913,143 @@ impl Pass for ObjectAwarePruneExperimental {
         })
     }
 }
+
+/// `BackgroundOverdrawPrune`: drop the largest, faintest splats whose
+/// screen-coverage cost dominates fillrate without contributing useful
+/// detail.
+///
+/// Background motivation
+/// ---------------------
+/// Inria 3DGS often leaves a ring of large, low-opacity gaussians around the
+/// real subject — typically representing far walls, sky, or low-frequency
+/// ambient color. These splats are NOT picked up by `AspectRatioPrune` (they
+/// tend to be isotropic, ratio << 10) and they survive `OpacityPrune` at
+/// hero-friendly thresholds because their opacity is in the 0.05–0.5 band
+/// where alpha still matters at edges. In a WebGL2/WebGPU rasteriser they
+/// individually cover hundreds of thousands of pixels and absolutely murder
+/// fillrate when the camera is framed tight on the subject (per the
+/// hero-rebuild post-mortem of bonsai @ 250k splats).
+///
+/// What this pass does
+/// -------------------
+/// For each splat compute a `coverage_cost = max_scale^2 * opacity` proxy
+/// (units: world-area × alpha; a stable proxy for fragments shaded per draw
+/// at any fixed viewport). Then drop the `top_fraction` of splats by
+/// `coverage_cost` whose opacity is below `opacity_keep_above`. Splats with
+/// opacity ≥ `opacity_keep_above` are protected regardless of cost — they
+/// are bright/saturated highlights and almost always part of the subject.
+///
+/// Defaults are tuned to drop the bonsai background ring at hero framing:
+/// `top_fraction = 0.05` (drop top 5% by cost) and
+/// `opacity_keep_above = 0.5` (protect anything saturated).
+#[derive(Debug, Clone)]
+pub struct BackgroundOverdrawPrune {
+    /// Fraction of splats considered for removal (those with the highest
+    /// `max_scale^2 * opacity`). 0.05 = top 5%.
+    pub top_fraction: f32,
+    /// Opacity floor that grants immunity. Splats with `opacity >= this`
+    /// are kept even if their coverage cost is in the top fraction.
+    pub opacity_keep_above: f32,
+}
+
+impl Default for BackgroundOverdrawPrune {
+    fn default() -> Self {
+        Self {
+            top_fraction: 0.05,
+            opacity_keep_above: 0.5,
+        }
+    }
+}
+
+impl Pass for BackgroundOverdrawPrune {
+    fn name(&self) -> &'static str {
+        "BackgroundOverdrawPrune"
+    }
+    fn run(&self, scene: &mut SplatScene, _ctx: &mut PassContext) -> Result<PassStats> {
+        let before = scene.splats.len();
+        if before == 0 {
+            return Ok(PassStats::default());
+        }
+        let top_fraction = self.top_fraction.clamp(0.0, 1.0);
+        let opacity_floor = self.opacity_keep_above.max(0.0);
+
+        // Compute coverage proxy per splat. Guard against negative/NaN.
+        let costs: Vec<f32> = scene
+            .splats
+            .iter()
+            .map(|s| {
+                let sx = s.scale[0].abs();
+                let sy = s.scale[1].abs();
+                let sz = s.scale[2].abs();
+                let smax = sx.max(sy).max(sz);
+                let op = s.opacity.clamp(0.0, 1.0);
+                let cost = smax * smax * op;
+                if cost.is_finite() {
+                    cost
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+
+        // Threshold = the (1 - top_fraction) quantile of the cost distribution.
+        // Splats above this threshold are *candidates* for removal.
+        let mut sorted = costs.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let cut_idx = ((1.0 - top_fraction) * sorted.len() as f32).floor() as usize;
+        let cut_idx = cut_idx.min(sorted.len().saturating_sub(1));
+        let cost_threshold = sorted[cut_idx];
+
+        // Build a keep mask: candidates that are also faint get dropped.
+        let keep: Vec<bool> = scene
+            .splats
+            .iter()
+            .zip(costs.iter())
+            .map(|(s, &cost)| {
+                let is_candidate = cost > cost_threshold;
+                let is_faint = s.opacity < opacity_floor;
+                !(is_candidate && is_faint)
+            })
+            .collect();
+
+        let mut idx = 0usize;
+        let mut dropped_costs: Vec<f32> = Vec::new();
+        scene.splats.retain(|s| {
+            let k = keep[idx];
+            if !k {
+                let sx = s.scale[0].abs();
+                let sy = s.scale[1].abs();
+                let sz = s.scale[2].abs();
+                let smax = sx.max(sy).max(sz);
+                let op = s.opacity.clamp(0.0, 1.0);
+                dropped_costs.push(smax * smax * op);
+            }
+            idx += 1;
+            k
+        });
+        let removed = before - scene.splats.len();
+
+        let mut notes = Vec::new();
+        if !dropped_costs.is_empty() {
+            let mut s = dropped_costs.clone();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let median = s[s.len() / 2];
+            let max = *s.last().unwrap();
+            notes.push(format!(
+                "top_fraction={:.3} opacity_keep_above={:.3} dropped={} cost_threshold={:.4} median_dropped_cost={:.4} max_dropped_cost={:.4}",
+                top_fraction, opacity_floor, removed, cost_threshold, median, max
+            ));
+        } else {
+            notes.push(format!(
+                "top_fraction={:.3} opacity_keep_above={:.3} dropped=0 (no overdraw splats matched)",
+                top_fraction, opacity_floor
+            ));
+        }
+
+        Ok(PassStats {
+            removed,
+            notes,
+            ..Default::default()
+        })
+    }
+}
