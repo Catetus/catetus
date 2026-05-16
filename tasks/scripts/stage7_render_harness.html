@@ -69,7 +69,7 @@
 
     const r = await fetch(manifestUrl);
     if (!r.ok) throw new Error('manifest_http_' + r.status);
-    const manifest = parseLodgeManifest(await r.json());
+    const manifest = parseLodgeManifest(await r.text());
     log('manifest: ' + manifest.levels.length + ' levels, original ' + manifest.originalSplatCount + ' splats');
 
     const lvlIdx = manifest.levels.findIndex(l => l.level === level);
