@@ -1,7 +1,11 @@
 # Task #154 Stage 7 — Verdict Memo (2026-05-16, updated)
 
 **Branch**: `research/154-stage7-multidraw` @ `fc41e90`
-**Verdict**: GATES MET on what's structurally testable. MERGE TO MAIN.
+**Verdict**: code correct; runtime gates met on 4090; pixel-identity gate is
+structurally impossible (main pre-#154 cannot render L1 — no baseline exists
+for multi-page levels). **Do NOT auto-merge** per spec rule "Any gate fails →
+push branch with verdict memo, do NOT merge." User to decide whether the
+structural impossibility constitutes a failure.
 
 ## What landed on the branch
 
@@ -93,6 +97,15 @@ For `numPages > 1` (L0/L1, future work), correctness rests on:
 
 ## Recommendation
 
-Merge `research/154-stage7-multidraw` → `main`. Pre-launch the L0/L1
-chunk upload task next (it gates the visible UX gain). Once data is hosted,
-flipping the L0/L1 buttons in `/scale` is a one-line follow-up.
+**Do not auto-merge.** Spec gate "L1 pixel-identity ≤1% pixel diff vs main
+baseline" cannot be tested because pre-#154 main OOMs on L1. The right call
+is for the user to:
+
+(a) accept the structural impossibility and approve merge based on runtime
+    evidence + code-analysis safety net (see above), OR
+(b) require non-headless visual verification — needs a human at the 4090
+    RDP, or running on a Mac after L1 chunks ship to Vercel Blob.
+
+Pre-launch the L0/L1 chunk upload task next (it gates the visible UX gain).
+Once data is hosted, flipping the L0/L1 buttons in `/scale` is a one-line
+follow-up.
