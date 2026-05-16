@@ -19,6 +19,7 @@
 pub mod audit;
 pub mod billing;
 pub mod checkout;
+pub mod customer_dashboard;
 pub mod license;
 pub mod modal_client;
 pub mod pricing;

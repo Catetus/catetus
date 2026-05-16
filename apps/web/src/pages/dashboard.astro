@@ -1,0 +1,558 @@
+---
+import Base from "../layouts/Base.astro";
+
+const title = "SplatForge — Dashboard";
+const description =
+  "Your SplatForge API usage, billing meter, and recent compression jobs.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/dashboard" aria-current="page">Dashboard</a>
+    </div>
+  </nav>
+
+  <main class="page dashboard" data-state="loading">
+    <header class="dash-header">
+      <div>
+        <h1>Dashboard</h1>
+        <p class="lede">
+          Your SplatForge usage, billing meter, and most recent
+          compression jobs.
+        </p>
+      </div>
+      <div class="dash-meta">
+        <div>
+          <span class="meta-label">Plan</span>
+          <span class="meta-value" data-bind="plan">—</span>
+        </div>
+        <div>
+          <span class="meta-label">Email</span>
+          <span class="meta-value" data-bind="email">—</span>
+        </div>
+        <div>
+          <span class="meta-label">API key</span>
+          <span class="meta-value tabular" data-bind="key">—</span>
+          <button class="copy" data-action="copy-key" type="button" aria-label="Copy API key">copy</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Region: loading -->
+    <section class="region region-loading" data-region="loading">
+      <p class="placeholder">Loading your usage…</p>
+    </section>
+
+    <!-- Region: unauthenticated -->
+    <section class="region region-unauth" data-region="unauth">
+      <h2>Sign in to see your dashboard</h2>
+      <p>
+        You need a SplatForge API key to view this page. Don't have one
+        yet? <a href="/pricing#signup">Pick a plan</a> and you'll get a
+        key issued immediately after checkout.
+      </p>
+      <p class="hint">
+        If you already have a key, paste it here to bind this browser:
+      </p>
+      <form data-action="bind-key" class="bind-key-form">
+        <label>
+          <span>API key</span>
+          <input type="password" name="apiKey" placeholder="sk_live_…" autocomplete="off" required />
+        </label>
+        <button type="submit">Bind key</button>
+      </form>
+    </section>
+
+    <!-- Region: error -->
+    <section class="region region-error" data-region="error">
+      <h2>Couldn't load your dashboard</h2>
+      <p class="error-message" data-bind="error">—</p>
+      <p>
+        <button type="button" data-action="retry">Try again</button>
+        <a href="mailto:monte@splatforge.dev">Email support</a>
+      </p>
+    </section>
+
+    <!-- Region: ready -->
+    <section class="region region-ready" data-region="ready">
+      <!-- Section 1: Usage this billing period -->
+      <section class="card usage-card">
+        <header>
+          <h2>Usage this billing period</h2>
+          <span class="hint" data-bind="period-start"></span>
+        </header>
+        <div class="usage-grid">
+          <div class="usage-stat">
+            <span class="stat-value tabular" data-bind="repack-runs">0</span>
+            <span class="stat-label">repack runs</span>
+          </div>
+          <div class="usage-stat">
+            <span class="stat-value tabular" data-bind="repack-seconds">0s</span>
+            <span class="stat-label">compute time</span>
+          </div>
+          <div class="usage-stat" data-bind="quota-block">
+            <span class="stat-value tabular" data-bind="quota-line">—</span>
+            <span class="stat-label" data-bind="quota-label">quota</span>
+          </div>
+        </div>
+        <p class="meter-note">
+          Usage is approximated from the local audit log. Authoritative
+          billing meter data (<code>splatforge_repack_seconds</code>,
+          <code>splatforge_repack_runs</code>) is recorded in Stripe and
+          will land on this page in the next release.
+        </p>
+      </section>
+
+      <!-- Section 2: Recent jobs -->
+      <section class="card jobs-card">
+        <header>
+          <h2>Recent jobs</h2>
+          <span class="hint">Last 25, newest first</span>
+        </header>
+        <div class="table-wrap">
+          <table class="jobs-table tabular">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Method</th>
+                <th>Route</th>
+                <th>Status</th>
+                <th>Duration</th>
+              </tr>
+            </thead>
+            <tbody data-bind="jobs-tbody">
+              <!-- Filled by client script. -->
+            </tbody>
+          </table>
+        </div>
+        <p class="empty-state" data-bind="jobs-empty" hidden>
+          No jobs yet. Run your first compression via the
+          <a href="/#try">Try It</a> form or hit
+          <code>POST /v1/jobs</code> with your API key.
+        </p>
+      </section>
+
+      <!-- Section 3: Get help -->
+      <section class="card help-card">
+        <header>
+          <h2>Get help</h2>
+        </header>
+        <ul>
+          <li>
+            <a href="/docs/api/qat-scaffold">Docs — QAT-Scaffold preset</a>
+          </li>
+          <li>
+            <a href="/docs/qat-bundle">Docs — QAT-Bundle (full retrain)</a>
+          </li>
+          <li>
+            <a href="https://splatforge-api.fly.dev/docs">OpenAPI / Swagger UI</a>
+          </li>
+          <li>
+            <a href="mailto:monte@splatforge.dev">Email — monte@splatforge.dev</a>
+          </li>
+        </ul>
+      </section>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>splatforge dashboard · pre-launch</span>
+    <span>
+      <a href="/pricing">Pricing</a> ·
+      <a href="/#docs">Quickstart</a>
+    </span>
+  </footer>
+</Base>
+
+<script>
+  import {
+    fetchDashboard,
+    hasApiKey,
+    formatSeconds,
+    formatTimestamp,
+    DashboardAuthError,
+    DashboardServerError,
+    DASHBOARD_API_KEY_STORAGE,
+    FREE_TIER_QUOTA,
+    type DashboardResponse,
+  } from "../lib/dashboard-client";
+
+  const root = document.querySelector<HTMLElement>("main.dashboard")!;
+
+  function setState(s: "loading" | "unauth" | "error" | "ready") {
+    root.dataset.state = s;
+  }
+
+  function bind(name: string, value: string) {
+    root
+      .querySelectorAll<HTMLElement>(`[data-bind="${name}"]`)
+      .forEach((el) => {
+        el.textContent = value;
+      });
+  }
+
+  async function load() {
+    setState("loading");
+    if (!hasApiKey()) {
+      setState("unauth");
+      return;
+    }
+    try {
+      const data = await fetchDashboard({ limit: 25 });
+      render(data);
+      setState("ready");
+    } catch (err) {
+      if (err instanceof DashboardAuthError) {
+        setState("unauth");
+        return;
+      }
+      const msg =
+        err instanceof DashboardServerError
+          ? `Server ${err.status}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : "Unknown error";
+      bind("error", msg);
+      setState("error");
+    }
+  }
+
+  function render(data: DashboardResponse) {
+    bind("plan", data.plan === "paid" ? "Paid" : "Free");
+    bind("email", data.email ?? "(unknown — contact support to attach)");
+    bind("key", data.key_masked + "…");
+
+    bind("repack-runs", String(data.usage.repack_runs));
+    bind("repack-seconds", formatSeconds(data.usage.repack_seconds));
+    if (data.usage.period_start) {
+      bind(
+        "period-start",
+        `Since ${formatTimestamp(data.usage.period_start)}`,
+      );
+    } else {
+      bind("period-start", "No activity yet");
+    }
+
+    if (data.plan === "free") {
+      bind(
+        "quota-line",
+        `${FREE_TIER_QUOTA.scenesPerDay}/day · ${FREE_TIER_QUOTA.bundlesPerMonth}/mo`,
+      );
+      bind("quota-label", "free tier quota");
+    } else {
+      bind("quota-line", "—");
+      bind("quota-label", "no hard cap on paid");
+    }
+
+    const tbody = root.querySelector<HTMLElement>('[data-bind="jobs-tbody"]')!;
+    const empty = root.querySelector<HTMLElement>('[data-bind="jobs-empty"]')!;
+    tbody.innerHTML = "";
+    if (data.recent_jobs.length === 0) {
+      empty.hidden = false;
+    } else {
+      empty.hidden = true;
+      for (const job of data.recent_jobs) {
+        const tr = document.createElement("tr");
+        const status = job.status;
+        const statusClass =
+          status >= 500
+            ? "status-bad"
+            : status >= 400
+              ? "status-warn"
+              : "status-good";
+        tr.innerHTML = `
+          <td>${formatTimestamp(job.timestamp)}</td>
+          <td><code>${escapeHtml(job.method)}</code></td>
+          <td><code>${escapeHtml(job.route)}</code></td>
+          <td class="${statusClass}">${status}</td>
+          <td>${formatSeconds(job.duration_ms / 1000)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+  }
+
+  function escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // Wire up the bind-key form (unauth region).
+  root
+    .querySelector<HTMLFormElement>('[data-action="bind-key"]')!
+    .addEventListener("submit", (e) => {
+      e.preventDefault();
+      const form = e.currentTarget as HTMLFormElement | null;
+      if (!form) return;
+      const input =
+        form.querySelector<HTMLInputElement>('input[name="apiKey"]')!;
+      const v = input.value.trim();
+      if (!v) return;
+      localStorage.setItem(DASHBOARD_API_KEY_STORAGE, v);
+      load();
+    });
+
+  // Copy-key button.
+  root
+    .querySelector<HTMLButtonElement>('[data-action="copy-key"]')!
+    .addEventListener("click", async () => {
+      const v = localStorage.getItem(DASHBOARD_API_KEY_STORAGE);
+      if (!v) return;
+      await navigator.clipboard.writeText(v);
+      const btn = root.querySelector<HTMLButtonElement>(
+        '[data-action="copy-key"]',
+      )!;
+      btn.textContent = "copied";
+      setTimeout(() => (btn.textContent = "copy"), 1200);
+    });
+
+  // Retry button (error region).
+  root
+    .querySelector<HTMLButtonElement>('[data-action="retry"]')!
+    .addEventListener("click", load);
+
+  load();
+</script>
+
+<style>
+  .dashboard {
+    padding-top: 24px;
+  }
+
+  /* Regions: only show the one matching data-state. */
+  .region {
+    display: none;
+  }
+  .dashboard[data-state="loading"] .region-loading {
+    display: block;
+  }
+  .dashboard[data-state="unauth"] .region-unauth {
+    display: block;
+  }
+  .dashboard[data-state="error"] .region-error {
+    display: block;
+  }
+  .dashboard[data-state="ready"] .region-ready {
+    display: block;
+  }
+
+  .dash-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .dash-header h1 {
+    margin: 0 0 6px 0;
+    font-size: 28px;
+  }
+  .dash-header .lede {
+    margin: 0;
+    color: var(--fg-muted);
+    max-width: 56ch;
+  }
+  .dash-meta {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 4px 16px;
+    align-items: baseline;
+    font-size: 13px;
+  }
+  .dash-meta > div {
+    display: contents;
+  }
+  .meta-label {
+    color: var(--fg-dim);
+  }
+  .meta-value {
+    color: var(--fg);
+  }
+  .copy {
+    margin-left: 6px;
+    padding: 1px 8px;
+    font-size: 11px;
+    background: var(--bg-elev);
+    color: var(--fg-muted);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .copy:hover {
+    color: var(--fg);
+    border-color: var(--line-strong);
+  }
+
+  .placeholder {
+    color: var(--fg-dim);
+  }
+
+  .card {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .card header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    gap: 12px;
+  }
+  .card h2 {
+    margin: 0;
+    font-size: 17px;
+  }
+  .card .hint {
+    color: var(--fg-dim);
+    font-size: 13px;
+  }
+
+  .usage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+  }
+  .usage-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    background: var(--bg-row);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .stat-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .stat-label {
+    font-size: 12px;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .meter-note {
+    margin: 12px 0 0;
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+  .jobs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .jobs-table th,
+  .jobs-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .jobs-table th {
+    color: var(--fg-dim);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  .jobs-table code {
+    background: transparent;
+    color: var(--fg);
+  }
+  .status-good {
+    color: var(--good);
+  }
+  .status-warn {
+    color: var(--warn);
+  }
+  .status-bad {
+    color: var(--bad);
+  }
+  .empty-state {
+    color: var(--fg-dim);
+    text-align: center;
+    padding: 16px 0;
+  }
+
+  .help-card ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 6px;
+  }
+
+  .bind-key-form {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    max-width: 480px;
+    margin-top: 8px;
+  }
+  .bind-key-form label {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+  }
+  .bind-key-form input {
+    padding: 8px 10px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--fg);
+    font-family: var(--mono);
+  }
+  .bind-key-form button,
+  .region-error button {
+    padding: 9px 16px;
+    background: var(--accent-strong);
+    border: 0;
+    border-radius: 4px;
+    color: #0b0d10;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .region-error button {
+    margin-right: 8px;
+  }
+  .error-message {
+    color: var(--bad);
+    font-family: var(--mono);
+    background: var(--bg-row);
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+  }
+
+  .site-footer {
+    margin-top: 48px;
+    padding: 20px 0;
+    border-top: 1px solid var(--line);
+    color: var(--fg-dim);
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+</style>

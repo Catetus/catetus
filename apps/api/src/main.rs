@@ -45,6 +45,7 @@ use uuid::Uuid;
 // re-instantiation happens here.
 use splatforge_api::audit;
 use splatforge_api::billing::{self, BillingClient, KeyCustomerMap};
+use splatforge_api::customer_dashboard::{self, DashboardResponse, Plan};
 use splatforge_api::checkout::{
     self, CheckoutConfig, CheckoutError, CreateSessionRequest, PendingClaimTokens, PendingKeyCache,
     RevealRequest, StripeCheckoutClient,
@@ -493,11 +494,21 @@ async fn main() -> anyhow::Result<()> {
         // prefer the source_url form which skips the proxy entirely.
         .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024 * 1024))
         .layer(rate_audit_layer)
-        .layer(auth_layer);
+        .layer(auth_layer.clone());
 
     let admin = Router::new()
         .route("/v1/admin/audit", get(admin_audit))
         .layer(admin_layer);
+
+    // Customer-facing dashboard view (`GET /v1/me/usage`). Bearer
+    // auth required, but NO admin gate — every authenticated key
+    // can read its own usage. Auth runs first so the handler reads
+    // the verified key from request extensions; we skip the
+    // rate_audit_layer because the read is cheap + read-only and
+    // we don't want dashboards self-polluting the audit log.
+    let me = Router::new()
+        .route("/v1/me/usage", get(me_usage))
+        .layer(auth_layer.clone());
 
     let app = Router::new()
         .merge(open)
@@ -505,6 +516,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(repack)
         .merge(upload)
         .merge(admin)
+        .merge(me)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -2233,4 +2245,58 @@ async fn admin_audit(
         .min(audit::ADMIN_AUDIT_DEFAULT_LIMIT);
     let events = state.jobs.list_audit_events(limit).await?;
     Ok(Json(AuditListResponse { events }))
+}
+
+
+/* ---------- customer dashboard endpoint ---------- */
+
+#[derive(Debug, Deserialize)]
+pub struct UsageQuery {
+    /// How many recent-jobs rows to return, newest-first. Capped at
+    /// `RECENT_JOBS_MAX_LIMIT` (100). Default 25.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// `GET /v1/me/usage` — customer-facing dashboard JSON.
+///
+/// The bearer key is taken from request extensions (stamped by
+/// `require_api_key`). When auth is disabled (dev mode) we synthesize an
+/// `anon` key so a local `curl` works; production always has auth on.
+/// The response is **scoped strictly to the masked prefix of the
+/// requesting key** — no cross-user data ever leaves this handler.
+#[instrument(skip(state, req))]
+async fn me_usage(
+    State(state): State<AppState>,
+    Query(q): Query<UsageQuery>,
+    req: Request<Body>,
+) -> Result<Json<DashboardResponse>, ApiError> {
+    // Reconstruct the raw key from extensions (set by require_api_key).
+    // If auth was disabled, we fall back to "anon" so dev-mode curl works.
+    let key = req
+        .extensions()
+        .get::<AuthenticatedKey>()
+        .map(|k| k.0.clone())
+        .unwrap_or_else(|| "anon".to_string());
+    let key_prefix = ratelimit::key_prefix(&key);
+
+    let plan = if state.paid_api_keys.contains(&key) {
+        Plan::Paid
+    } else {
+        Plan::Free
+    };
+
+    // We don't (yet) have a key→email mapping for legacy/hand-issued
+    // keys. The team_signups path stores email on Checkout, but that's
+    // keyed by stripe_session_id, not by the bearer. A follow-up
+    // session will add a key_prefix→email index so this lookup
+    // succeeds for self-served customers.
+    let email: Option<String> = None;
+
+    let limit = q
+        .limit
+        .unwrap_or(customer_dashboard::RECENT_JOBS_DEFAULT_LIMIT);
+    let resp = customer_dashboard::build_response(&state.jobs, key_prefix, plan, email, limit)
+        .await?;
+    Ok(Json(resp))
 }

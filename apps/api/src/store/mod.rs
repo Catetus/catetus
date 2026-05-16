@@ -310,6 +310,22 @@ pub trait JobStoreApi {
     async fn list_audit_events(&self, _limit: u32) -> Result<Vec<AuditEvent>, StoreError> {
         Ok(Vec::new())
     }
+
+    /// Return the most-recent `limit` audit events filtered to a single
+    /// API-key prefix (the 8-char masked form written by
+    /// `ratelimit::key_prefix`). Used by the customer-facing
+    /// `GET /v1/me/usage` endpoint so each user only sees their own
+    /// recent jobs — distinct from the operator-only
+    /// `GET /v1/admin/audit` which returns rows across all keys.
+    /// Default returns an empty list so backends that haven't shipped
+    /// the audit table continue to compile + serve.
+    async fn list_audit_events_by_prefix(
+        &self,
+        _key_prefix: &str,
+        _limit: u32,
+    ) -> Result<Vec<AuditEvent>, StoreError> {
+        Ok(Vec::new())
+    }
 }
 
 /// Type-erased handle used throughout the API.
