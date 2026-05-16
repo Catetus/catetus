@@ -2,12 +2,18 @@
 //! Inria-style 3DGS PLY → SplatForge IR.
 //!
 //! See `specs/0002-ply-ingest.md`.
+//!
+//! The binary-body decoder uses a single hoisted field-offset table plus a
+//! flat byte-slice walk (no per-scalar `Cursor` allocation, no per-splat
+//! `Vec<f32>` scratch buffer, no O(P²) property-name lookups). The file
+//! itself is read via `memmap2::Mmap` to avoid materialising a 30 GiB
+//! `Vec<u8>` on Sweet-Corals-class PLYs.
 
 use std::fs;
 use std::io::{BufRead, Cursor, Write};
 use std::path::Path;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, WriteBytesExt};
 use splatforge_core::{Color, CoordinateSystem, Splat, SplatScene, TemporalMode};
 use thiserror::Error;
 
@@ -193,26 +199,6 @@ fn parse_header(bytes: &[u8]) -> Result<Header, PlyError> {
     })
 }
 
-fn read_scalar(buf: &[u8], pos: &mut usize, ty: ScalarTy) -> Result<f32, PlyError> {
-    let size = ty.size();
-    if buf.len() < *pos + size {
-        return Err(PlyError::TruncatedPayload);
-    }
-    let slice = &buf[*pos..*pos + size];
-    *pos += size;
-    let mut c = Cursor::new(slice);
-    Ok(match ty {
-        ScalarTy::F32 => c.read_f32::<LittleEndian>()?,
-        ScalarTy::F64 => c.read_f64::<LittleEndian>()? as f32,
-        ScalarTy::I32 => c.read_i32::<LittleEndian>()? as f32,
-        ScalarTy::U32 => c.read_u32::<LittleEndian>()? as f32,
-        ScalarTy::I16 => c.read_i16::<LittleEndian>()? as f32,
-        ScalarTy::U16 => c.read_u16::<LittleEndian>()? as f32,
-        ScalarTy::I8 => c.read_i8()? as f32,
-        ScalarTy::U8 => c.read_u8()? as f32,
-    })
-}
-
 fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
@@ -257,32 +243,266 @@ fn check_required(elem: &Element) -> Result<(), PlyError> {
     Ok(())
 }
 
+/// Precomputed location of one scalar field within the per-vertex record.
+#[derive(Debug, Clone, Copy)]
+struct FieldLoc {
+    /// Byte offset within a single vertex record.
+    offset: usize,
+    /// Storage type on disk.
+    ty: ScalarTy,
+}
+
+/// Hoisted addressing table for an Inria vertex element. Each `Option<FieldLoc>`
+/// resolves once at parse-start; the inner loop just indexes.
+#[derive(Debug, Clone)]
+struct VertexLayout {
+    stride: usize,
+    /// Required: x, y, z.
+    pos: [FieldLoc; 3],
+    /// Required: rot_0 (w), rot_1 (x), rot_2 (y), rot_3 (z).
+    rot: [FieldLoc; 4],
+    /// Required: scale_0..2 (log space).
+    scale: [FieldLoc; 3],
+    /// Required: opacity (logit space).
+    opacity: FieldLoc,
+    /// Required: f_dc_0..2.
+    dc: [FieldLoc; 3],
+    /// Optional: f_rest_* in property order.
+    f_rest: Vec<FieldLoc>,
+}
+
+impl VertexLayout {
+    fn build(vertex: &Element) -> Result<Self, PlyError> {
+        // Property byte offsets within the vertex record.
+        let mut offsets = Vec::with_capacity(vertex.properties.len());
+        let mut acc = 0usize;
+        for p in &vertex.properties {
+            offsets.push(acc);
+            acc += p.ty.size();
+        }
+        let stride = acc;
+
+        let find = |name: &str| -> Result<FieldLoc, PlyError> {
+            vertex
+                .properties
+                .iter()
+                .enumerate()
+                .find(|(_, p)| p.name == name)
+                .map(|(i, p)| FieldLoc {
+                    offset: offsets[i],
+                    ty: p.ty,
+                })
+                .ok_or_else(|| PlyError::MissingRequiredField(name.to_string()))
+        };
+
+        let pos = [find("x")?, find("y")?, find("z")?];
+        let rot = [find("rot_0")?, find("rot_1")?, find("rot_2")?, find("rot_3")?];
+        let scale = [find("scale_0")?, find("scale_1")?, find("scale_2")?];
+        let opacity = find("opacity")?;
+        let dc = [find("f_dc_0")?, find("f_dc_1")?, find("f_dc_2")?];
+
+        // f_rest in property-declaration order.
+        let f_rest: Vec<FieldLoc> = vertex
+            .properties
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.name.starts_with("f_rest_"))
+            .map(|(i, p)| FieldLoc {
+                offset: offsets[i],
+                ty: p.ty,
+            })
+            .collect();
+
+        Ok(Self {
+            stride,
+            pos,
+            rot,
+            scale,
+            opacity,
+            dc,
+            f_rest,
+        })
+    }
+}
+
+/// Read a single scalar from a fixed-size byte slice.
+/// All branches are inlined; the per-row loop has no function-call overhead.
+#[inline(always)]
+fn load_scalar(row: &[u8], loc: FieldLoc) -> f32 {
+    let off = loc.offset;
+    // Safety / correctness: callers guarantee `row.len() >= stride` so
+    // `row[off..off+size]` is in bounds. `try_into` + `from_le_bytes` is
+    // unaligned-safe on every target; the optimiser collapses the array copy
+    // to a single mov for f32/i32 and four bytes for f64.
+    match loc.ty {
+        ScalarTy::F32 => {
+            let b: [u8; 4] = row[off..off + 4].try_into().unwrap();
+            f32::from_le_bytes(b)
+        }
+        ScalarTy::F64 => {
+            let b: [u8; 8] = row[off..off + 8].try_into().unwrap();
+            f64::from_le_bytes(b) as f32
+        }
+        ScalarTy::I32 => {
+            let b: [u8; 4] = row[off..off + 4].try_into().unwrap();
+            i32::from_le_bytes(b) as f32
+        }
+        ScalarTy::U32 => {
+            let b: [u8; 4] = row[off..off + 4].try_into().unwrap();
+            u32::from_le_bytes(b) as f32
+        }
+        ScalarTy::I16 => {
+            let b: [u8; 2] = row[off..off + 2].try_into().unwrap();
+            i16::from_le_bytes(b) as f32
+        }
+        ScalarTy::U16 => {
+            let b: [u8; 2] = row[off..off + 2].try_into().unwrap();
+            u16::from_le_bytes(b) as f32
+        }
+        ScalarTy::I8 => (row[off] as i8) as f32,
+        ScalarTy::U8 => row[off] as f32,
+    }
+}
+
+/// Decode one vertex record into a `Splat`. Hot path; everything constant
+/// across the file (offsets, SH-degree, f_rest table) is resolved into
+/// `layout`/`sh_degree` before this is called.
+#[inline(always)]
+fn decode_row(
+    row: &[u8],
+    layout: &VertexLayout,
+    sh_degree: u8,
+    total_coeffs_per_channel: usize,
+) -> Splat {
+    let position = [
+        load_scalar(row, layout.pos[0]),
+        load_scalar(row, layout.pos[1]),
+        load_scalar(row, layout.pos[2]),
+    ];
+
+    // PLY rotation order is (w, x, y, z); IR is (x, y, z, w).
+    let rw = load_scalar(row, layout.rot[0]);
+    let rx = load_scalar(row, layout.rot[1]);
+    let ry = load_scalar(row, layout.rot[2]);
+    let rz = load_scalar(row, layout.rot[3]);
+    let rotation = normalize_quat([rx, ry, rz, rw]);
+
+    let scale = [
+        load_scalar(row, layout.scale[0]).exp(),
+        load_scalar(row, layout.scale[1]).exp(),
+        load_scalar(row, layout.scale[2]).exp(),
+    ];
+    let opacity = sigmoid(load_scalar(row, layout.opacity));
+
+    let dc = [
+        load_scalar(row, layout.dc[0]),
+        load_scalar(row, layout.dc[1]),
+        load_scalar(row, layout.dc[2]),
+    ];
+
+    let color = if layout.f_rest.is_empty() {
+        Color::Rgb(dc)
+    } else {
+        let mut coeffs = Vec::with_capacity(3 * total_coeffs_per_channel);
+        coeffs.extend_from_slice(&dc);
+        for loc in &layout.f_rest {
+            coeffs.push(load_scalar(row, *loc));
+        }
+        Color::Sh {
+            degree: sh_degree,
+            coeffs,
+        }
+    };
+
+    Splat {
+        position,
+        rotation,
+        scale,
+        opacity,
+        color,
+    }
+}
+
+/// Threshold above which we shard the body across the global rayon pool.
+/// Below this many splats, the thread-launch and join overhead dominates.
+const PARALLEL_THRESHOLD: usize = 256 * 1024;
+
+/// Fast binary-PLY decoder. Hoists all property-name lookups and per-scalar
+/// `Cursor` allocations out of the inner loop, then walks the body as a
+/// contiguous slice of vertex records. For large files (`> PARALLEL_THRESHOLD`
+/// splats) the work is sharded across the global rayon pool; ordering is
+/// preserved because each shard writes to a pre-sized slice owned by its
+/// chunk index.
 fn read_binary(bytes: &[u8], header: &Header, vertex_idx: usize) -> Result<Vec<Splat>, PlyError> {
     let vertex = &header.elements[vertex_idx];
-    // Compute byte stride per record.
-    let stride: usize = vertex.properties.iter().map(|p| p.ty.size()).sum();
+    let layout = VertexLayout::build(vertex)?;
+    let stride = layout.stride;
     let need = stride
         .checked_mul(vertex.count)
         .ok_or(PlyError::TruncatedPayload)?;
-    if bytes.len() < header.body_offset + need {
+    let body_end = header
+        .body_offset
+        .checked_add(need)
+        .ok_or(PlyError::TruncatedPayload)?;
+    if bytes.len() < body_end {
         return Err(PlyError::TruncatedPayload);
     }
-    // Collect f_rest indices in order.
-    let f_rest_indices: Vec<usize> = vertex
-        .properties
-        .iter()
-        .enumerate()
-        .filter_map(|(i, p)| p.name.strip_prefix("f_rest_").map(|_| i))
+    let body = &bytes[header.body_offset..body_end];
+
+    // SH degree resolution is constant across the file.
+    let rest_per_channel = layout.f_rest.len() / 3;
+    let total_coeffs_per_channel = rest_per_channel + 1;
+    let sh_degree: u8 = match total_coeffs_per_channel {
+        1 => 0,
+        4 => 1,
+        9 => 2,
+        16 => 3,
+        _ => 0,
+    };
+
+    let count = vertex.count;
+
+    if count < PARALLEL_THRESHOLD {
+        let mut splats: Vec<Splat> = Vec::with_capacity(count);
+        for i in 0..count {
+            let row_off = i * stride;
+            let row = &body[row_off..row_off + stride];
+            splats.push(decode_row(row, &layout, sh_degree, total_coeffs_per_channel));
+        }
+        return Ok(splats);
+    }
+
+    // Parallel decode preserving input order: write directly into a
+    // pre-allocated `Vec<Splat>` whose slots we partition by chunk.
+    use rayon::prelude::*;
+    // Aim for ~32 chunks per rayon thread so per-chunk variance evens out
+    // without paying the thread-launch overhead too many times.
+    let threads = rayon::current_num_threads().max(1);
+    let target_chunks = (threads * 32).max(1);
+    let chunk_rows = count.div_ceil(target_chunks).max(8 * 1024);
+
+    // We collect chunks in order via `flat_map`-style concatenation of
+    // per-chunk Vecs. `IndexedParallelIterator::collect_into_vec` would also
+    // work but allocates an intermediate; the per-chunk-Vec approach is
+    // simpler and reuses each chunk's contiguous capacity.
+    let chunks: Vec<Vec<Splat>> = (0..count)
+        .into_par_iter()
+        .step_by(chunk_rows)
+        .map(|start| {
+            let end = (start + chunk_rows).min(count);
+            let mut out = Vec::with_capacity(end - start);
+            for i in start..end {
+                let row_off = i * stride;
+                let row = &body[row_off..row_off + stride];
+                out.push(decode_row(row, &layout, sh_degree, total_coeffs_per_channel));
+            }
+            out
+        })
         .collect();
 
-    let mut splats = Vec::with_capacity(vertex.count);
-    let mut pos = header.body_offset;
-    for _ in 0..vertex.count {
-        let mut values: Vec<f32> = Vec::with_capacity(vertex.properties.len());
-        for prop in &vertex.properties {
-            values.push(read_scalar(bytes, &mut pos, prop.ty)?);
-        }
-        splats.push(build_splat(vertex, &values, &f_rest_indices));
+    let mut splats: Vec<Splat> = Vec::with_capacity(count);
+    for c in chunks {
+        splats.extend(c);
     }
     Ok(splats)
 }
@@ -372,9 +592,23 @@ fn build_splat(vertex: &Element, values: &[f32], f_rest_indices: &[usize]) -> Sp
 }
 
 /// Read a PLY file from `path`.
+///
+/// Uses `mmap` to avoid materialising a multi-gigabyte heap buffer on large
+/// files. For ASCII PLYs, the body is parsed lazily from the mapped slice.
+/// Falls back to a buffered read on platforms where `mmap` fails (e.g. some
+/// network filesystems).
 pub fn read_ply(path: &Path) -> Result<SplatScene, PlyError> {
-    let bytes = fs::read(path)?;
-    read_ply_bytes(&bytes)
+    let file = fs::File::open(path)?;
+    // Safety: we only read the mapping, never mutate, and the borrow ends
+    // before the returned `SplatScene` (which owns its own `Vec<Splat>`).
+    match unsafe { memmap2::Mmap::map(&file) } {
+        Ok(map) => read_ply_bytes(&map),
+        Err(_) => {
+            // Rare path — e.g. zero-length file or pipe. Fall back to a copy.
+            let bytes = fs::read(path)?;
+            read_ply_bytes(&bytes)
+        }
+    }
 }
 
 /// Read a PLY from an in-memory buffer.
