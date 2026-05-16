@@ -1493,8 +1493,8 @@
     "description": "Continuous-bench rollup of every (preset, scene) cell. Updated by .github/workflows/splatbench-v3.yml on every commit to main. `latestCells` is the best-passing value per cell under the ≤0.3 dB PSNR drop rule; `commits` is the rolling list of commits that produced at least one cell. Full per-commit timeseries lives in benches/timeseries/<commit>.json.",
     "latestCells": {
       "splatforge-qat-3dgs__bonsai_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:40.237680+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:25.479389+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "bonsai_mipnerf360_iter7k",
         "ok": true,
@@ -1508,8 +1508,8 @@
         "error": null
       },
       "fcgs-instant__bicycle_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:17.567807+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:48.487834+00:00",
         "preset": "fcgs-instant",
         "scene": "bicycle_mipnerf360_iter7k",
         "ok": true,
@@ -1523,8 +1523,8 @@
         "error": null
       },
       "fcgs-instant__bonsai_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:04.699163+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:06.045018+00:00",
         "preset": "fcgs-instant",
         "scene": "bonsai_mipnerf360_iter7k",
         "ok": true,
@@ -1538,8 +1538,8 @@
         "error": null
       },
       "fcgs-instant__counter_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:16.013710+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:59.823010+00:00",
         "preset": "fcgs-instant",
         "scene": "counter_mipnerf360_iter7k",
         "ok": true,
@@ -1553,8 +1553,8 @@
         "error": null
       },
       "fcgs-instant__flowers_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:16.264989+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:03.002552+00:00",
         "preset": "fcgs-instant",
         "scene": "flowers_mipnerf360_iter7k",
         "ok": true,
@@ -1568,8 +1568,8 @@
         "error": null
       },
       "fcgs-instant__garden_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:14.987197+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:57.406708+00:00",
         "preset": "fcgs-instant",
         "scene": "garden_mipnerf360_iter7k",
         "ok": true,
@@ -1583,8 +1583,8 @@
         "error": null
       },
       "fcgs-instant__kitchen_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:19.377474+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:57.123132+00:00",
         "preset": "fcgs-instant",
         "scene": "kitchen_mipnerf360_iter7k",
         "ok": true,
@@ -1598,8 +1598,8 @@
         "error": null
       },
       "fcgs-instant__room_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:19.109731+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:59.811641+00:00",
         "preset": "fcgs-instant",
         "scene": "room_mipnerf360_iter7k",
         "ok": true,
@@ -1613,8 +1613,8 @@
         "error": null
       },
       "fcgs-instant__stump_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:11.876072+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:55.987079+00:00",
         "preset": "fcgs-instant",
         "scene": "stump_mipnerf360_iter7k",
         "ok": true,
@@ -1628,8 +1628,8 @@
         "error": null
       },
       "fcgs-instant__tabuhan_p1_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:18.280306+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:05.127060+00:00",
         "preset": "fcgs-instant",
         "scene": "tabuhan_p1_sweet_corals",
         "ok": true,
@@ -1643,8 +1643,8 @@
         "error": null
       },
       "fcgs-instant__tabuhan_p2_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:21.184642+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:07.296874+00:00",
         "preset": "fcgs-instant",
         "scene": "tabuhan_p2_sweet_corals",
         "ok": true,
@@ -1658,8 +1658,8 @@
         "error": null
       },
       "fcgs-instant__tabuhan_p3_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:31.367824+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:08.900373+00:00",
         "preset": "fcgs-instant",
         "scene": "tabuhan_p3_sweet_corals",
         "ok": true,
@@ -1673,8 +1673,8 @@
         "error": null
       },
       "fcgs-instant__tnt_train": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:32.293566+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:15.555152+00:00",
         "preset": "fcgs-instant",
         "scene": "tnt_train",
         "ok": true,
@@ -1688,8 +1688,8 @@
         "error": null
       },
       "fcgs-instant__tnt_truck": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:29.585948+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:12.309805+00:00",
         "preset": "fcgs-instant",
         "scene": "tnt_truck",
         "ok": true,
@@ -1703,8 +1703,8 @@
         "error": null
       },
       "fcgs-instant__treehill_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:19.895300+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:04.673708+00:00",
         "preset": "fcgs-instant",
         "scene": "treehill_mipnerf360_iter7k",
         "ok": true,
@@ -1718,8 +1718,8 @@
         "error": null
       },
       "hacpp-lzma__bicycle_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:48.716635+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:29.290474+00:00",
         "preset": "hacpp-lzma",
         "scene": "bicycle_mipnerf360_iter7k",
         "ok": true,
@@ -1733,8 +1733,8 @@
         "error": null
       },
       "hacpp-lzma__bonsai_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:43.871504+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:28.297883+00:00",
         "preset": "hacpp-lzma",
         "scene": "bonsai_mipnerf360_iter7k",
         "ok": true,
@@ -1748,8 +1748,8 @@
         "error": null
       },
       "hacpp-lzma__counter_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:59.860891+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:41.323012+00:00",
         "preset": "hacpp-lzma",
         "scene": "counter_mipnerf360_iter7k",
         "ok": true,
@@ -1763,8 +1763,8 @@
         "error": null
       },
       "hacpp-lzma__flowers_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:57.122192+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:44.139019+00:00",
         "preset": "hacpp-lzma",
         "scene": "flowers_mipnerf360_iter7k",
         "ok": true,
@@ -1778,8 +1778,8 @@
         "error": null
       },
       "hacpp-lzma__garden_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:49.039554+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:29.682490+00:00",
         "preset": "hacpp-lzma",
         "scene": "garden_mipnerf360_iter7k",
         "ok": true,
@@ -1793,8 +1793,8 @@
         "error": null
       },
       "hacpp-lzma__kitchen_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:44.405836+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:30.859423+00:00",
         "preset": "hacpp-lzma",
         "scene": "kitchen_mipnerf360_iter7k",
         "ok": true,
@@ -1808,8 +1808,8 @@
         "error": null
       },
       "hacpp-lzma__room_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:46.876440+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:29.883440+00:00",
         "preset": "hacpp-lzma",
         "scene": "room_mipnerf360_iter7k",
         "ok": true,
@@ -1823,8 +1823,8 @@
         "error": null
       },
       "hacpp-lzma__stump_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:45.251772+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:27.872294+00:00",
         "preset": "hacpp-lzma",
         "scene": "stump_mipnerf360_iter7k",
         "ok": true,
@@ -1838,8 +1838,8 @@
         "error": null
       },
       "hacpp-lzma__tabuhan_p1_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:59.630632+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:42.936681+00:00",
         "preset": "hacpp-lzma",
         "scene": "tabuhan_p1_sweet_corals",
         "ok": true,
@@ -1853,8 +1853,8 @@
         "error": null
       },
       "hacpp-lzma__tabuhan_p2_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:00.690266+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:46.602872+00:00",
         "preset": "hacpp-lzma",
         "scene": "tabuhan_p2_sweet_corals",
         "ok": true,
@@ -1868,8 +1868,8 @@
         "error": null
       },
       "hacpp-lzma__tabuhan_p3_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:01.043304+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:48.436861+00:00",
         "preset": "hacpp-lzma",
         "scene": "tabuhan_p3_sweet_corals",
         "ok": true,
@@ -1883,8 +1883,8 @@
         "error": null
       },
       "hacpp-lzma__tnt_train": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:03.727693+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:45.263260+00:00",
         "preset": "hacpp-lzma",
         "scene": "tnt_train",
         "ok": true,
@@ -1898,8 +1898,8 @@
         "error": null
       },
       "hacpp-lzma__tnt_truck": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:02.317059+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:47.337601+00:00",
         "preset": "hacpp-lzma",
         "scene": "tnt_truck",
         "ok": true,
@@ -1913,8 +1913,8 @@
         "error": null
       },
       "hacpp-lzma__treehill_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:59.666784+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:41.225019+00:00",
         "preset": "hacpp-lzma",
         "scene": "treehill_mipnerf360_iter7k",
         "ok": true,
@@ -1928,8 +1928,8 @@
         "error": null
       },
       "size-min__bicycle_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:33.301568+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:13.715626+00:00",
         "preset": "size-min",
         "scene": "bicycle_mipnerf360_iter7k",
         "ok": true,
@@ -1943,8 +1943,8 @@
         "error": null
       },
       "size-min__bonsai_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:33.787521+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:14.447328+00:00",
         "preset": "size-min",
         "scene": "bonsai_mipnerf360_iter7k",
         "ok": true,
@@ -1958,8 +1958,8 @@
         "error": null
       },
       "size-min__counter_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:39.610785+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:27.519462+00:00",
         "preset": "size-min",
         "scene": "counter_mipnerf360_iter7k",
         "ok": true,
@@ -1973,8 +1973,8 @@
         "error": null
       },
       "size-min__flowers_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:44.888844+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:24.832779+00:00",
         "preset": "size-min",
         "scene": "flowers_mipnerf360_iter7k",
         "ok": true,
@@ -1988,8 +1988,8 @@
         "error": null
       },
       "size-min__garden_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:34.166623+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:21.741777+00:00",
         "preset": "size-min",
         "scene": "garden_mipnerf360_iter7k",
         "ok": true,
@@ -2003,8 +2003,8 @@
         "error": null
       },
       "size-min__kitchen_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:42.387557+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:21.908936+00:00",
         "preset": "size-min",
         "scene": "kitchen_mipnerf360_iter7k",
         "ok": true,
@@ -2018,8 +2018,8 @@
         "error": null
       },
       "size-min__room_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:36.690857+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:24.041820+00:00",
         "preset": "size-min",
         "scene": "room_mipnerf360_iter7k",
         "ok": true,
@@ -2033,8 +2033,8 @@
         "error": null
       },
       "size-min__stump_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:33.710869+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:19.752324+00:00",
         "preset": "size-min",
         "scene": "stump_mipnerf360_iter7k",
         "ok": true,
@@ -2048,8 +2048,8 @@
         "error": null
       },
       "size-min__tabuhan_p1_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:47.959792+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:28.494491+00:00",
         "preset": "size-min",
         "scene": "tabuhan_p1_sweet_corals",
         "ok": true,
@@ -2063,8 +2063,8 @@
         "error": null
       },
       "size-min__tabuhan_p2_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:49.760319+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:36.416203+00:00",
         "preset": "size-min",
         "scene": "tabuhan_p2_sweet_corals",
         "ok": true,
@@ -2078,8 +2078,8 @@
         "error": null
       },
       "size-min__tabuhan_p3_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:51.019177+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:33.497036+00:00",
         "preset": "size-min",
         "scene": "tabuhan_p3_sweet_corals",
         "ok": true,
@@ -2093,8 +2093,8 @@
         "error": null
       },
       "size-min__tnt_train": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:52.767029+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:36.872467+00:00",
         "preset": "size-min",
         "scene": "tnt_train",
         "ok": true,
@@ -2108,8 +2108,8 @@
         "error": null
       },
       "size-min__tnt_truck": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:48.333472+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:37.264515+00:00",
         "preset": "size-min",
         "scene": "tnt_truck",
         "ok": true,
@@ -2123,8 +2123,8 @@
         "error": null
       },
       "size-min__treehill_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:49.589793+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:25.462650+00:00",
         "preset": "size-min",
         "scene": "treehill_mipnerf360_iter7k",
         "ok": true,
@@ -2138,8 +2138,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__bicycle_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:43.969018+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:26.036494+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "bicycle_mipnerf360_iter7k",
         "ok": true,
@@ -2153,8 +2153,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__counter_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:54.722094+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:32.554711+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "counter_mipnerf360_iter7k",
         "ok": true,
@@ -2168,8 +2168,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__flowers_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:57.173166+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:35.571627+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "flowers_mipnerf360_iter7k",
         "ok": true,
@@ -2183,8 +2183,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__garden_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:48.149674+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:27.496850+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "garden_mipnerf360_iter7k",
         "ok": true,
@@ -2198,8 +2198,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__kitchen_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:44.797159+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:32.463762+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "kitchen_mipnerf360_iter7k",
         "ok": true,
@@ -2213,8 +2213,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__room_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:45.882373+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:31.091336+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "room_mipnerf360_iter7k",
         "ok": true,
@@ -2228,8 +2228,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__stump_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:42.116862+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:26.888326+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "stump_mipnerf360_iter7k",
         "ok": true,
@@ -2243,8 +2243,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__tabuhan_p1_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:54.806466+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:40.619509+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "tabuhan_p1_sweet_corals",
         "ok": true,
@@ -2258,8 +2258,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__tabuhan_p2_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:54.974914+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:45.184916+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "tabuhan_p2_sweet_corals",
         "ok": true,
@@ -2273,8 +2273,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__tabuhan_p3_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:56.989459+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:40.776642+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "tabuhan_p3_sweet_corals",
         "ok": true,
@@ -2288,8 +2288,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__tnt_train": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:58:01.451443+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:41.378240+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "tnt_train",
         "ok": true,
@@ -2303,8 +2303,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__tnt_truck": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:58.358652+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:43.856764+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "tnt_truck",
         "ok": true,
@@ -2318,8 +2318,8 @@
         "error": null
       },
       "splatforge-qat-3dgs__treehill_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:51.946448+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:42.371775+00:00",
         "preset": "splatforge-qat-3dgs",
         "scene": "treehill_mipnerf360_iter7k",
         "ok": true,
@@ -2333,8 +2333,8 @@
         "error": null
       },
       "splatforge-qat-bundle__bicycle_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:23.001192+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:59.834735+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "bicycle_mipnerf360_iter7k",
         "ok": true,
@@ -2348,8 +2348,8 @@
         "error": null
       },
       "splatforge-qat-bundle__bonsai_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:19.329588+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:58.729039+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "bonsai_mipnerf360_iter7k",
         "ok": true,
@@ -2363,8 +2363,8 @@
         "error": null
       },
       "splatforge-qat-bundle__counter_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:26.362680+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:09.103041+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "counter_mipnerf360_iter7k",
         "ok": true,
@@ -2378,8 +2378,8 @@
         "error": null
       },
       "splatforge-qat-bundle__flowers_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:26.992908+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:10.791913+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "flowers_mipnerf360_iter7k",
         "ok": true,
@@ -2393,8 +2393,8 @@
         "error": null
       },
       "splatforge-qat-bundle__garden_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:23.991274+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:13.616404+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "garden_mipnerf360_iter7k",
         "ok": true,
@@ -2408,8 +2408,8 @@
         "error": null
       },
       "splatforge-qat-bundle__kitchen_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:24.262174+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:11.061985+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "kitchen_mipnerf360_iter7k",
         "ok": true,
@@ -2423,8 +2423,8 @@
         "error": null
       },
       "splatforge-qat-bundle__room_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:27.106024+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:11.069830+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "room_mipnerf360_iter7k",
         "ok": true,
@@ -2438,8 +2438,8 @@
         "error": null
       },
       "splatforge-qat-bundle__stump_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:22.556154+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:09.523823+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "stump_mipnerf360_iter7k",
         "ok": true,
@@ -2453,8 +2453,8 @@
         "error": null
       },
       "splatforge-qat-bundle__tabuhan_p1_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:32.865384+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:16.487605+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "tabuhan_p1_sweet_corals",
         "ok": true,
@@ -2468,8 +2468,8 @@
         "error": null
       },
       "splatforge-qat-bundle__tabuhan_p2_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:35.590074+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:12.699099+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "tabuhan_p2_sweet_corals",
         "ok": true,
@@ -2483,8 +2483,8 @@
         "error": null
       },
       "splatforge-qat-bundle__tabuhan_p3_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:38.143520+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:21.040685+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "tabuhan_p3_sweet_corals",
         "ok": true,
@@ -2498,8 +2498,8 @@
         "error": null
       },
       "splatforge-qat-bundle__tnt_train": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:38.569227+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:26.313155+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "tnt_train",
         "ok": true,
@@ -2513,8 +2513,8 @@
         "error": null
       },
       "splatforge-qat-bundle__tnt_truck": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:39.381687+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:24.309679+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "tnt_truck",
         "ok": true,
@@ -2528,8 +2528,8 @@
         "error": null
       },
       "splatforge-qat-bundle__treehill_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:29.966382+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:15.008926+00:00",
         "preset": "splatforge-qat-bundle",
         "scene": "treehill_mipnerf360_iter7k",
         "ok": true,
@@ -2543,8 +2543,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__bicycle_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:55.980002+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:39.714611+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "bicycle_mipnerf360_iter7k",
         "ok": true,
@@ -2558,8 +2558,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__bonsai_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:55.245381+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:35.867418+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "bonsai_mipnerf360_iter7k",
         "ok": true,
@@ -2573,8 +2573,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__counter_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:05.550992+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:53.854791+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "counter_mipnerf360_iter7k",
         "ok": true,
@@ -2588,8 +2588,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__flowers_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:08.044082+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:56.832450+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "flowers_mipnerf360_iter7k",
         "ok": true,
@@ -2603,8 +2603,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__garden_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:58.545544+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:43.055633+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "garden_mipnerf360_iter7k",
         "ok": true,
@@ -2618,8 +2618,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__kitchen_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:02.313310+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:44.580667+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "kitchen_mipnerf360_iter7k",
         "ok": true,
@@ -2633,8 +2633,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__room_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:15.854589+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:42.229972+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "room_mipnerf360_iter7k",
         "ok": true,
@@ -2648,8 +2648,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__stump_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:56:59.841760+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:40.284625+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "stump_mipnerf360_iter7k",
         "ok": true,
@@ -2663,8 +2663,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__tabuhan_p1_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:08.535381+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:55.187834+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "tabuhan_p1_sweet_corals",
         "ok": true,
@@ -2678,8 +2678,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__tabuhan_p2_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:13.360979+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:52.001607+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "tabuhan_p2_sweet_corals",
         "ok": true,
@@ -2693,8 +2693,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__tabuhan_p3_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:13.003181+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:54.540795+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "tabuhan_p3_sweet_corals",
         "ok": true,
@@ -2708,8 +2708,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__tnt_train": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:12.934041+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:49:05.847345+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "tnt_train",
         "ok": true,
@@ -2723,8 +2723,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__tnt_truck": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:11.379698+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:54.970568+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "tnt_truck",
         "ok": true,
@@ -2738,8 +2738,8 @@
         "error": null
       },
       "splatforge-qat-scaffold__treehill_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:57:08.022228+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:48:53.515626+00:00",
         "preset": "splatforge-qat-scaffold",
         "scene": "treehill_mipnerf360_iter7k",
         "ok": true,
@@ -2753,8 +2753,8 @@
         "error": null
       },
       "web-mobile__bicycle_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:27.906772+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:08.926133+00:00",
         "preset": "web-mobile",
         "scene": "bicycle_mipnerf360_iter7k",
         "ok": true,
@@ -2768,8 +2768,8 @@
         "error": null
       },
       "web-mobile__bonsai_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:27.542030+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:09.855866+00:00",
         "preset": "web-mobile",
         "scene": "bonsai_mipnerf360_iter7k",
         "ok": true,
@@ -2783,8 +2783,8 @@
         "error": null
       },
       "web-mobile__counter_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:27.907726+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:08.701608+00:00",
         "preset": "web-mobile",
         "scene": "counter_mipnerf360_iter7k",
         "ok": true,
@@ -2798,8 +2798,8 @@
         "error": null
       },
       "web-mobile__flowers_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:30.458979+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:06.382173+00:00",
         "preset": "web-mobile",
         "scene": "flowers_mipnerf360_iter7k",
         "ok": true,
@@ -2813,8 +2813,8 @@
         "error": null
       },
       "web-mobile__garden_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:27.304788+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:07.036884+00:00",
         "preset": "web-mobile",
         "scene": "garden_mipnerf360_iter7k",
         "ok": true,
@@ -2828,8 +2828,8 @@
         "error": null
       },
       "web-mobile__kitchen_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:29.829514+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:06.239259+00:00",
         "preset": "web-mobile",
         "scene": "kitchen_mipnerf360_iter7k",
         "ok": true,
@@ -2843,8 +2843,8 @@
         "error": null
       },
       "web-mobile__room_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:30.771215+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:07.073667+00:00",
         "preset": "web-mobile",
         "scene": "room_mipnerf360_iter7k",
         "ok": true,
@@ -2858,8 +2858,8 @@
         "error": null
       },
       "web-mobile__stump_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:30.046011+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:06.856486+00:00",
         "preset": "web-mobile",
         "scene": "stump_mipnerf360_iter7k",
         "ok": true,
@@ -2873,8 +2873,8 @@
         "error": null
       },
       "web-mobile__tabuhan_p1_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:29.973461+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:05.682623+00:00",
         "preset": "web-mobile",
         "scene": "tabuhan_p1_sweet_corals",
         "ok": true,
@@ -2888,8 +2888,8 @@
         "error": null
       },
       "web-mobile__tabuhan_p2_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:41.712010+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:27.577284+00:00",
         "preset": "web-mobile",
         "scene": "tabuhan_p2_sweet_corals",
         "ok": true,
@@ -2903,8 +2903,8 @@
         "error": null
       },
       "web-mobile__tabuhan_p3_sweet_corals": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:41.963748+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:28.683789+00:00",
         "preset": "web-mobile",
         "scene": "tabuhan_p3_sweet_corals",
         "ok": true,
@@ -2918,8 +2918,8 @@
         "error": null
       },
       "web-mobile__tnt_train": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:55.542376+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:25.629509+00:00",
         "preset": "web-mobile",
         "scene": "tnt_train",
         "ok": true,
@@ -2933,8 +2933,8 @@
         "error": null
       },
       "web-mobile__tnt_truck": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:44.799039+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:33.720256+00:00",
         "preset": "web-mobile",
         "scene": "tnt_truck",
         "ok": true,
@@ -2948,8 +2948,8 @@
         "error": null
       },
       "web-mobile__treehill_mipnerf360_iter7k": {
-        "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-        "timestamp": "2026-05-16T15:55:30.012495+00:00",
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:47:07.160096+00:00",
         "preset": "web-mobile",
         "scene": "treehill_mipnerf360_iter7k",
         "ok": true,
@@ -2963,8 +2963,8 @@
         "error": null
       }
     },
-    "lastCommit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
-    "lastCommitAt": "2026-05-16T15:58:15.832Z",
+    "lastCommit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+    "lastCommitAt": "2026-05-16T16:50:01.903Z",
     "commits": [
       {
         "commit": "e7d554e",
@@ -3004,6 +3004,13 @@
       {
         "commit": "5edd258d35770fb133e2a6665a2856d05b463d7c",
         "timestamp": "2026-05-16T15:58:15.832Z",
+        "cellCount": 98,
+        "passCount": 98,
+        "rejectedCount": 0
+      },
+      {
+        "commit": "fb6a1b61b53a7aa279534536e1e12d29e2808520",
+        "timestamp": "2026-05-16T16:50:01.903Z",
         "cellCount": 98,
         "passCount": 98,
         "rejectedCount": 0
