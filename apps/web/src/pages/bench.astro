@@ -37,7 +37,18 @@ const splatTransformSceneCount = encoders.scenes.filter(
 // Comparison-column candidates that competitors / community can fill in.
 // We commit ourselves to running each whenever the encoder is install-able
 // and produces a glTF/SPZ/PLY-style artifact we can score against.
+const qatAgg = splatbench.aggregates.qatScaffoldGs;
 const otherEncoders = [
+  {
+    name: "qat-scaffold-gs",
+    org: "SplatForge",
+    license: "Apache-2.0",
+    status: "shipped",
+    note: qatAgg
+      ? `Scaffold-GS-PLY QAT codec. ${qatAgg.aggregateSavePct.toFixed(1)}% aggregate PLY save with PSNR gain on every scene tested (${qatAgg.scenesImproved}/${qatAgg.scenesTotal}); ΔPSNR range ${qatAgg.psnrDeltaDbMin >= 0 ? "+" : ""}${qatAgg.psnrDeltaDbMin.toFixed(3)} dB to ${qatAgg.psnrDeltaDbMax >= 0 ? "+" : ""}${qatAgg.psnrDeltaDbMax.toFixed(3)} dB.`
+      : "Scaffold-GS-PLY QAT codec. Lossless re-quantization with PSNR gain.",
+    url: "https://github.com/montabano1/SplatForge/tree/main/benches/encoders/qat-scaffold-gs",
+  },
   {
     name: "splat-transform",
     org: "PlayCanvas / Snap",

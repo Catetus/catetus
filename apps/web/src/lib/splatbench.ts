@@ -66,6 +66,32 @@ export interface SplatBenchScene {
     psnrOpacityPruneDb: number;
     psnrDeltaDb: number;
   };
+  /** Optional — when set to "scaffold-gs", the scene is a Scaffold-GS
+   *  trained PLY scored only by the qat-scaffold-gs column. The
+   *  SPZ-pipeline ratio/fidelity columns are hidden on these rows because
+   *  the QAT codec operates on PLY (not SPZ) against training-time eval
+   *  cameras (not the orbit-8 ΔE94 fidelity setup). */
+  kind?: "scaffold-gs";
+  /** Optional — populated for Scaffold-GS PLYs that went through the
+   *  qat-scaffold-gs codec. Same scene's FP32 baseline vs QAT'd output,
+   *  measured on the source training-time eval cameras. */
+  qatScaffoldGs?: {
+    version: string;
+    srcPlyBytes: number;
+    afterBytes: number;
+    /** 1 - (afterBytes / srcPlyBytes); save fraction of the PLY. */
+    plySaveFraction: number;
+    baselinePsnrDb: number;
+    qatPsnrDb: number;
+    psnrDeltaDb: number;
+    baselineSsim: number;
+    qatSsim: number;
+    ssimDelta: number;
+    baselineLpips: number;
+    qatLpips: number;
+    lpipsDelta: number;
+    verdict: "SHIP" | "HOLD" | "FAIL";
+  };
 }
 
 export interface SplatBenchAggregates {
@@ -86,6 +112,16 @@ export interface SplatBenchAggregates {
   sizeMinRatioMax: number;
   fidelityWebMobilePass?: number;
   fidelitySizeMinPass?: number;
+  /** Optional — aggregate stats for the qat-scaffold-gs column. */
+  qatScaffoldGs?: {
+    scenesTotal: number;
+    scenesImproved: number;
+    aggregateSavePct: number;
+    psnrDeltaDbMin: number;
+    psnrDeltaDbMedian: number;
+    psnrDeltaDbMax: number;
+    psnrDeltaDbMean: number;
+  };
 }
 
 export interface SplatBenchReport {
@@ -208,7 +244,7 @@ export interface EncoderReport {
 }
 
 import encoderReport from "../data/splatbench-v0.encoders.json" with { type: "json" };
-export const encoders: EncoderReport = encoderReport as EncoderReport;
+export const encoders: EncoderReport = encoderReport as unknown as EncoderReport;
 
 /** Lookup a third-party encoder's result for a scene, by canonical id. */
 export function encoderRunFor(
@@ -232,4 +268,14 @@ export function encoderMedianRatio(encoder: string): number {
   if (ratios.length === 0) return Number.NaN;
   const m = ratios.length;
   return m % 2 ? ratios[(m - 1) / 2] : (ratios[m / 2 - 1] + ratios[m / 2]) / 2;
+}
+
+/** True if any scene carries qat-scaffold-gs codec results. */
+export function hasAnyQat(scenes: SplatBenchScene[]): boolean {
+  return scenes.some((s) => !!s.qatScaffoldGs);
+}
+
+/** True for rows that are Scaffold-GS-only (SPZ columns should render "-"). */
+export function isScaffoldGsRow(scene: SplatBenchScene): boolean {
+  return scene.kind === "scaffold-gs";
 }
