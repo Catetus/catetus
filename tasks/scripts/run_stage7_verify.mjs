@@ -87,10 +87,21 @@ const args = process.platform === 'darwin'
   ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=metal']
   : ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-vulkan=swiftshader'];
 
-const browser = await chromium.launch({
-  headless: true,
+// Prefer the system Chrome on Windows — bundled Chromium with
+// --use-vulkan=swiftshader returns no WebGPU adapter on the 4090 host
+// (crbug.com/369219127). System Chrome uses native Vulkan / DX.
+const useSystemChrome = process.platform === 'win32' || process.env.CHANNEL === 'chrome';
+const launchOpts = {
+  headless: process.env.HEADLESS === '0' ? false : true,
   args: [...args, '--ignore-gpu-blocklist', '--no-sandbox'],
-});
+};
+if (useSystemChrome) {
+  launchOpts.channel = 'chrome';
+  // Drop the swiftshader override so Chrome uses the real GPU driver.
+  launchOpts.args = launchOpts.args.filter((a) => a !== '--use-vulkan=swiftshader');
+}
+console.log('[playwright] launching ' + (useSystemChrome ? 'system Chrome' : 'bundled Chromium') + ' headless=' + launchOpts.headless);
+const browser = await chromium.launch(launchOpts);
 
 const result = { level: LEVEL, port: PORT, errors: [] };
 try {
