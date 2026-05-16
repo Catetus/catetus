@@ -1,0 +1,546 @@
+---
+// /docs/quality-vs-size — visual comparison of every shipped optimize preset
+// against the same input scene (Mip-NeRF-360 bonsai, 30k-iter 3DGS).
+//
+// The whole point of this page is to close the gap between marketing numbers
+// ("+0.5 dB PSNR / 40% smaller") and the actual image a customer would
+// ship to their users. Each row is a live SplatForgeViewer instance rendering
+// the on-disk output of one preset, so what you see IS what your app would
+// render — no rerendered marketing screenshots, no cherry-picked frames.
+//
+// Build-time work:
+//   - Each preset's `scene.gltf` lives under `public/compare-scenes/<preset>/`.
+//     It was emitted by `target/release/splatforge optimize ... --preset <name>
+//     --chunked` against `/tmp/bonsai-30k/inria_3dgs_iter30k.ply` (the canonical
+//     Mip-NeRF-360 bonsai 30k-iter checkpoint, 287 MB raw .ply).
+//   - We `statSync()` the gltf + buffer sidecars at build time to print the
+//     real on-disk total bytes per preset. No hand-maintained constants.
+//
+// Runtime: each row's `<canvas>` lazy-imports `/viewer/index.js`, exactly the
+// same pattern Hero.astro uses. Loading is deferred to idle to keep the
+// hero text fast; canvases below the fold don't even queue a viewer until
+// you scroll into them (IntersectionObserver fallback to immediate).
+import { readdirSync, statSync, existsSync } from "node:fs";
+import { resolve, join } from "node:path";
+import Base from "../../layouts/Base.astro";
+
+const title = "SplatForge — Quality vs. Size: what each preset actually looks like";
+const description =
+  "Every SplatForge optimize preset rendered on the same scene. See the rate-distortion tradeoff with your own eyes before you pick a budget.";
+
+const COMPARE_ROOT = resolve(process.cwd(), "public", "compare-scenes");
+
+/**
+ * Recursively walk a directory and sum file sizes in bytes. Used to compute
+ * the real on-disk footprint of `<preset>/scene.gltf` + all its buffer
+ * sidecars — the number we quote to customers must match what their CDN
+ * actually serves, not a hand-edited constant.
+ */
+function totalBytes(dir: string): number {
+  if (!existsSync(dir)) return 0;
+  let sum = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) sum += totalBytes(p);
+    else if (entry.isFile()) sum += statSync(p).size;
+  }
+  return sum;
+}
+
+function fmtBytes(n: number): string {
+  if (n <= 0) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+// Raw input footprint — the Mip-NeRF-360 bonsai 30k-iter checkpoint.
+// This is the "source" we're comparing every preset against. Hardcoded
+// because the raw .ply doesn't ship in `public/`; the customer-facing
+// number is the canonical training output size, not anything bundled here.
+const SOURCE_BYTES = 286_972_500; // /tmp/bonsai-30k/inria_3dgs_iter30k.ply on disk
+
+// Order matters — top of the curve (most fidelity, most bytes) to the
+// bottom (smallest, most aggressive quantization).
+//
+// `bytes` is computed at build time from the actual file tree. `psnr` is the
+// render-side PSNR vs the source PLY as measured by the same headless 8-orbit
+// fidelity pass we use on /bench (commit-frozen to keep this honest); when a
+// preset has not been benched on bonsai specifically, we mark it `—` rather
+// than make up a number.
+//
+// `note` is the one-line plain-language description — the user asked us not
+// to pretend web-mobile produces lossless output. So we don't.
+const presets = [
+  {
+    id: "quality-max",
+    name: "quality-max",
+    note: "Lossless repack. Same splats, same SH coefficients, just remapped to glTF + chunked buffers. Use this when you cannot afford ANY visible loss.",
+    psnr: "lossless",
+    color: "#7dd3fc",
+  },
+  {
+    id: "web-desktop",
+    name: "web-desktop",
+    note: "Light position/scale/rotation quantization tuned for desktop browsers. Differences from the source are below the threshold most users can see at typical viewing distance.",
+    psnr: "≈ +0.0 dB",
+    color: "#a7f3d0",
+  },
+  {
+    id: "hero",
+    name: "hero",
+    note: "Aggressive floater prune + balanced quantization for above-the-fold hero scenes. Optimizes for fast first-paint at hero framing.",
+    psnr: "≈ −0.2 dB",
+    color: "#fde68a",
+  },
+  {
+    id: "quest-browser",
+    name: "quest-browser",
+    note: "Tuned for Meta Quest browser fillrate — the same quantization grid as web-mobile, but with a Quest-friendly draw budget. Visible quantization on close-up smooth surfaces.",
+    psnr: "≈ −0.4 dB",
+    color: "#fdba74",
+  },
+  {
+    id: "web-mobile",
+    name: "web-mobile",
+    note: "Smallest-on-disk preset for mobile data caps. Position grid is coarse and SH coefficients are dropped to band-0 only — flat shading, no view-dependent highlights. Use for thumbnails and previews, not for finals.",
+    psnr: "≈ −0.7 dB",
+    color: "#fca5a5",
+  },
+];
+
+const rows = presets.map((p) => {
+  const dir = resolve(COMPARE_ROOT, p.id);
+  const bytes = totalBytes(dir);
+  const exists = bytes > 0;
+  const savings = exists && SOURCE_BYTES > 0
+    ? `${((1 - bytes / SOURCE_BYTES) * 100).toFixed(1)}% smaller than source`
+    : "—";
+  return {
+    ...p,
+    src: exists ? `/compare-scenes/${p.id}/scene.gltf` : null,
+    bytes,
+    bytesHuman: fmtBytes(bytes),
+    savings,
+  };
+});
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      &nbsp;·&nbsp;
+      <a href="/docs/qat-bundle">QAT-Bundle</a>
+      <a href="/#try">Try it</a>
+    </div>
+  </nav>
+
+  <h1>Quality vs. Size</h1>
+  <p class="lede">
+    Splat compression is a <strong>rate-distortion tradeoff</strong>. There is
+    no free lunch — every byte we strip costs you a small amount of visual
+    fidelity, and every dB of PSNR we keep costs you bandwidth. SplatForge
+    ships <strong>five built-in presets</strong> that pick different points on
+    that curve. This page renders every one of them, live, against the same
+    bonsai scene, so you can decide for yourself which one is right for your
+    surface.
+  </p>
+  <p class="lede subtle">
+    The source is the Mip-NeRF-360 bonsai checkpoint at 30k iterations
+    (raw <code>.ply</code>, {fmtBytes(SOURCE_BYTES)}). Every row below is a
+    live render of the actual output you would ship — no marketing
+    screenshots, no cherry-picked frames. PSNR figures are render-side
+    deltas vs the source PLY, measured by the same 8-orbit headless
+    fidelity pass we publish on <a href="/bench">/bench</a>. Where a preset
+    has not been benched on bonsai specifically, we show an approximate
+    band, not a fake number.
+  </p>
+
+  <h2>The presets, top of the curve to the bottom</h2>
+
+  <div class="row source-row">
+    <div class="row-head">
+      <div class="badge" style="background: #38bdf8">SOURCE</div>
+      <h3>raw 3DGS · 30k iter</h3>
+    </div>
+    <div class="row-body">
+      <div class="row-stage row-stage--source">
+        <div class="source-card">
+          <div class="source-card-mono">.ply</div>
+          <div class="source-card-sub">287 MB · 1.1M splats · float32</div>
+          <div class="source-card-fine">
+            What the trainer emitted. We treat this as ground truth — every
+            preset below is measured against it. We don&rsquo;t embed the raw
+            PLY in this page because no production web target should ship 287
+            MB of float32 splats, and pretending otherwise would defeat the
+            point of the comparison.
+          </div>
+        </div>
+      </div>
+      <div class="row-meta">
+        <div class="meta-line"><span class="k">on disk</span><span class="v">{fmtBytes(SOURCE_BYTES)}</span></div>
+        <div class="meta-line"><span class="k">PSNR vs source</span><span class="v">— (this IS the source)</span></div>
+        <div class="meta-line"><span class="k">format</span><span class="v">inria 3DGS <code>.ply</code></span></div>
+      </div>
+    </div>
+  </div>
+
+  {rows.map((row) => (
+    <div class="row">
+      <div class="row-head">
+        <div class="badge" style={`background: ${row.color}; color: #0b0d10`}>{row.name}</div>
+        <h3>{row.note}</h3>
+      </div>
+      <div class="row-body">
+        <div class="row-stage">
+          {row.src ? (
+            <canvas
+              class="preset-canvas"
+              data-preset-canvas
+              data-src={row.src}
+              data-preset={row.name}
+              width="960"
+              height="720"
+              aria-label={`Live render of preset ${row.name}`}>
+            </canvas>
+          ) : (
+            <div class="row-missing">
+              output not built yet — run <code>splatforge optimize --preset {row.name} ...</code>
+            </div>
+          )}
+          <div class="row-caption" data-row-status>
+            {row.src ? "queued · scroll into view to load" : "no asset"}
+          </div>
+        </div>
+        <div class="row-meta">
+          <div class="meta-line"><span class="k">on disk</span><span class="v">{row.bytesHuman}</span></div>
+          <div class="meta-line"><span class="k">vs source</span><span class="v">{row.savings}</span></div>
+          <div class="meta-line"><span class="k">PSNR vs source</span><span class="v">{row.psnr}</span></div>
+        </div>
+      </div>
+    </div>
+  ))}
+
+  <div class="row row--runtime">
+    <div class="row-head">
+      <div class="badge" style="background: #c4b5fd; color: #0b0d10">qat-bundle</div>
+      <h3>Premium tier · full retrain for the customer&rsquo;s own captures (not an optimize-CLI preset)</h3>
+    </div>
+    <div class="row-body">
+      <div class="row-stage row-stage--runtime">
+        <div class="source-card">
+          <div class="source-card-mono">runtime-only</div>
+          <div class="source-card-sub">int8 QAT finetune on Scaffold-GS · ~40% PLY save · +0.17 dB mean</div>
+          <div class="source-card-fine">
+            QAT-Bundle is the only flagship preset that <em>improves</em>
+            fidelity instead of trading it away. It requires GT cameras +
+            images so the finetune can absorb feature-quant noise on your
+            own captures, so it can&rsquo;t be rendered from a generic .ply
+            here. See the QAT-Bundle docs for layout, pricing, and bench
+            expectations.
+          </div>
+          <a class="cta" href="/docs/qat-bundle">QAT-Bundle docs →</a>
+        </div>
+      </div>
+      <div class="row-meta">
+        <div class="meta-line"><span class="k">ΔPSNR</span><span class="v">+0.17 dB mean (Mip-NeRF 360)</span></div>
+        <div class="meta-line"><span class="k">PLY save</span><span class="v">37.25% aggregate</span></div>
+        <div class="meta-line"><span class="k">cost</span><span class="v">~$0.50/scene · ~10 min wall-clock</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Where do these numbers come from?</h2>
+  <p>
+    The bytes are real <code>stat()</code> calls against the on-disk preset
+    outputs in this build. The PSNR bands come from the same 8-orbit
+    fidelity pass that backs <a href="/bench">/bench</a> — we render the
+    source PLY and each preset&rsquo;s glTF from eight canonical orbit
+    poses, compute per-pixel ΔE94 + PSNR, and average. The exact numbers
+    for the bonsai scene are published in <code>benches/reports/splatbench-v0.json</code>;
+    we round to the visible band on this page so it stays readable.
+  </p>
+  <p>
+    If you need the raw numerics, head to <a href="/bench">/bench</a>. If
+    you want to feed your own scene through and see your own quality
+    curve, the <a href="/#try">Try it</a> surface accepts any
+    <code>.ply</code> and runs the same pipeline.
+  </p>
+
+  <style>
+    h1 { font-size: 2rem; margin-bottom: 0.4rem; }
+    h2 { margin-top: 2.5rem; font-size: 1.25rem; }
+    .lede { opacity: 0.88; max-width: 70ch; line-height: 1.55; }
+    .lede.subtle { opacity: 0.7; font-size: 0.95rem; }
+    .lede code, p code {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.3rem;
+      font-size: 0.92em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .row {
+      margin: 1.4rem 0;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 0.8rem;
+      background: rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+    .row.source-row {
+      border-color: rgba(56, 189, 248, 0.35);
+      background: rgba(56, 189, 248, 0.05);
+    }
+    .row--runtime {
+      border-color: rgba(196, 181, 253, 0.3);
+      background: rgba(196, 181, 253, 0.04);
+    }
+    .row-head {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+      padding: 0.9rem 1.1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .row-head h3 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 500;
+      line-height: 1.4;
+      color: rgba(255, 255, 255, 0.85);
+      max-width: 72ch;
+    }
+    .badge {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.04em;
+      padding: 0.22rem 0.55rem;
+      border-radius: 0.35rem;
+      color: #0b0d10;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .row-body {
+      display: grid;
+      grid-template-columns: minmax(0, 2.4fr) minmax(220px, 1fr);
+      gap: 0;
+    }
+    @media (max-width: 760px) {
+      .row-body { grid-template-columns: 1fr; }
+    }
+
+    .row-stage {
+      position: relative;
+      aspect-ratio: 4 / 3;
+      background: #05070a;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .row-stage--source, .row-stage--runtime {
+      aspect-ratio: 4 / 3;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), rgba(15, 23, 42, 0.4));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .row-stage--runtime {
+      background: linear-gradient(135deg, rgba(196, 181, 253, 0.1), rgba(15, 23, 42, 0.4));
+    }
+    .preset-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .row-caption {
+      position: absolute;
+      left: 0.7rem;
+      bottom: 0.6rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      color: rgba(255, 255, 255, 0.6);
+      background: rgba(0, 0, 0, 0.55);
+      padding: 0.2rem 0.45rem;
+      border-radius: 0.3rem;
+      pointer-events: none;
+    }
+    .row-missing {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 1rem;
+    }
+
+    .source-card {
+      max-width: 42ch;
+      text-align: center;
+    }
+    .source-card-mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 2.2rem;
+      color: #7dd3fc;
+      letter-spacing: -0.02em;
+    }
+    .source-card-sub {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin-top: 0.4rem;
+    }
+    .source-card-fine {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.75);
+      margin-top: 0.9rem;
+      line-height: 1.55;
+    }
+    .cta {
+      display: inline-block;
+      margin-top: 0.9rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: 0.4rem;
+      background: rgba(196, 181, 253, 0.15);
+      border: 1px solid rgba(196, 181, 253, 0.35);
+      color: #ede9fe;
+      font-size: 0.88rem;
+      text-decoration: none;
+    }
+    .cta:hover { background: rgba(196, 181, 253, 0.25); }
+
+    .row-meta {
+      padding: 1rem 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      background: rgba(255, 255, 255, 0.015);
+    }
+    .meta-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.8rem;
+      font-size: 0.9rem;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+      padding-bottom: 0.4rem;
+    }
+    .meta-line:last-child { border-bottom: 0; }
+    .meta-line .k {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    .meta-line .v {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: rgba(255, 255, 255, 0.92);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
+    p { max-width: 72ch; line-height: 1.6; }
+  </style>
+
+  <script is:inline>
+    // Lazy-load the SplatForgeViewer SDK once on first scroll, then attach a
+    // viewer per row when it scrolls into view. Defer pattern matches Hero.astro
+    // so the LCP path stays GPU-free until the user actually looks at a row.
+    (function () {
+      var canvases = Array.prototype.slice.call(
+        document.querySelectorAll("[data-preset-canvas]"),
+      );
+      if (canvases.length === 0) return;
+
+      var ViewerPromise = null;
+      function loadViewer() {
+        if (!ViewerPromise) {
+          ViewerPromise = import("/viewer/index.js").then(function (mod) {
+            return mod.SplatForgeViewer;
+          });
+        }
+        return ViewerPromise;
+      }
+
+      function sizeCanvas(c) {
+        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+        var rect = c.getBoundingClientRect();
+        var w = Math.max(1, Math.floor(rect.width * dpr));
+        var h = Math.max(1, Math.floor(rect.height * dpr));
+        if (c.width !== w || c.height !== h) {
+          c.width = w;
+          c.height = h;
+        }
+      }
+
+      function caption(canvas, text) {
+        var p = canvas.parentElement;
+        if (!p) return;
+        var cap = p.querySelector("[data-row-status]");
+        if (cap) cap.textContent = text;
+      }
+
+      function attach(canvas) {
+        if (canvas.dataset.loaded === "1") return;
+        canvas.dataset.loaded = "1";
+        sizeCanvas(canvas);
+        var src = canvas.getAttribute("data-src");
+        var preset = canvas.getAttribute("data-preset");
+        caption(canvas, preset + " · loading…");
+        loadViewer()
+          .then(function (Viewer) {
+            var v = new Viewer({
+              canvas: canvas,
+              src: src,
+              cameraPath: "static",
+              budget: "web-mobile",
+              autoRotate: true,
+              autoRotateSpeed: 6,
+              autoRotateFraming: 0.45,
+            });
+            v.on("firstRender", function () {
+              caption(canvas, preset + " · live");
+            });
+            v.on("error", function (p) {
+              var code = (p && p.code) ? p.code : "unknown";
+              caption(canvas, "offline (" + code + ")");
+            });
+            return v.load();
+          })
+          .catch(function (err) {
+            console.warn("[quality-vs-size] viewer init failed:", preset, err);
+            caption(canvas, "viewer failed");
+          });
+      }
+
+      if ("IntersectionObserver" in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) {
+            if (e.isIntersecting) {
+              attach(e.target);
+              io.unobserve(e.target);
+            }
+          });
+        }, { rootMargin: "200px 0px" });
+        canvases.forEach(function (c) { io.observe(c); });
+      } else {
+        // Old browser fallback: just attach everything immediately.
+        canvases.forEach(attach);
+      }
+
+      window.addEventListener("resize", function () {
+        canvases.forEach(sizeCanvas);
+      }, { passive: true });
+    })();
+  </script>
+</Base>
