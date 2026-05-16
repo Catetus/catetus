@@ -1,0 +1,188 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const title = "SplatForge — Hosted Neural preset";
+const description =
+  "On-demand per-scene neural codec. Fits a tiny hash-grid hyperprior to your scene on an A100 and returns encoded bytes. ~120 s per scene, ~$0.13. Best ROI on outdoor scenes (7-8x / +8 dB).";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="/#try" aria-current="page">Try it</a>
+    </div>
+  </nav>
+
+  <h1>Hosted Neural preset</h1>
+  <p class="lede">
+    The <code>hosted-neural</code> preset fits a tiny hash-grid hyperprior to
+    your scene on an A100 at request time and returns the encoded artifact.
+    There is no shared trained model — every invocation runs a per-scene
+    optimization, which is why outdoor scenes (where the scene-class statistics
+    are heavier-tailed) win the biggest compression at the highest fidelity.
+  </p>
+
+  <h2>What it does</h2>
+  <p>
+    For each scene the encoder:
+  </p>
+  <ol>
+    <li>
+      Parses the source 3DGS PLY and the supplied cameras + photos.
+    </li>
+    <li>
+      Trains a 4-level voxel-hash position encoder feeding a 64-hidden MLP
+      that predicts a discrete-logistic <code>(μ, σ)</code> per quantized
+      splat-attribute scalar (means / scales / quats / opacity / SH).
+    </li>
+    <li>
+      Co-tunes the splat parameters against the source photos under the
+      joint <code>mse + λ·bits + λ·opacity</code> loss, with an adaptive
+      <code>λ_bits</code> targeting a chosen byte budget.
+    </li>
+    <li>
+      Returns a <code>.tar</code> containing the encoded PLY, the
+      per-scene hyperprior weights (<code>hyperprior.safetensors</code>),
+      and a summary with the achieved compression ratio + ΔPSNR.
+    </li>
+  </ol>
+
+  <h2>When to use it</h2>
+  <ul>
+    <li>
+      <strong>Any scene where ~120 s of encode-time is acceptable.</strong>
+      The preset works on any scene class; outdoor captures (bicycle,
+      garden, stump) just happen to benefit the most because the v0.2
+      opacity-prune baseline leaves a lot of dB on the table there.
+    </li>
+    <li>
+      <strong>Best ROI on outdoor.</strong> Bicycle outdoor lands at
+      ~7.5× compression with +8 dB ΔPSNR vs the opacity-prune baseline.
+      Indoor scenes (bonsai, kitchen) hit ~3-5× at +1 dB.
+    </li>
+    <li>
+      <strong>You want the bytes today, decoder later.</strong> The
+      Rust-side decoder is a separate task; the artifact ships the
+      encoded PLY + per-scene weights so you can store the bitstream
+      now and decode in a future release without re-encoding.
+    </li>
+  </ul>
+
+  <h2>Cost model</h2>
+  <p>
+    Cost is dominated by the A100 training pass. A typical bicycle-scale
+    scene (~855 MB Inria PLY) runs <strong>~120 s on A100</strong> and
+    bills at roughly <strong>$0.13/scene</strong> through the SplatForge
+    rate card (PER_COMPUTE_SECOND_CENTS = $0.001/sec + $0.01 flat).
+    Smaller indoor scenes land lower; the per-MB slope is small because
+    the iteration budget dominates wall-clock.
+  </p>
+
+  <h2>Validated numbers (N=3 multi-seed, bicycle outdoor)</h2>
+  <p>
+    Per <a href="/#bench">Principle 2 (render-PSNR + N=3 multi-seed)</a>,
+    every codec rung's headline claim is N=3 multi-seed on real-photo
+    corpus. Bicycle outdoor at <code>target_neural_ratio = 0.05</code>,
+    1000 iterations, 512 px supervision:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Seed</th>
+        <th>Compression ratio</th>
+        <th>ΔPSNR (dB)</th>
+        <th>Splats out</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>7.54×</td><td>+8.385</td><td>1,808,054</td></tr>
+      <tr><td>1</td><td>8.08×</td><td>+8.550</td><td>1,808,054</td></tr>
+      <tr><td>2</td><td>7.21×</td><td>+8.253</td><td>1,808,054</td></tr>
+      <tr>
+        <td><strong>Median</strong></td>
+        <td><strong>7.54×</strong></td>
+        <td><strong>+8.39</strong></td>
+        <td>1,808,054</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="footnote">
+    Source: <code>apps/diff-repack/results-neural-m3-final.json</code> on
+    the private <code>research/neural-codec-v0.1-m3</code> branch
+    (commit <code>aaadf09</code>, 2026-05-15). The endpoint serving the
+    customer-facing preset uses the same encoder source — endpoint-side
+    re-runs of seed 0 match the source-code seed-0 cell within rounding.
+  </p>
+
+  <h2>Indoor numbers</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Scene</th>
+        <th>target_neural_ratio</th>
+        <th>N</th>
+        <th>Median ratio</th>
+        <th>Median ΔPSNR</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>bonsai (indoor)</td><td>0.10</td><td>2</td><td>3.39×</td><td>+0.97</td></tr>
+      <tr><td>bonsai (indoor)</td><td>0.05</td><td>3</td><td>4.35×</td><td>+1.06</td></tr>
+      <tr><td>bonsai (indoor)</td><td>0.02</td><td>3</td><td>4.63×</td><td>+1.03</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Input shapes</h2>
+  <p>
+    The neural fit needs the source photos because it co-tunes the splat
+    parameters against re-renders. Two ways to invoke:
+  </p>
+  <ol>
+    <li>
+      <strong>Bundle mode (<code>.tar</code> / <code>.tar.gz</code> /
+      <code>.tgz</code>).</strong>
+      The archive must contain <code>point_cloud.ply</code>,
+      <code>cameras.json</code> (HF-schema camera array), and an
+      <code>images/</code> directory with one source photo per camera.
+    </li>
+    <li>
+      <strong>Registered Mip-NeRF 360 scene.</strong> Pass the scene
+      name (<code>bicycle</code>, <code>garden</code>,
+      <code>stump</code>, <code>bonsai</code>, <code>kitchen</code>,
+      <code>room</code>, <code>treehill</code>, <code>flowers</code>,
+      <code>counter</code>) as the <code>filename</code> field. The
+      endpoint pulls cameras + photos from the standard HuggingFace +
+      Google Research mirrors. This is the path used by the SplatForge
+      M3 validation harness.
+    </li>
+  </ol>
+
+  <h2>Anti-claims</h2>
+  <ul>
+    <li>
+      <strong>Not an "outdoor preset".</strong> The encoder works on any
+      scene; outdoor is just where the dB-headroom is largest. The
+      product framing is "per-scene service that lands biggest on
+      outdoor", not "outdoor codec".
+    </li>
+    <li>
+      <strong>Not a shared trained model.</strong> Every request fits
+      from scratch. There is nothing transferable; you pay for
+      per-scene compute every time.
+    </li>
+    <li>
+      <strong>50× headline missed.</strong> The internal M3 stretch
+      target was 50× lossless median. The shipped numbers are 4-8× at
+      meaningful +ΔPSNR — kept in the customer picker because that's
+      still best-of-class when scene-specific fitting cost is
+      acceptable.
+    </li>
+  </ul>
+</Base>

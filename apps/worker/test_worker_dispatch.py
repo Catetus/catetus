@@ -97,9 +97,16 @@ def _install_modal_stub() -> None:
 
     modal.Image = _Image  # type: ignore[attr-defined]
     modal.Volume = _Volume  # type: ignore[attr-defined]
+    def _asgi_app(*_a, **_kw):
+        def _decorator(fn):
+            return fn
+
+        return _decorator
+
     modal.Secret = _Secret  # type: ignore[attr-defined]
     modal.App = _App  # type: ignore[attr-defined]
     modal.fastapi_endpoint = _fastapi_endpoint  # type: ignore[attr-defined]
+    modal.asgi_app = _asgi_app  # type: ignore[attr-defined]
     sys.modules["modal"] = modal
 
 
@@ -115,6 +122,7 @@ class WorkerDispatchTests(unittest.TestCase):
             "SPLATFORGE_FCGS_URL",
             "SPLATFORGE_CAPTURE_URL",
             "SPLATFORGE_HACPP_LZMA_URL",
+            "SPLATFORGE_HOSTED_NEURAL_URL",
         ):
             os.environ.pop(key, None)
         # Drop cached module so module-level `PRESET_DISPATCH_URLS`
@@ -469,6 +477,9 @@ class WorkerDispatchTests(unittest.TestCase):
         a future refactor doesn't silently break the deploy check."""
         os.environ["SPLATFORGE_FCGS_URL"] = "https://configured/"
         os.environ["SPLATFORGE_HACPP_LZMA_URL"] = "https://configured-hacpp/"
+        os.environ["SPLATFORGE_HOSTED_NEURAL_URL"] = (
+            "https://configured-hosted-neural/"
+        )
         worker = self._import_worker()
         body = worker.healthz()
         self.assertIn("preset_dispatch_configured", body)
@@ -483,6 +494,68 @@ class WorkerDispatchTests(unittest.TestCase):
         # hacpp-lzma joined the dispatch table 2026-05-15. Same flag
         # contract: True when SPLATFORGE_HACPP_LZMA_URL is plumbed.
         self.assertTrue(flags["hacpp-lzma"])
+        # hosted-neural joined the dispatch table 2026-05-15 (Bet 1 M3
+        # productization). Per-scene A100 fit at request time; same flag
+        # contract as the other presets.
+        self.assertTrue(flags["hosted-neural"])
+
+    def test_hosted_neural_without_url_returns_clear_error(self) -> None:
+        """`hosted-neural` is the per-scene A100 codec from Bet 1 / M3.
+        Until SPLATFORGE_HOSTED_NEURAL_URL is set, the worker MUST surface
+        a synchronous error naming the env var — same configured-gap
+        contract as the other forwarded presets."""
+        worker = self._import_worker()
+        ack = worker.enqueue(
+            {
+                "job_id": "00000000-0000-0000-0000-00000000000n",
+                "preset": "hosted-neural",
+                "blob_url": "https://blob.example/bicycle-bundle.tar",
+                "callback_url": "https://api.example/v1/jobs/n/result",
+                "filename": "bicycle-bundle.tar",
+            }
+        )
+        self.assertFalse(ack["queued"])
+        self.assertIsNotNone(ack["error"])
+        self.assertIn("hosted-neural", ack["error"])
+        self.assertIn("SPLATFORGE_HOSTED_NEURAL_URL", ack["error"])
+
+    def test_hosted_neural_forwards_to_configured_url(self) -> None:
+        """Happy path for the hosted-neural dispatch: the bundle URL +
+        callback are forwarded verbatim. The encoder app stages the
+        bundle (or pulls a registered Mip-NeRF 360 scene if `filename`
+        names one), runs the ~120 s per-scene neural fit on an A100,
+        and POSTs the terminal result directly to the API."""
+        os.environ["SPLATFORGE_HOSTED_NEURAL_URL"] = (
+            "https://example--splatforge-hosted-neural-enqueue.modal.run"
+        )
+        worker = self._import_worker()
+
+        fake_response = mock.MagicMock()
+        fake_response.status_code = 200
+        fake_response.json.return_value = {"queued": True, "error": None}
+        with mock.patch("requests.post", return_value=fake_response) as post:
+            ack = worker.enqueue(
+                {
+                    "job_id": "00000000-0000-0000-0000-00000000000n",
+                    "preset": "hosted-neural",
+                    "blob_url": "https://blob.example/bicycle-bundle.tar",
+                    "callback_url": "https://api.example/v1/jobs/n/result",
+                    "filename": "bicycle-bundle.tar",
+                }
+            )
+        self.assertTrue(ack["queued"])
+        self.assertIsNone(ack["error"])
+        post.assert_called_once()
+        self.assertEqual(
+            post.call_args.args[0],
+            "https://example--splatforge-hosted-neural-enqueue.modal.run",
+        )
+        body = post.call_args.kwargs["json"]
+        self.assertEqual(body["preset"], "hosted-neural")
+        self.assertEqual(body["filename"], "bicycle-bundle.tar")
+        self.assertEqual(
+            body["callback_url"], "https://api.example/v1/jobs/n/result"
+        )
 
 
 if __name__ == "__main__":

@@ -96,6 +96,17 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // bounded by the 1000-iter cap.
         // Anchor: bicycle 855 MB → ~75 s at 1000 iters on A100.
         "hosted-neural-outdoor" => (12.0, 0.090),
+        // hosted-neural — productized version of the per-scene neural
+        // codec (M3 ship). Same encoder as hosted-neural-outdoor but
+        // exposed as a customer-facing preset routed through the
+        // private `splatforge-hosted-neural` Modal app. The encoder is
+        // per-scene fit at request time (no shared trained model), so
+        // wall-clock is dominated by the 1000-iter A100 training pass.
+        // Cost band: ~$0.13/scene on bicycle-sized inputs, ~$0.05 on
+        // smaller indoor scenes. Validated N=3 on aaadf09: bicycle
+        // outdoor 7.54× / +8.39 dB ΔPSNR (seed-0 7.54x, seed-1 8.08x,
+        // seed-2 7.21x). See research/neural-codec-v0.1-m3 branch.
+        "hosted-neural" => (120.0, 0.13),
         // MesonGS++ — REMOVED as customer-facing preset 2026-05-15 (task
         // #141). Render-PSNR gate failed by 13-20 dB on bonsai / bicycle:
         // K=256 K-means quantization of the scale group (d=3, 1.1M+
@@ -729,6 +740,42 @@ mod tests {
         assert!(
             typical.estimated_compute_seconds > fallback.estimated_compute_seconds * 10,
             "capture-and-compress must be its own (much heavier) curve, not web-mobile"
+        );
+    }
+
+    #[test]
+    fn hosted_neural_has_dedicated_curve_in_expected_band() {
+        // hosted-neural is the productized per-scene neural codec
+        // (Bet 1 / M3 ship). The compute curve MUST (a) be registered
+        // (not the web-mobile fallback) and (b) land a typical
+        // 100-855 MB scene in the $0.10-$0.30 band that the Modal A100
+        // per-scene-fit anchor targets.
+        let bonsai = preview_job_cost(274 * 1024 * 1024, "hosted-neural", 0);
+        // 274 MB bonsai: 120 + 0.13*274 = 155.62s → ceil 156s → $0.157
+        assert!(
+            bonsai.estimated_compute_seconds >= 120
+                && bonsai.estimated_compute_seconds <= 250,
+            "hosted-neural bonsai (274 MB) drifted: {}s",
+            bonsai.estimated_compute_seconds
+        );
+        // Confirm it's a registered curve, not the fallback (web-mobile
+        // at 274 MB lands at 4 + 0.13*274 ≈ 40s, which would make the
+        // hosted-neural quote silently collapse to ~$0.05 if the entry
+        // got dropped during a refactor).
+        let fallback = preview_job_cost(274 * 1024 * 1024, "web-mobile", 0);
+        assert!(
+            bonsai.estimated_compute_seconds > fallback.estimated_compute_seconds * 3,
+            "hosted-neural must dominate web-mobile on wall-clock at 274 MB"
+        );
+        // Bicycle anchor ~$0.13: 855 MB bicycle → 120 + 0.13*855 = 231 s
+        // → $0.231 + $0.01 flat. Allow a $0.10-$0.30 band so any future
+        // tune of the per-MB slope or base stays within Modal A100
+        // pass-through reality.
+        let bicycle = preview_job_cost(855 * 1024 * 1024, "hosted-neural", 0);
+        let dollars = bicycle.estimated_cost_usd;
+        assert!(
+            dollars >= 0.10 && dollars <= 0.40,
+            "hosted-neural bicycle quote band drifted: ${dollars}"
         );
     }
 

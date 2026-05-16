@@ -81,6 +81,13 @@ PRESET_DISPATCH_URLS = {
     # ~$0.30-$0.60 / scene. Same /enqueue contract; private Modal app
     # POSTs terminal result directly to the API's callback_url.
     "hacpp-lzma": os.environ.get("SPLATFORGE_HACPP_LZMA_URL"),
+    # On-demand per-scene neural codec. Bicycle outdoor 7.54× / +8.39 dB
+    # ΔPSNR validated N=3 on aaadf09 (research/neural-codec-v0.1-m3).
+    # ~120 s encode + ~$0.13 A100-time per scene. The per-scene fit
+    # needs supervision images, so the encoder app accepts either a
+    # bundle (point_cloud.ply + cameras.json + images/) or a registered
+    # Mip-NeRF 360 scene name in `filename`. Same /enqueue contract.
+    "hosted-neural": os.environ.get("SPLATFORGE_HOSTED_NEURAL_URL"),
 }
 
 image = (
@@ -104,6 +111,17 @@ image = (
     )
     .pip_install("requests==2.32.3", "fastapi[standard]==0.115.6")
 )
+
+
+# Modal workspace caps web functions at 8 across all deployed apps. With
+# 5 splatforge presets (codec-gs-mixed + fcgs + hacpp-lzma + hosted-neural
+# + this worker) and the personal linecall-machine app, separate
+# `enqueue` + `healthz` endpoints push us over. We collapse the worker's
+# two HTTP routes into a single ASGI app so both routes share one web
+# function slot. The URLs the API + operators consume stay the same shape
+# (`<base>/enqueue`, `<base>/healthz`) — only the hostname collapses to
+# one `--worker.modal.run` host.
+WORKER_ASGI_LABEL = "worker"
 
 
 app = modal.App("splatforge-worker", image=image)
@@ -535,29 +553,6 @@ def _post_phase(
 # ------------------------------------------------------------- web endpoints
 
 
-@app.function(
-    image=image,
-    cpu=0.25,
-    secrets=[
-        # Injects every SPLATFORGE_*_URL the dispatch table consumes so
-        # the module-level PRESET_DISPATCH_URLS dict picks them up at
-        # container cold start. Without this secret attached the dict
-        # values are None and the worker returns the configured-gap
-        # error instead of forwarding to the private apps. Keys must
-        # match the SPLATFORGE_HACPP_LZMA_URL / etc. entries in the
-        # `splatforge-preset-urls` Modal secret — bump alongside any
-        # additions to PRESET_DISPATCH_URLS above.
-        modal.Secret.from_name(
-            "splatforge-preset-urls",
-            required_keys=[
-                "SPLATFORGE_CODEC_GS_MIXED_URL",
-                "SPLATFORGE_FCGS_URL",
-                "SPLATFORGE_HACPP_LZMA_URL",
-            ],
-        )
-    ],
-)
-@modal.fastapi_endpoint(method="POST", label="enqueue")
 def enqueue(payload: dict) -> dict:
     """Accept a job descriptor from the API and spawn ``run_optimize``.
 
@@ -617,6 +612,7 @@ def _expected_env_var_for_preset(preset: str) -> str:
         "fcgs-instant": "SPLATFORGE_FCGS_URL",
         "capture-and-compress": "SPLATFORGE_CAPTURE_URL",
         "hacpp-lzma": "SPLATFORGE_HACPP_LZMA_URL",
+        "hosted-neural": "SPLATFORGE_HOSTED_NEURAL_URL",
     }
     return mapping.get(preset, "SPLATFORGE_<PRESET>_URL")
 
@@ -673,25 +669,6 @@ def _forward_to_preset_app(target_url: str, payload: dict) -> dict:
     }
 
 
-@app.function(
-    image=image,
-    cpu=0.25,
-    secrets=[
-        # healthz reports `preset_dispatch_configured`, which is derived
-        # from PRESET_DISPATCH_URLS — same secret injection is required
-        # here for the bool flags to be accurate post-deploy. Keep this
-        # required_keys list aligned with the enqueue handler above.
-        modal.Secret.from_name(
-            "splatforge-preset-urls",
-            required_keys=[
-                "SPLATFORGE_CODEC_GS_MIXED_URL",
-                "SPLATFORGE_FCGS_URL",
-                "SPLATFORGE_HACPP_LZMA_URL",
-            ],
-        )
-    ],
-)
-@modal.fastapi_endpoint(method="GET", label="healthz")
 def healthz() -> dict:
     return {
         "ok": True,
@@ -705,3 +682,43 @@ def healthz() -> dict:
             name: bool(url) for name, url in PRESET_DISPATCH_URLS.items()
         },
     }
+
+
+# Single ASGI app fronting both routes — collapses two `fastapi_endpoint`
+# decorators into one Modal web function so the workspace stays under the
+# 8 web-function cap. See WORKER_ASGI_LABEL above for the rationale.
+@app.function(
+    image=image,
+    cpu=0.25,
+    secrets=[
+        # Same secret injection both routes consumed before; PRESET_DISPATCH_URLS
+        # is built at module load from these env vars, so the secret has to be
+        # attached to the function that serves both routes. Keep required_keys
+        # aligned with PRESET_DISPATCH_URLS above (and the analogous list in
+        # the dispatch-table tests).
+        modal.Secret.from_name(
+            "splatforge-preset-urls",
+            required_keys=[
+                "SPLATFORGE_CODEC_GS_MIXED_URL",
+                "SPLATFORGE_FCGS_URL",
+                "SPLATFORGE_HACPP_LZMA_URL",
+                "SPLATFORGE_HOSTED_NEURAL_URL",
+            ],
+        )
+    ],
+)
+@modal.asgi_app(label=WORKER_ASGI_LABEL)
+def web_app():
+    from fastapi import FastAPI  # noqa: PLC0415
+
+    api = FastAPI(title="splatforge-worker")
+
+    @api.post("/enqueue")
+    def _enqueue(payload: dict) -> dict:
+        return enqueue(payload)
+
+    @api.get("/healthz")
+    def _healthz() -> dict:
+        return healthz()
+
+    return api
