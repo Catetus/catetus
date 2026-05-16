@@ -73,6 +73,14 @@ PRESET_DISPATCH_URLS = {
     # terminal `{status, output_url}` back to the API's callback_url
     # directly. URL plumbed at deploy time once the private app exists.
     "capture-and-compress": os.environ.get("SPLATFORGE_CAPTURE_URL"),
+    # HAC++ Phase A + lzma passthrough. Scaffold-GS anchor-feature
+    # entropy coder validated 2026-05-15: 129.95 MB Scaffold-GS native
+    # → 24.21 MB .hacpp container on bonsai (-0.178 dB render-PSNR
+    # delta), 11.5× lossless on Inria 3DGS PLY passthrough. Encoder
+    # runs on A100 with a 5000-iter hyperprior train pass; budgeted at
+    # ~$0.30-$0.60 / scene. Same /enqueue contract; private Modal app
+    # POSTs terminal result directly to the API's callback_url.
+    "hacpp-lzma": os.environ.get("SPLATFORGE_HACPP_LZMA_URL"),
 }
 
 image = (
@@ -531,16 +539,20 @@ def _post_phase(
     image=image,
     cpu=0.25,
     secrets=[
-        # Injects SPLATFORGE_CODEC_GS_MIXED_URL + SPLATFORGE_FCGS_URL so
+        # Injects every SPLATFORGE_*_URL the dispatch table consumes so
         # the module-level PRESET_DISPATCH_URLS dict picks them up at
         # container cold start. Without this secret attached the dict
         # values are None and the worker returns the configured-gap
-        # error instead of forwarding to the private apps.
+        # error instead of forwarding to the private apps. Keys must
+        # match the SPLATFORGE_HACPP_LZMA_URL / etc. entries in the
+        # `splatforge-preset-urls` Modal secret — bump alongside any
+        # additions to PRESET_DISPATCH_URLS above.
         modal.Secret.from_name(
             "splatforge-preset-urls",
             required_keys=[
                 "SPLATFORGE_CODEC_GS_MIXED_URL",
                 "SPLATFORGE_FCGS_URL",
+                "SPLATFORGE_HACPP_LZMA_URL",
             ],
         )
     ],
@@ -604,6 +616,7 @@ def _expected_env_var_for_preset(preset: str) -> str:
         "codec-gs-mixed-k5": "SPLATFORGE_CODEC_GS_MIXED_URL",
         "fcgs-instant": "SPLATFORGE_FCGS_URL",
         "capture-and-compress": "SPLATFORGE_CAPTURE_URL",
+        "hacpp-lzma": "SPLATFORGE_HACPP_LZMA_URL",
     }
     return mapping.get(preset, "SPLATFORGE_<PRESET>_URL")
 
@@ -666,12 +679,14 @@ def _forward_to_preset_app(target_url: str, payload: dict) -> dict:
     secrets=[
         # healthz reports `preset_dispatch_configured`, which is derived
         # from PRESET_DISPATCH_URLS — same secret injection is required
-        # here for the bool flags to be accurate post-deploy.
+        # here for the bool flags to be accurate post-deploy. Keep this
+        # required_keys list aligned with the enqueue handler above.
         modal.Secret.from_name(
             "splatforge-preset-urls",
             required_keys=[
                 "SPLATFORGE_CODEC_GS_MIXED_URL",
                 "SPLATFORGE_FCGS_URL",
+                "SPLATFORGE_HACPP_LZMA_URL",
             ],
         )
     ],

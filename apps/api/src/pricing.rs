@@ -145,6 +145,18 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // set regardless of file size on disk.
         // Anchor: bicycle 855 MB → ~95 s end-to-end on A100.
         "fcgs-instant" => (90.0, 0.005),
+        // HAC++ Phase A + lzma passthrough — anchor-feature entropy
+        // coder for Scaffold-GS scenes, BUILT 2026-05-15. The GPU
+        // hyperprior train pass is the only expensive step (~5-10 min
+        // A100 on bonsai, 5000 iters); lzma compression of the offset/
+        // scale/rot/opacity streams is CPU-cheap (<5 s per scene). The
+        // per-MB slope is small because input PLY size doesn't track
+        // anchor count linearly — Scaffold-GS bundles trim to ~130 MB
+        // even for bicycle-scale scenes.
+        // Anchor: bonsai 130 MB Scaffold-GS bundle → 24.21 MB .hacpp
+        // container at -0.178 dB render-PSNR vs Scaffold baseline.
+        // Lossless-ish on Inria 3DGS PLY passthrough (11.5× lossless).
+        "hacpp-lzma" => (2.5, 0.025),
         // capture-and-compress — photos.zip → COLMAP → 3DGS training →
         // compression. The full "no PLY required" pipeline. This is the
         // single preset that closes the loop vs Polycam/Luma — buyers
@@ -642,6 +654,42 @@ mod tests {
         assert!(
             bicycle.estimated_compute_seconds < stacked.estimated_compute_seconds,
             "fcgs-instant should be cheaper than codec-gs-stacked on bicycle"
+        );
+    }
+
+    #[test]
+    fn hacpp_lzma_has_dedicated_curve_cheaper_than_codec_gs_mixed() {
+        // hacpp-lzma is the HAC++ Phase A + lzma anchor-feature codec for
+        // Scaffold-GS scenes. The GPU hyperprior pass dominates wall-clock
+        // (~5-10 min A100); lzma stream compression is CPU-cheap. The
+        // entry MUST (a) be registered (not the web-mobile fallback) and
+        // (b) cost less per MB than codec-gs-mixed since the codec is
+        // CPU-only post-train.
+        let bonsai = preview_job_cost(130 * 1024 * 1024, "hacpp-lzma", 0);
+        // 130 MB Scaffold bundle: base 2.5s + 0.025 * 130 = 5.75s → ceil 6s.
+        assert!(
+            bonsai.estimated_compute_seconds >= 3
+                && bonsai.estimated_compute_seconds <= 15,
+            "hacpp-lzma bonsai (130 MB) quote drifted: {}s",
+            bonsai.estimated_compute_seconds
+        );
+        // Confirm it's a registered curve, not the fallback. The fallback
+        // (web-mobile) would charge 4 + 0.13 * 130 = ~21 s for the same
+        // size, so a registered hacpp-lzma curve must land strictly under.
+        let fallback = preview_job_cost(130 * 1024 * 1024, "web-mobile", 0);
+        assert!(
+            bonsai.estimated_compute_seconds < fallback.estimated_compute_seconds,
+            "hacpp-lzma must be cheaper than web-mobile fallback at 130 MB"
+        );
+        // Cheaper per-MB than codec-gs-mixed (which carries the
+        // codec-gs-stacked 0.118 s/MB curve). Sanity check on a big
+        // scene where the per-MB term dominates.
+        let hacpp_big = preview_job_cost(855 * 1024 * 1024, "hacpp-lzma", 0);
+        let mixed_big = preview_job_cost(855 * 1024 * 1024, "codec-gs-mixed", 0);
+        assert!(
+            hacpp_big.estimated_compute_seconds
+                < mixed_big.estimated_compute_seconds,
+            "hacpp-lzma should be cheaper than codec-gs-mixed at 855 MB"
         );
     }
 

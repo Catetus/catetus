@@ -114,6 +114,7 @@ class WorkerDispatchTests(unittest.TestCase):
             "SPLATFORGE_CODEC_GS_MIXED_URL",
             "SPLATFORGE_FCGS_URL",
             "SPLATFORGE_CAPTURE_URL",
+            "SPLATFORGE_HACPP_LZMA_URL",
         ):
             os.environ.pop(key, None)
         # Drop cached module so module-level `PRESET_DISPATCH_URLS`
@@ -404,11 +405,70 @@ class WorkerDispatchTests(unittest.TestCase):
             post.call_args.kwargs["json"]["preset"], "codec-gs-mixed-k5"
         )
 
+    def test_hacpp_lzma_without_url_returns_clear_error(self) -> None:
+        """`hacpp-lzma` is the HAC++ Phase A + lzma anchor-feature codec
+        for Scaffold-GS scenes. Until SPLATFORGE_HACPP_LZMA_URL is set,
+        the worker MUST surface a synchronous error naming the env var —
+        same configured-gap contract as the other forwarded presets."""
+        worker = self._import_worker()
+        ack = worker.enqueue(
+            {
+                "job_id": "00000000-0000-0000-0000-00000000000h",
+                "preset": "hacpp-lzma",
+                "blob_url": "https://blob.example/scaffold-bundle.tar",
+                "callback_url": "https://api.example/v1/jobs/h/result",
+                "filename": "scaffold-bundle.tar",
+            }
+        )
+        self.assertFalse(ack["queued"])
+        self.assertIsNotNone(ack["error"])
+        self.assertIn("hacpp-lzma", ack["error"])
+        self.assertIn("SPLATFORGE_HACPP_LZMA_URL", ack["error"])
+
+    def test_hacpp_lzma_forwards_to_configured_url(self) -> None:
+        """Happy path for the hacpp-lzma dispatch: the Scaffold-GS bundle
+        URL + callback are forwarded verbatim. The encoder app extracts
+        the tarball, runs HAC++ Phase A encode, and POSTs the terminal
+        result directly to the API — the public worker stays out of the
+        data path."""
+        os.environ["SPLATFORGE_HACPP_LZMA_URL"] = (
+            "https://example--splatforge-hacpp-lzma-enqueue.modal.run"
+        )
+        worker = self._import_worker()
+
+        fake_response = mock.MagicMock()
+        fake_response.status_code = 200
+        fake_response.json.return_value = {"queued": True, "error": None}
+        with mock.patch("requests.post", return_value=fake_response) as post:
+            ack = worker.enqueue(
+                {
+                    "job_id": "00000000-0000-0000-0000-00000000000a",
+                    "preset": "hacpp-lzma",
+                    "blob_url": "https://blob.example/bonsai-scaffold.tar",
+                    "callback_url": "https://api.example/v1/jobs/h/result",
+                    "filename": "bonsai-scaffold.tar",
+                }
+            )
+        self.assertTrue(ack["queued"])
+        self.assertIsNone(ack["error"])
+        post.assert_called_once()
+        self.assertEqual(
+            post.call_args.args[0],
+            "https://example--splatforge-hacpp-lzma-enqueue.modal.run",
+        )
+        body = post.call_args.kwargs["json"]
+        self.assertEqual(body["preset"], "hacpp-lzma")
+        self.assertEqual(body["filename"], "bonsai-scaffold.tar")
+        self.assertEqual(
+            body["callback_url"], "https://api.example/v1/jobs/h/result"
+        )
+
     def test_healthz_reports_dispatch_table(self) -> None:
         """Operators rely on `healthz` to confirm which preset endpoints
         are wired on a given deploy. Verify the bool-per-preset shape so
         a future refactor doesn't silently break the deploy check."""
         os.environ["SPLATFORGE_FCGS_URL"] = "https://configured/"
+        os.environ["SPLATFORGE_HACPP_LZMA_URL"] = "https://configured-hacpp/"
         worker = self._import_worker()
         body = worker.healthz()
         self.assertIn("preset_dispatch_configured", body)
@@ -420,6 +480,9 @@ class WorkerDispatchTests(unittest.TestCase):
         # operators rely on this flag to confirm the photos pipeline is
         # wired before announcing the endpoint to design partners.
         self.assertFalse(flags["capture-and-compress"])
+        # hacpp-lzma joined the dispatch table 2026-05-15. Same flag
+        # contract: True when SPLATFORGE_HACPP_LZMA_URL is plumbed.
+        self.assertTrue(flags["hacpp-lzma"])
 
 
 if __name__ == "__main__":
