@@ -101,10 +101,10 @@ const description =
       <h2>API</h2>
       <p>
         Each endpoint is a plain <code>POST</code> to
-        <code>https://api.splatforge.dev/v1/import/&lt;provider&gt;</code>
+        <code>https://splatforge.dev/api/v1/import/&lt;provider&gt;</code>
         with the same bearer auth as <code>/v1/jobs</code>. 10 requests/min/key.
       </p>
-      <pre><code set:html={`curl -X POST https://api.splatforge.dev/v1/import/luma \\
+      <pre><code set:html={`curl -X POST https://splatforge.dev/api/v1/import/luma \\
   -H "Authorization: Bearer $SPLATFORGE_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"share_url": "https://lumalabs.ai/capture/abc-123"}'
@@ -126,7 +126,7 @@ const description =
       window.__SPLATFORGE_API_BASE__ ||
       // Lets you point at a local API by setting localStorage on dev:
       localStorage.getItem("splatforge.apiBase") ||
-      "https://api.splatforge.dev";
+      "/api";
 
     function showResult(payload, ok) {
       const sec = document.getElementById("result");

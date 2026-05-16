@@ -1,0 +1,122 @@
+---
+// /sdk/model-viewer/quickstart — Quickstart for @splatforge/model-viewer.
+//
+// Companion to /sdk. Custom-element shim that teaches Google's
+// <model-viewer> to render Gaussian-Splat .glb payloads alongside
+// its existing glTF support — no fork of model-viewer, no eject.
+import Base from "../../../layouts/Base.astro";
+
+const title = "model-viewer plugin — SplatForge SDK quickstart";
+const description =
+  "Quickstart for @splatforge/model-viewer. Drop one <script> tag into your page, then point <model-viewer src> at a SplatForge-optimized .glb.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/sdk" aria-current="page">SDK</a>
+      <a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <div class="breadcrumb">
+    <a href="/sdk">← SDK overview</a>
+  </div>
+
+  <header class="hero hero-sdk">
+    <h1>&lt;model-viewer&gt; quickstart</h1>
+    <p>
+      <code>@splatforge/model-viewer</code> is a custom-element shim
+      that teaches Google's <code>&lt;model-viewer&gt;</code> to render
+      Gaussian-Splat payloads. Existing <code>.glb</code> meshes keep
+      rendering through the stock pipeline; SplatForge-optimized
+      <code>.glb</code>s route through the splat renderer transparently.
+    </p>
+  </header>
+
+  <section class="quickstart">
+    <h2>1. Drop two script tags in your page</h2>
+    <pre><code set:html={`&lt;script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"&gt;&lt;/script&gt;
+&lt;script type="module" src="https://cdn.splatforge.dev/sdk/model-viewer@1/splatforge-model-viewer.js"&gt;&lt;/script&gt;`} /></pre>
+
+    <h2>2. Point &lt;model-viewer&gt; at a SplatForge-optimized .glb</h2>
+    <pre><code set:html={`&lt;model-viewer
+  src="/assets/bonsai.splatforge.glb"
+  camera-controls
+  exposure="1"
+  shadow-intensity="1"
+  style="width:100%;height:480px;background:#0b0d10;"&gt;
+&lt;/model-viewer&gt;`} /></pre>
+
+    <p>
+      The shim auto-detects the SplatForge extension in the
+      <code>.glb</code> and swaps in the splat renderer for that
+      payload. No other code changes — every existing
+      <code>&lt;model-viewer&gt;</code> attribute (camera-controls,
+      auto-rotate, environment-image, etc.) keeps working.
+    </p>
+
+    <h2>3. Bundler install (optional)</h2>
+    <p>
+      If you bundle your own scripts instead of pulling from the CDN:
+    </p>
+    <pre><code>npm install @google/model-viewer @splatforge/model-viewer</code></pre>
+    <pre><code set:html={`import "@google/model-viewer";
+import "@splatforge/model-viewer"; // side-effect import: registers the splat shim`} /></pre>
+
+    <h2>4. Issue a license key (above 10k MAU)</h2>
+    <p>
+      Below 10k MAU per app per month the plugin runs without a key.
+      Above the free tier, issue an HMAC-SHA256 JWT bound to your
+      <code>Origin</code> domain:
+    </p>
+    <pre><code set:html={`curl -X POST https://splatforge.dev/api/v1/sdk/license \\
+  -H "Authorization: Bearer $SPLATFORGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"origin": "https://your-app.example.com"}'`} /></pre>
+    <p>
+      Pass it via a meta tag (auto-discovered by the shim):
+    </p>
+    <pre><code set:html={`&lt;meta name="splatforge:license" content="eyJhbGciOi…"&gt;`} /></pre>
+  </section>
+
+  <section class="next-steps">
+    <h2>Next</h2>
+    <ul>
+      <li><a href="/sdk">SDK overview &amp; pricing</a></li>
+      <li><a href="/pricing">Hosted optimize API pricing</a></li>
+      <li><a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">Source on GitHub ↗</a></li>
+    </ul>
+  </section>
+</Base>
+
+<style>
+  .breadcrumb {
+    max-width: 64rem;
+    margin: 1.5rem auto 0;
+    padding: 0 1.5rem;
+    font-size: 0.875rem;
+  }
+  .breadcrumb a { color: inherit; opacity: 0.7; }
+  .quickstart, .next-steps {
+    max-width: 64rem;
+    margin: 2rem auto;
+    padding: 0 1.5rem;
+  }
+  .quickstart h2, .next-steps h2 { margin-top: 2rem; }
+  .quickstart pre {
+    overflow-x: auto;
+    padding: 1rem;
+    background: rgba(255,255,255,0.04);
+    border-radius: 0.5rem;
+  }
+  .next-steps ul { list-style: none; padding: 0; }
+  .next-steps li { margin: 0.5rem 0; }
+</style>

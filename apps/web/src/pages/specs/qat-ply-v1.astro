@@ -35,9 +35,9 @@ const description =
     <p class="meta">
       Version <strong>1</strong> &middot; status <strong>frozen</strong>
       &middot; reference C99 decoder:
-      <a href="https://github.com/splatforge/splatforge/tree/main/apps/codec/qat-ply-c"><code>apps/codec/qat-ply-c/</code></a>
+      <a href="https://github.com/montabano1/SplatForge/tree/main/apps/codec/qat-ply-c"><code>apps/codec/qat-ply-c/</code></a>
       &middot; conformance suite:
-      <a href="https://github.com/splatforge/splatforge/tree/main/apps/codec/conformance"><code>apps/codec/conformance/</code></a>
+      <a href="https://github.com/montabano1/SplatForge/tree/main/apps/codec/conformance"><code>apps/codec/conformance/</code></a>
     </p>
   </header>
 
@@ -281,7 +281,7 @@ output[row][c] = (float) signed_q * scale[row]</code></pre>
   <h2 id="conformance">7 &middot; Conformance</h2>
   <p>
     The conformance suite at
-    <a href="https://github.com/splatforge/splatforge/tree/main/apps/codec/conformance">
+    <a href="https://github.com/montabano1/SplatForge/tree/main/apps/codec/conformance">
     <code>apps/codec/conformance/</code></a> ships ten test fixtures
     covering the full v1 surface:
   </p>
@@ -308,7 +308,7 @@ output[row][c] = (float) signed_q * scale[row]</code></pre>
   </p>
   <p>
     The verifier script
-    <a href="https://github.com/splatforge/splatforge/blob/main/apps/codec/conformance/verify.py"><code>verify.py</code></a>
+    <a href="https://github.com/montabano1/SplatForge/blob/main/apps/codec/conformance/verify.py"><code>verify.py</code></a>
     cross-checks two independent reference decoders (Python +
     C99) against every fixture; both currently agree byte-for-byte
     across all 10 cases.
@@ -336,7 +336,7 @@ output[row][c] = (float) signed_q * scale[row]</code></pre>
   <ul>
     <li>
       <strong>C99 reference decoder</strong> &mdash;
-      <a href="https://github.com/splatforge/splatforge/tree/main/apps/codec/qat-ply-c"><code>apps/codec/qat-ply-c/</code></a>.
+      <a href="https://github.com/montabano1/SplatForge/tree/main/apps/codec/qat-ply-c"><code>apps/codec/qat-ply-c/</code></a>.
       Single header + single <code>.c</code> file, MIT-licensed,
       no <code>malloc</code>, no I/O, no platform dependencies beyond
       <code>&lt;stdint.h&gt;</code> / <code>&lt;stddef.h&gt;</code> /
@@ -344,12 +344,12 @@ output[row][c] = (float) signed_q * scale[row]</code></pre>
     </li>
     <li>
       <strong>Python reference decoder</strong> &mdash; embedded in
-      <a href="https://github.com/splatforge/splatforge/blob/main/apps/codec/conformance/verify.py"><code>verify.py</code></a>.
+      <a href="https://github.com/montabano1/SplatForge/blob/main/apps/codec/conformance/verify.py"><code>verify.py</code></a>.
       Useful for tooling and CI checks.
     </li>
     <li>
       <strong>WebAssembly (browser)</strong> &mdash;
-      <a href="https://github.com/splatforge/splatforge/tree/main/apps/codec/qat-ply-wasm"><code>apps/codec/qat-ply-wasm/</code></a>.
+      <a href="https://github.com/montabano1/SplatForge/tree/main/apps/codec/qat-ply-wasm"><code>apps/codec/qat-ply-wasm/</code></a>.
       Emscripten build of the C decoder; ships as
       <code>@splatforge/qat-ply-wasm</code> with the
       <code>qat_ply_decode.&#123;js,wasm&#125;</code> pair.
@@ -357,14 +357,14 @@ output[row][c] = (float) signed_q * scale[row]</code></pre>
     </li>
     <li>
       <strong>iOS / macOS Metal</strong> &mdash;
-      <a href="https://github.com/splatforge/splatforge/tree/main/apps/ios/SplatForgeQATKernel"><code>apps/ios/SplatForgeQATKernel/</code></a>.
+      <a href="https://github.com/montabano1/SplatForge/tree/main/apps/ios/SplatForgeQATKernel"><code>apps/ios/SplatForgeQATKernel/</code></a>.
       SwiftPM module with a Metal compute pipeline (one thread per
       <code>(anchor &times; channel)</code>) and a pure-Swift header parser.
       Build: <code>swift build &amp;&amp; swift test</code>.
     </li>
     <li>
       <strong>Android Vulkan</strong> &mdash;
-      <a href="https://github.com/splatforge/splatforge/tree/main/apps/android/splatforge-qat-vulkan"><code>apps/android/splatforge-qat-vulkan/</code></a>.
+      <a href="https://github.com/montabano1/SplatForge/tree/main/apps/android/splatforge-qat-vulkan"><code>apps/android/splatforge-qat-vulkan/</code></a>.
       Vulkan compute shader (SPIR-V) + JNI bridge + Kotlin facade.
       Build: <code>./gradlew assembleDebug</code> (Android SDK / NDK 26+).
     </li>
@@ -373,10 +373,10 @@ output[row][c] = (float) signed_q * scale[row]</code></pre>
     All four runtime implementations (C / WASM / Metal / Vulkan) are
     cross-checked against the Python reference and the same JSON
     expectations under
-    <a href="https://github.com/splatforge/splatforge/tree/main/apps/codec/conformance/cross-target"><code>conformance/cross-target/</code></a>;
+    <a href="https://github.com/montabano1/SplatForge/tree/main/apps/codec/conformance/cross-target"><code>conformance/cross-target/</code></a>;
     any deviation breaks CI. Bindings for additional languages and
     runtimes are tracked at
-    <a href="https://github.com/splatforge/splatforge/labels/qat-ply-v1"><code>label:qat-ply-v1</code></a>.
+    <a href="https://github.com/montabano1/SplatForge/labels/qat-ply-v1"><code>label:qat-ply-v1</code></a>.
   </p>
 
   <p>

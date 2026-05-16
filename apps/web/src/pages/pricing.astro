@@ -22,7 +22,7 @@ const description =
 
 // Default API base; the calculator script overrides this from
 // localStorage so a contributor running a local API can point at it.
-const apiBase = "https://api.splatforge.dev";
+const apiBase = import.meta.env.PUBLIC_API_BASE ?? "/api";
 ---
 
 <Base title={title} description={description}>

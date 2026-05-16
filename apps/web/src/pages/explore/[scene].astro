@@ -48,6 +48,15 @@ function fmtBytes(n: number): string {
 
 const canEmbed = !!scene.viewerSrc;
 const fid = scene.fidelity;
+
+// Some scenes carry a descriptive provenance string in `originUrl` instead
+// of an actual URL (e.g. "Scaffold-GS trained from Mip-NeRF 360 bicycle"
+// or "benches/synth_scenes.py (seed=1)"). Wrapping those in <a href=…>
+// produces broken relative links like /explore/Scaffold-GS%20trained…
+// — render the <a> only when we have a real URL; otherwise plain <span>.
+const isUrl = (s: string | null | undefined) =>
+  !!s && (/^https?:\/\//i.test(s) || s.startsWith("/"));
+const originIsUrl = isUrl(scene.originUrl);
 ---
 
 <Base title={title} description={description}>
@@ -113,9 +122,15 @@ const fid = scene.fidelity;
               <a class="btn btn-primary" href={apiUrl} target="_blank" rel="noreferrer noopener">
                 Optimize this splat →
               </a>
-              <a class="btn" href={scene.originUrl} target="_blank" rel="noreferrer noopener">
-                Open upstream ({scene.format}) ↗
-              </a>
+              {originIsUrl ? (
+                <a class="btn" href={scene.originUrl} target="_blank" rel="noreferrer noopener">
+                  Open upstream ({scene.format}) ↗
+                </a>
+              ) : (
+                <span class="btn btn-disabled" aria-disabled="true" title={scene.originUrl ?? ""}>
+                  Upstream: {scene.originUrl ?? "—"}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -131,7 +146,11 @@ const fid = scene.fidelity;
         <div class="fact"><dt>License</dt><dd>{scene.license}</dd></div>
         <div class="fact"><dt>Attribution</dt><dd class="attribution">{scene.attribution}</dd></div>
         <div class="fact"><dt>Source</dt><dd>
-          <a href={scene.originUrl} target="_blank" rel="noreferrer noopener">{scene.source === "splatbench" ? "splatbench-v0" : "upstream CDN"} ↗</a>
+          {originIsUrl ? (
+            <a href={scene.originUrl} target="_blank" rel="noreferrer noopener">{scene.source === "splatbench" ? "splatbench-v0" : "upstream CDN"} ↗</a>
+          ) : (
+            <span title={scene.originUrl ?? ""}>{scene.originUrl ?? "—"}</span>
+          )}
         </dd></div>
         {fid && (
           <div class="fact"><dt>Fidelity (ΔE94)</dt><dd class="tabular">{fid.meanDeltaE94?.toFixed(4) ?? "—"} · <span class={`badge badge-${fid.passed ? "pass" : "fail-expected"}`}>{fid.status}</span></dd></div>
@@ -171,7 +190,11 @@ const fid = scene.fidelity;
   <footer class="site-footer">
     <span>Explore · <a href="/explore">back to registry</a></span>
     <span>
-      <a href={scene.originUrl} target="_blank" rel="noreferrer noopener">upstream source ↗</a> ·
+      {originIsUrl ? (
+        <a href={scene.originUrl} target="_blank" rel="noreferrer noopener">upstream source ↗</a>
+      ) : (
+        <span>upstream: {scene.originUrl ?? "—"}</span>
+      )} ·
       Apache-2.0
     </span>
   </footer>

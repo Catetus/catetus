@@ -1,0 +1,126 @@
+---
+// /sdk/cesium-ion/quickstart — Quickstart for @splatforge/cesium-ion.
+//
+// Companion to /sdk. Cesium ion tile fetcher that streams
+// SplatForge-optimized tile sets into a CesiumJS or ion viewer
+// alongside terrain and 3D-tiles imagery.
+import Base from "../../../layouts/Base.astro";
+
+const title = "Cesium ion plugin — SplatForge SDK quickstart";
+const description =
+  "Quickstart for @splatforge/cesium-ion. Stream SplatForge-optimized splat tile sets into a CesiumJS viewer next to your existing terrain and 3D-tiles imagery.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/sdk" aria-current="page">SDK</a>
+      <a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <div class="breadcrumb">
+    <a href="/sdk">← SDK overview</a>
+  </div>
+
+  <header class="hero hero-sdk">
+    <h1>Cesium ion quickstart</h1>
+    <p>
+      <code>@splatforge/cesium-ion</code> is a tile fetcher that streams
+      SplatForge-optimized splat tile sets into a
+      <strong>CesiumJS</strong> viewer alongside terrain, 3D-tiles
+      imagery, and your other ion assets. Same tiling pyramid Cesium
+      already speaks (3D-tiles 1.1, implicit tiling) — the splat
+      payload travels inside the <code>.glb</code> tile content.
+    </p>
+  </header>
+
+  <section class="quickstart">
+    <h2>1. Install</h2>
+    <pre><code>npm install cesium @splatforge/cesium-ion</code></pre>
+
+    <h2>2. Register the splat tile content handler</h2>
+    <pre><code set:html={`import * as Cesium from "cesium";
+import { registerSplatForgeTileHandler } from "@splatforge/cesium-ion";
+
+// Call once during app init, BEFORE creating the viewer.
+registerSplatForgeTileHandler(Cesium);`} /></pre>
+
+    <h2>3. Add a SplatForge tile set to the viewer</h2>
+    <pre><code set:html={`const viewer = new Cesium.Viewer("cesiumContainer", {
+  terrainProvider: await Cesium.createWorldTerrainAsync(),
+});
+
+const splatTiles = await Cesium.Cesium3DTileset.fromUrl(
+  "https://your-cdn.example.com/splat-tilesets/bonsai/tileset.json",
+);
+viewer.scene.primitives.add(splatTiles);
+await viewer.zoomTo(splatTiles);`} /></pre>
+
+    <p>
+      The tile set is plain 3D-tiles 1.1 — host it on S3, R2,
+      Cesium ion, or any CDN. The handler recognizes SplatForge tile
+      content by its extension marker and routes those tiles through
+      the splat renderer; standard mesh tiles in the same set keep
+      using Cesium's stock renderer.
+    </p>
+
+    <h2>4. Issue a license key (above 10k MAU)</h2>
+    <p>
+      Below 10k MAU per app per month the plugin runs without a key.
+      Above the free tier, issue an HMAC-SHA256 JWT bound to your
+      <code>Origin</code> domain:
+    </p>
+    <pre><code set:html={`curl -X POST https://splatforge.dev/api/v1/sdk/license \\
+  -H "Authorization: Bearer $SPLATFORGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"origin": "https://your-app.example.com"}'`} /></pre>
+    <p>
+      Pass it when registering the tile handler:
+    </p>
+    <pre><code set:html={`registerSplatForgeTileHandler(Cesium, {
+  licenseKey: import.meta.env.PUBLIC_SPLATFORGE_LICENSE,
+});`} /></pre>
+  </section>
+
+  <section class="next-steps">
+    <h2>Next</h2>
+    <ul>
+      <li><a href="/sdk">SDK overview &amp; pricing</a></li>
+      <li><a href="/vs-cesium-ion">SplatForge vs Cesium ion (comparison)</a></li>
+      <li><a href="/pricing">Hosted optimize API pricing</a></li>
+      <li><a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">Source on GitHub ↗</a></li>
+    </ul>
+  </section>
+</Base>
+
+<style>
+  .breadcrumb {
+    max-width: 64rem;
+    margin: 1.5rem auto 0;
+    padding: 0 1.5rem;
+    font-size: 0.875rem;
+  }
+  .breadcrumb a { color: inherit; opacity: 0.7; }
+  .quickstart, .next-steps {
+    max-width: 64rem;
+    margin: 2rem auto;
+    padding: 0 1.5rem;
+  }
+  .quickstart h2, .next-steps h2 { margin-top: 2rem; }
+  .quickstart pre {
+    overflow-x: auto;
+    padding: 1rem;
+    background: rgba(255,255,255,0.04);
+    border-radius: 0.5rem;
+  }
+  .next-steps ul { list-style: none; padding: 0; }
+  .next-steps li { margin: 0.5rem 0; }
+</style>

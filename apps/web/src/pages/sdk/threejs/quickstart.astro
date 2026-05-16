@@ -1,0 +1,123 @@
+---
+// /sdk/threejs/quickstart — Quickstart for @splatforge/three.
+//
+// Companion to /sdk. Drop-in loader + GLB-aware renderer for r150+
+// Three.js apps. Hooks into the standard three.js GLTFLoader so a
+// SplatForge-optimized .glb renders next to your existing meshes
+// with no fork of GLTFLoader required.
+import Base from "../../../layouts/Base.astro";
+
+const title = "Three.js plugin — SplatForge SDK quickstart";
+const description =
+  "Three.js (r150+) quickstart for @splatforge/three. Install, register the GLTFLoader extension, render a SplatForge-optimized .glb in five minutes.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/sdk" aria-current="page">SDK</a>
+      <a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <div class="breadcrumb">
+    <a href="/sdk">← SDK overview</a>
+  </div>
+
+  <header class="hero hero-sdk">
+    <h1>Three.js quickstart</h1>
+    <p>
+      <code>@splatforge/three</code> is a drop-in loader extension for
+      <strong>three.js r150+</strong>. It teaches the stock
+      <code>GLTFLoader</code> to recognize SplatForge-optimized
+      <code>.glb</code> payloads, so a Gaussian-Splat scene renders
+      alongside your existing meshes with no fork of three.js required.
+    </p>
+  </header>
+
+  <section class="quickstart">
+    <h2>1. Install</h2>
+    <pre><code>npm install three @splatforge/three</code></pre>
+
+    <h2>2. Register the loader extension</h2>
+    <pre><code set:html={`import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { SplatForgeGLTFExtension } from "@splatforge/three";
+
+const loader = new GLTFLoader();
+loader.register((parser) =&gt; new SplatForgeGLTFExtension(parser));`} /></pre>
+
+    <h2>3. Load a SplatForge-optimized scene</h2>
+    <pre><code set:html={`const scene = new THREE.Scene();
+
+loader.load("/assets/bonsai.splatforge.glb", (gltf) =&gt; {
+  scene.add(gltf.scene);
+});`} /></pre>
+
+    <p>
+      The <code>.glb</code> is a single self-contained binary glTF —
+      no sidecar buffers, no CORS gymnastics. Optimize any
+      <code>.ply</code>/<code>.spz</code>/<code>.gltf</code> through
+      <a href="/#try">the SplatForge optimizer</a> to produce one.
+    </p>
+
+    <h2>4. Issue a license key (above 10k MAU)</h2>
+    <p>
+      Below 10k MAU per app per month the plugin runs without a key.
+      Above the free tier, issue an HMAC-SHA256 JWT bound to your
+      <code>Origin</code> domain:
+    </p>
+    <pre><code set:html={`curl -X POST https://splatforge.dev/api/v1/sdk/license \\
+  -H "Authorization: Bearer $SPLATFORGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"origin": "https://your-app.example.com"}'`} /></pre>
+    <p>
+      Pass the returned token to the loader:
+    </p>
+    <pre><code set:html={`loader.register((parser) =&gt;
+  new SplatForgeGLTFExtension(parser, {
+    licenseKey: import.meta.env.PUBLIC_SPLATFORGE_LICENSE,
+  })
+);`} /></pre>
+  </section>
+
+  <section class="next-steps">
+    <h2>Next</h2>
+    <ul>
+      <li><a href="/sdk">SDK overview &amp; pricing</a></li>
+      <li><a href="/pricing">Hosted optimize API pricing</a></li>
+      <li><a href="https://github.com/montabano1/SplatForge" target="_blank" rel="noreferrer noopener">Source on GitHub ↗</a></li>
+    </ul>
+  </section>
+</Base>
+
+<style>
+  .breadcrumb {
+    max-width: 64rem;
+    margin: 1.5rem auto 0;
+    padding: 0 1.5rem;
+    font-size: 0.875rem;
+  }
+  .breadcrumb a { color: inherit; opacity: 0.7; }
+  .quickstart, .next-steps {
+    max-width: 64rem;
+    margin: 2rem auto;
+    padding: 0 1.5rem;
+  }
+  .quickstart h2, .next-steps h2 { margin-top: 2rem; }
+  .quickstart pre {
+    overflow-x: auto;
+    padding: 1rem;
+    background: rgba(255,255,255,0.04);
+    border-radius: 0.5rem;
+  }
+  .next-steps ul { list-style: none; padding: 0; }
+  .next-steps li { margin: 0.5rem 0; }
+</style>

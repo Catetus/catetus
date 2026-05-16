@@ -21,7 +21,7 @@ const title = "SplatForge SDK — Embedded license pricing";
 const description =
   "Three.js, Babylon.js, model-viewer, and Cesium ion plugins for SplatForge assets. Free under 10k MAU per app; $0.001/MAU above. Per-domain HMAC-signed license keys, telemetry beacon.";
 
-const apiBase = "https://api.splatforge.dev";
+const apiBase = import.meta.env.PUBLIC_API_BASE ?? "/api";
 
 // Display rows for the plugin table.
 const plugins = [
