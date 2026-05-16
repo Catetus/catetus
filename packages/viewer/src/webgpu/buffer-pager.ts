@@ -271,14 +271,19 @@ export function templateSplatsAccess(
     }
   }
 
-  // 3. Build the new splats bindings + read_splats helper.
+  // 3. Build the new splats bindings + read_splats helper. We initially
+  // emit the page bindings with a sentinel placeholder (`__SF_SPLATS_PAGE_p__`)
+  // so the binding-rebase pass below doesn't accidentally regex-match them
+  // and shift them by N-1 (which would collide with downstream bindings).
+  // After the rebase pass, the sentinel is replaced with the real binding
+  // index.
   const splatsBindings: number[] = [];
   const pageDecls: string[] = [];
   for (let p = 0; p < numPages; p++) {
     const b = originalBinding + p;
     splatsBindings.push(b);
     pageDecls.push(
-      `@group(0) @binding(${b}) var<storage, read> ${splatsBindingName}_p${p} : array<DecodedSplat>;`,
+      `@group(0) @binding(__SF_SPLATS_PAGE_${p}__) var<storage, read> ${splatsBindingName}_p${p} : array<DecodedSplat>;`,
     );
   }
   const helperName = `read_splats_${splatsBindingName}`;
@@ -316,6 +321,11 @@ ${cases.join('\n')}
     const newB = rebasedBindings.get(oldB)!;
     if (oldB === newB) continue;
     newWgsl = newWgsl.replaceAll(`__SF_TMP_${oldB}_TO_${newB}__`, String(newB));
+  }
+  // Now substitute the splats-page binding sentinels with their real
+  // (un-rebased) indices.
+  for (let p = 0; p < numPages; p++) {
+    newWgsl = newWgsl.replaceAll(`__SF_SPLATS_PAGE_${p}__`, String(originalBinding + p));
   }
 
   // 6. Replace `NAME[i]` indexing with `helperName(i)` calls.
