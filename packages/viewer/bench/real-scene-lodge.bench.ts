@@ -189,9 +189,16 @@ export async function runLodgeBench(
     // alignDecodedSplats in chunk-loader.ts). Bump the capacity by
     // `numChunks * 3` so the final padded count still fits.
     const numChunks = lvl.chunks.length;
+    // Stage 6 (sf-154): use the fused project_gather path so capacities
+    // > 33M splats work (multi-page splats supported only by the fused
+    // path). Cull is incompatible with the fused path; we'd lose the
+    // 2.8x bicycle speedup but gain LODGE L1/L0 viability. Bench-scope
+    // tradeoff: the LODGE pyramid IS the prod path; cull is bench-only.
     const pipeline = new ComputeDecodePipeline({
       device,
       capacity: lvl.splatCount + numChunks * 3,
+      useFusedProject: true,
+      useCull: false,
     });
 
     const loader = new LodgeChunkLoader(manifest, {
