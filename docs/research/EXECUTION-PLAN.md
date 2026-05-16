@@ -62,7 +62,7 @@ trigger*. Nothing dies of neglect.
 | A6  | A     | Feed-Forward Long-Context (zero per-scene train)  | A3 BUILT or KILL |
 | A7  | A     | NeuralGS per-cluster tiny MLPs                    | A3 result |
 | B6  | B     | LODGE hierarchical LOD pipeline                   | B5 BUILT |
-| D2  | D     | 3DoF+Quantization for explore.splatforge.com      | A3 BUILT |
+| D2  | D     | 3DoF+Quantization for splatforge.dev/explore      | A3 BUILT |
 
 ## Killed before starting (per DRA consensus)
 

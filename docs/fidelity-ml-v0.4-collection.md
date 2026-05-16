@@ -29,7 +29,7 @@ is exactly the question the leaderboard column is supposed to answer.
 
 ## The collection apparatus
 
-The public page lives at **`splatforge.com/rate`** and is wired to the
+The public page lives at **`splatforge.dev/rate`** and is wired to the
 API endpoint `POST /v1/ratings`. The rater sees:
 
 ```

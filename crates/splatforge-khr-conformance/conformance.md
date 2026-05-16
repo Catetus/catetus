@@ -4,7 +4,7 @@ SplatForge ships a self-contained conformance suite for the Khronos
 `KHR_gaussian_splatting` glTF extension, currently in **Release
 Candidate** status. This document is the canonical written report; the
 live machine-generated matrix is at
-[splatforge.com/khr-conformance](https://splatforge.com/khr-conformance).
+[splatforge.dev/khr-conformance](https://splatforge.dev/khr-conformance).
 
 The suite tracks the RC text at KhronosGroup/glTF commit
 [`63770cc7`](https://github.com/KhronosGroup/glTF/commit/63770cc70a3709cf101a42cece0bdf602b37e2e7)

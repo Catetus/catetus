@@ -8,7 +8,7 @@ estimated diff.
 **Goal.** Replace the all-or-nothing `.mgs` download with a layered
 bitstream that lets the WebGPU viewer render a recognizable scene from the
 first ~5–10 % of bytes and refine to full quality as the remainder arrives.
-On `explore.splatforge.com` this is the difference between a 2–5 s blank
+On `splatforge.dev/explore` this is the difference between a 2–5 s blank
 viewport and a ~200 ms first paint that progressively sharpens.
 
 ---

@@ -394,7 +394,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/checkout/webhook", post(checkout_webhook))
         .route("/v1/checkout/reveal", post(reveal_route))
         // fidelity-ml v0.4 — human pairwise rating collection. No bearer
-        // token: anyone visiting splatforge.com/rate can submit. The
+        // token: anyone visiting splatforge.dev/rate can submit. The
         // post_rating handler computes a SHA-256(IP || "|" || UA) hash
         // from request headers (never persisted in plaintext) and uses
         // it for a 100-ratings/hour cap so a single browser tab can't

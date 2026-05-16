@@ -3,18 +3,18 @@
 **Production infrastructure for Gaussian Splats** — compress, validate, and ship splat assets with standards-aligned output and reproducible quality gates.
 
 <p>
-  <a href="https://splatforge.com"><img alt="Website" src="https://img.shields.io/badge/website-splatforge.com-0ea5e9?style=flat-square" /></a>
+  <a href="https://splatforge.dev"><img alt="Website" src="https://img.shields.io/badge/website-splatforge.dev-0ea5e9?style=flat-square" /></a>
   <a href="https://github.com/montabano1/SplatForge/actions/workflows/test.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/montabano1/SplatForge/test.yml?branch=main&label=ci&style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" /></a>
-  <a href="https://splatforge.com/bench"><img alt="SplatBench" src="https://img.shields.io/badge/SplatBench-21.9×%20median-7dd3fc?style=flat-square" /></a>
+  <a href="https://splatforge.dev/bench"><img alt="SplatBench" src="https://img.shields.io/badge/SplatBench-21.9×%20median-7dd3fc?style=flat-square" /></a>
 </p>
 
 | | |
 | --- | --- |
-| **Website** | [splatforge.com](https://splatforge.com) — live demos, leaderboard, docs |
-| **Try it** | [Drop a `.ply` in the browser](https://splatforge.com/#try) |
-| **Benchmark** | [SplatBench leaderboard](https://splatforge.com/bench) — 16 scenes, open submission |
-| **Standards** | [KHR conformance report](https://splatforge.com/khr-conformance) — 23 clauses, 10 fixtures |
+| **Website** | [splatforge.dev](https://splatforge.dev) — live demos, leaderboard, docs |
+| **Try it** | [Drop a `.ply` in the browser](https://splatforge.dev/#try) |
+| **Benchmark** | [SplatBench leaderboard](https://splatforge.dev/bench) — 16 scenes, open submission |
+| **Standards** | [KHR conformance report](https://splatforge.dev/khr-conformance) — 23 clauses, 10 fixtures |
 
 ---
 
@@ -29,7 +29,7 @@ Gaussian Splatting is moving from research demos into production web, mobile, an
 - **Export** [glTF `KHR_gaussian_splatting`](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_gaussian_splatting) and SPZ — no proprietary container format
 - **Prove** quality with deterministic visual diff, SplatBench, and conformance suites
 
-The open-source core (this repo) ships the CLI, viewer SDK, benchmark corpus, and Khronos/OpenUSD conformance tooling. Hosted optimize, premium passes, and enterprise deployment live on [splatforge.com](https://splatforge.com).
+The open-source core (this repo) ships the CLI, viewer SDK, benchmark corpus, and Khronos/OpenUSD conformance tooling. Hosted optimize, premium passes, and enterprise deployment live on [splatforge.dev](https://splatforge.dev).
 
 ---
 
@@ -39,7 +39,7 @@ The open-source core (this repo) ships the CLI, viewer SDK, benchmark corpus, an
 | --- | --- |
 | **Standards-first output** | glTF KHR Gaussian Splatting + SPZ; assets work in mainstream viewers and DCC pipelines |
 | **Reproducible pipeline** | Same input + preset → byte-identical output and stable BLAKE3 scene hashes |
-| **Public benchmark moat** | [SplatBench](https://splatforge.com/bench) — 16 scenes (real + synthetic stress tests), open encoder comparison |
+| **Public benchmark moat** | [SplatBench](https://splatforge.dev/bench) — 16 scenes (real + synthetic stress tests), open encoder comparison |
 | **Quality gates** | Per-scene fidelity (ΔE94, SSIM), visual diff harness, KHR conformance crate in CI |
 | **Ship anywhere** | Rust CLI, `@splatforge/viewer` (WebGPU + WebGL2), GitHub Action, REST API |
 
@@ -52,7 +52,7 @@ The open-source core (this repo) ships the CLI, viewer SDK, benchmark corpus, an
 | Real indoor (`bonsai`, 1.2M splats) | **22.8×** (274 MB → 12 MB) |
 | Fidelity gates passing | **16 / 16** scenes |
 
-Full tables and per-scene breakdown: [leaderboard](https://splatforge.com/bench) · [report](./benches/reports/splatbench-v0.md) · [interactive HTML](./benches/reports/splatbench-v0.html)
+Full tables and per-scene breakdown: [leaderboard](https://splatforge.dev/bench) · [report](./benches/reports/splatbench-v0.md) · [interactive HTML](./benches/reports/splatbench-v0.html)
 
 ---
 
@@ -149,7 +149,7 @@ Architecture overview: [docs/architecture.md](./docs/architecture.md)
 
 SplatForge targets **glTF 2.0 + `KHR_gaussian_splatting`** as the primary interchange format, with **SPZ** as a first-class compressed wire format. Advanced streaming uses a vendor extension (`SF_spatial_streaming_index`) that degrades gracefully in viewers that ignore it.
 
-- **KHR suite:** `cargo test -p splatforge-khr-conformance` — [conformance report](./crates/splatforge-khr-conformance/conformance.md) · [live matrix](https://splatforge.com/khr-conformance)
+- **KHR suite:** `cargo test -p splatforge-khr-conformance` — [conformance report](./crates/splatforge-khr-conformance/conformance.md) · [live matrix](https://splatforge.dev/khr-conformance)
 - **KHR SPZ compression extension (draft):** [docs/standards/KHR_gaussian_splatting_compression_spz.md](./docs/standards/KHR_gaussian_splatting_compression_spz.md)
 - **OpenUSD:** writer + conformance work in progress ([SPEC-0011](./specs/0011-openusd-roundtrip.md), [SPEC-0012](./specs/0012-openusd-streaming.md))
 

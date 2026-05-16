@@ -16,7 +16,7 @@ The bench harness invokes `run.sh INPUT_PLY OUTPUT_DIR` automatically. To
 exercise it manually against the hosted endpoint:
 
 ```
-export SPLATFORGE_QAT_ENDPOINT=https://api.splatforge.com
+export SPLATFORGE_QAT_ENDPOINT=https://api.splatforge.dev
 export SPLATFORGE_QAT_TOKEN=$YOUR_API_KEY
 ./run.sh /path/to/scaffold_gs.ply /tmp/qat-out
 cat /tmp/qat-out/meta.json

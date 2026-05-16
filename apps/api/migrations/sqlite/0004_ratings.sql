@@ -1,6 +1,6 @@
 -- fidelity-ml v0.4 — human pairwise rating collection.
 --
--- One row per rating submitted via splatforge.com/rate. The page shows
+-- One row per rating submitted via splatforge.dev/rate. The page shows
 -- two rendered orbit frames from different presets (e.g. lossless-repack
 -- vs web-mobile) side-by-side with the prompt "which of these looks
 -- closer to the reference?" and POSTs the outcome here. Once we have

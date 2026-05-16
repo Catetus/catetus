@@ -1,7 +1,7 @@
 # SplatForge Pro — On-Prem License & `splatforge serve`
 
 Pro is the enterprise tier: customers run the optimize pipeline inside
-their own VPC, pay per seat, and never send splats to splatforge.com.
+their own VPC, pay per seat, and never send splats to splatforge.dev.
 This doc covers the operator contract — how to install a license, run
 `splatforge serve`, refresh, and opt out of telemetry.
 

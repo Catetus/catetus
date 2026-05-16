@@ -1,6 +1,6 @@
 # Adversarial review findings — 2026-05-16
 
-Distinguished-engineer review of the code shipped to splatforge.com tonight.
+Distinguished-engineer review of the code shipped to splatforge.dev tonight.
 P0 + P1 issues were FIXED in this session; P2 findings recorded here for
 follow-up.
 
