@@ -192,8 +192,7 @@ struct VsOut { @builtin(position) clip : vec4<f32>, @location(0) offset : vec2<f
 
       const enc = device.createCommandEncoder();
       pipeline.encode(enc, view, viewProj, [focalY, focalY], [canvas.width, canvas.height]);
-      // Render to offscreen RT (so we can both copy-to-canvas for visual + copy-to-buffer for readback).
-      const canvasTex = ctx.getCurrentTexture();
+      // Render to offscreen RT (so we can copy-to-buffer for readback).
       const pass = enc.beginRenderPass({
         colorAttachments: [{ view: rt.createView(), clearValue: { r: 0.02, g: 0.04, b: 0.08, a: 1 }, loadOp: 'clear', storeOp: 'store' }],
       });
@@ -210,8 +209,8 @@ struct VsOut { @builtin(position) clip : vec4<f32>, @location(0) offset : vec2<f
         drawCount++;
       }
       pass.end();
-      // Blit rt -> canvas (for visual feedback) and rt -> stagingBuffer (for readback).
-      enc.copyTextureToTexture({ texture: rt }, { texture: canvasTex }, { width: canvas.width, height: canvas.height });
+      // Blit rt -> stagingBuffer (for readback). Skip canvas blit because the canvas
+      // texture from getCurrentTexture() does not include COPY_DST usage.
       enc.copyTextureToBuffer(
         { texture: rt },
         { buffer: stagingBuffer, bytesPerRow, rowsPerImage: canvas.height },
