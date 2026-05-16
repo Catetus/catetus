@@ -527,7 +527,24 @@ def _post_phase(
 # ------------------------------------------------------------- web endpoints
 
 
-@app.function(image=image, cpu=0.25)
+@app.function(
+    image=image,
+    cpu=0.25,
+    secrets=[
+        # Injects SPLATFORGE_CODEC_GS_MIXED_URL + SPLATFORGE_FCGS_URL so
+        # the module-level PRESET_DISPATCH_URLS dict picks them up at
+        # container cold start. Without this secret attached the dict
+        # values are None and the worker returns the configured-gap
+        # error instead of forwarding to the private apps.
+        modal.Secret.from_name(
+            "splatforge-preset-urls",
+            required_keys=[
+                "SPLATFORGE_CODEC_GS_MIXED_URL",
+                "SPLATFORGE_FCGS_URL",
+            ],
+        )
+    ],
+)
 @modal.fastapi_endpoint(method="POST", label="enqueue")
 def enqueue(payload: dict) -> dict:
     """Accept a job descriptor from the API and spawn ``run_optimize``.
@@ -643,7 +660,22 @@ def _forward_to_preset_app(target_url: str, payload: dict) -> dict:
     }
 
 
-@app.function(image=image, cpu=0.25)
+@app.function(
+    image=image,
+    cpu=0.25,
+    secrets=[
+        # healthz reports `preset_dispatch_configured`, which is derived
+        # from PRESET_DISPATCH_URLS — same secret injection is required
+        # here for the bool flags to be accurate post-deploy.
+        modal.Secret.from_name(
+            "splatforge-preset-urls",
+            required_keys=[
+                "SPLATFORGE_CODEC_GS_MIXED_URL",
+                "SPLATFORGE_FCGS_URL",
+            ],
+        )
+    ],
+)
 @modal.fastapi_endpoint(method="GET", label="healthz")
 def healthz() -> dict:
     return {
