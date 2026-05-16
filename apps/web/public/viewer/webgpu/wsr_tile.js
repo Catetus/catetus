@@ -29,6 +29,11 @@
  * feature flags on the same `ComputeDecodePipeline`.
  */
 import { TILE_BIN_WGSL, WSR_TILE_ACCUMULATE_WGSL, WSR_RESOLVE_WGSL, } from './shaders.generated.js';
+import { dispatchPerSplat } from './multi-dispatch.js';
+/** Byte offset of `chunk_offset: u32` inside `cs_tile_bin.wgsl::TileBinUniforms`.
+ *  Layout: 2×mat4(128) + viewport(8) + focal(8) + splat_count(4) + tile_size(4)
+ *  + tiles_x(4) + tiles_y(4) + max_per_tile(4) = 164. */
+const TILE_BIN_UNIFORM_CHUNK_OFFSET_BYTES = 164;
 /** Tile edge (pixels). 16×16 matches the workgroup size of the accumulate kernel. */
 export const WSR_TILE_SIZE = 16;
 /** Default per-tile splat-list capacity. Tunable via `WSRTilePipelineInit.maxPerTile`. */
@@ -318,12 +323,13 @@ export class WSRTilePipeline {
             pass.end();
         }
         // ---- Pass 1b: bin splats into tile lists. ----
+        // Multi-dispatch over splat_count so > 16.7M splats clear the WebGPU
+        // dispatchWorkgroups cap. chunk_offset slot in TileBinUniforms is at
+        // byte 164: 2×mat4(128) + viewport(8) + focal(8) + splat_count(4) +
+        // tile_size(4) + tiles_x(4) + tiles_y(4) + max_per_tile(4) = 164.
         if (splatCount > 0) {
-            const pass = encoder.beginComputePass();
-            pass.setPipeline(this.pipes.bin);
-            pass.setBindGroup(0, this.binBindGroup);
-            pass.dispatchWorkgroups(splatWgs);
-            pass.end();
+            void splatWgs;
+            dispatchPerSplat(this.device, encoder, this.pipes.bin, this.binBindGroup, this.binUniforms, TILE_BIN_UNIFORM_CHUNK_OFFSET_BYTES, splatCount, WSR_TILE_BIN_WG);
         }
         // ---- Pass 2: per-tile accumulate (one workgroup per tile). ----
         {
