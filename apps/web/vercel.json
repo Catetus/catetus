@@ -6,8 +6,32 @@
       "destination": "https://splatforge-api.fly.dev/healthz"
     },
     {
-      "source": "/api/v1/:path*",
-      "destination": "https://splatforge-api.fly.dev/v1/:path*"
+      "source": "/api/v1/pricing/:path*",
+      "destination": "https://splatforge-api.fly.dev/v1/pricing/:path*"
+    },
+    {
+      "source": "/api/v1/sdk/:path*",
+      "destination": "https://splatforge-api.fly.dev/v1/sdk/:path*"
+    },
+    {
+      "source": "/api/v1/checkout/:path*",
+      "destination": "https://splatforge-api.fly.dev/v1/checkout/:path*"
+    },
+    {
+      "source": "/api/v1/ratings",
+      "destination": "https://splatforge-api.fly.dev/v1/ratings"
+    },
+    {
+      "source": "/api/v1/ratings/:path*",
+      "destination": "https://splatforge-api.fly.dev/v1/ratings/:path*"
+    },
+    {
+      "source": "/api/v1/import/:path*",
+      "destination": "https://splatforge-api.fly.dev/v1/import/:path*"
+    },
+    {
+      "source": "/api/v1/admin/:path*",
+      "destination": "https://splatforge-api.fly.dev/v1/admin/:path*"
     }
   ]
 }
