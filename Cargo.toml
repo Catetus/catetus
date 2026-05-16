@@ -5,6 +5,7 @@ members = [
     "crates/splatforge-ply",
     "crates/splatforge-spz",
     "crates/splatforge-posthac",
+    "crates/splatforge-meson",
     "crates/splatforge-gltf",
     "crates/splatforge-khr-conformance",
     "crates/splatforge-usd-conformance",
@@ -32,6 +33,7 @@ splatforge-core      = { path = "crates/splatforge-core" }
 splatforge-ply       = { path = "crates/splatforge-ply" }
 splatforge-spz       = { path = "crates/splatforge-spz" }
 splatforge-posthac   = { path = "crates/splatforge-posthac" }
+splatforge-meson     = { path = "crates/splatforge-meson" }
 splatforge-gltf      = { path = "crates/splatforge-gltf" }
 splatforge-khr-conformance = { path = "crates/splatforge-khr-conformance" }
 splatforge-usd-conformance = { path = "crates/splatforge-usd-conformance" }

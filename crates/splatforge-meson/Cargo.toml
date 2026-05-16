@@ -1,0 +1,30 @@
+[package]
+name = "splatforge-meson"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MesonGS++: post-training 3DGS codec — K-means + spatial-context arithmetic coding for ~18× lossless-ish compression on CPU."
+
+[dependencies]
+splatforge-core = { workspace = true }
+splatforge-ply  = { workspace = true }
+byteorder       = { workspace = true }
+thiserror       = { workspace = true }
+anyhow          = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+clap            = { workspace = true }
+rayon           = { workspace = true }
+constriction    = "0.4"
+probability     = "0.20"
+crc32fast       = "1.4"
+
+[[bin]]
+name = "mesonpp"
+path = "src/bin.rs"
+
+[lib]
+name = "splatforge_meson"
+path = "src/lib.rs"

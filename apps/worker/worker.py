@@ -142,6 +142,62 @@ def run_optimize(
         _post_phase(callback_url, "fetching")
         _download(blob_url, src_path)
 
+        # ----------------------------------------------------------------
+        # MesonGS++ codec branch: the `mgs-*` presets produce a single
+        # `.meson` binary container instead of a glTF + sidecars. The
+        # download UX is the same (one URL → one self-contained file),
+        # so we skip the glTF / .glb / preview path entirely and just
+        # upload the .meson.
+        # ----------------------------------------------------------------
+        if preset.startswith("mgs-"):
+            _post_phase(callback_url, "encoding-meson")
+            meson_path = out_dir / "optimized.meson"
+            mesonpp_log = work / "mesonpp.log"
+            rc = _run_cli_streaming(
+                [
+                    "splatforge",
+                    "mesonpp-encode",
+                    str(src_path),
+                    "-o",
+                    str(meson_path),
+                    "--preset",
+                    preset,
+                ],
+                mesonpp_log,
+                callback_url,
+            )
+            if rc != 0 or not meson_path.exists():
+                payload = {
+                    "status": "error",
+                    "error": _tail(mesonpp_log, 4096) or f"mesonpp exited {rc}",
+                }
+                return _callback(callback_url, payload)
+            _post_phase(callback_url, "packaging")
+            try:
+                output_url = _upload_blob(
+                    f"jobs/{job_id}/optimized.meson",
+                    meson_path,
+                    "application/octet-stream",
+                )
+            except Exception as exc:  # noqa: BLE001
+                return _callback(
+                    callback_url,
+                    {"status": "error", "error": f"output upload failed: {exc}"},
+                )
+            volume.commit()
+            return _callback(
+                callback_url,
+                {
+                    "status": "done",
+                    "output_url": output_url,
+                    # No preview URL — .meson isn't browser-renderable
+                    # yet. The viewer ships its own decoder build out of
+                    # `crates/splatforge-meson` via wasm; until that's
+                    # wired, the customer downloads the .meson directly.
+                    "preview_url": None,
+                },
+            )
+
         # Phase 2: run splatforge optimize → gltf. Stream stdout line-by-line
         # so we can forward `PROGRESS frac=X stage=Y` lines emitted by
         # `--progress` straight through to the API as live updates.

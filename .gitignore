@@ -25,6 +25,11 @@ tests/visual/.cache/
 /benches/scratch/
 /benches/runs/
 
+# MesonGS++ codec local smoke / scratch artifacts. The harness writes
+# encoded `.meson` blobs and decoded round-trip `.ply`s here; they're
+# regenerable from `apps/modal-presets-local/mesonpp_smoke.py`.
+/tasks/scripts/meson-out/
+
 # Pre-v0.1.2 SplatBench scenes regenerate via `python3 benches/synth_scenes.py
 # benches/scenes`; they're large (the dense proxy is 473 MB) and not committed.
 # The v0.1.2 failure-mode scenes are small enough to ship as fixtures and ARE

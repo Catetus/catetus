@@ -264,6 +264,29 @@ enum Command {
         #[command(subcommand)]
         cmd: LodgeCmd,
     },
+    /// MesonGS++ post-training codec — encode a `.ply` to `.meson`.
+    ///
+    /// Wraps the standalone `mesonpp` binary's library API. CPU-only,
+    /// hits ~23× on Mip-NeRF360-class scenes in the default config
+    /// (`--preset mgs-balanced`).
+    MesonppEncode {
+        /// Input `.ply` (Inria 3DGS format).
+        input: PathBuf,
+        /// Output `.meson` container.
+        #[arg(long, short = 'o')]
+        out: PathBuf,
+        /// Preset name — chooses K-means / xyz-bits / order-preservation
+        /// trade-offs. `mgs-balanced` (default) targets 18-23× at near-
+        /// lossless quality; `mgs-aggressive` tightens K for ~25×.
+        #[arg(long, default_value = "mgs-balanced")]
+        preset: String,
+    },
+    /// MesonGS++ post-training codec — decode a `.meson` to `.ply`.
+    MesonppDecode {
+        input: PathBuf,
+        #[arg(long, short = 'o')]
+        out: PathBuf,
+    },
     /// Validate an asset against a SplatForge-supported standard
     /// (KHR_gaussian_splatting today; OpenUSD when the USDC reader path
     /// is wired). Wraps `splatforge-khr-validate` for the glTF case.
@@ -535,6 +558,10 @@ fn dispatch(cli: Cli) -> Result<()> {
             } => cmd_lodge_unpack(&input, level, &output),
             LodgeCmd::Info { input, json } => cmd_lodge_info(&input, json),
         },
+        Command::MesonppEncode { input, out, preset } => {
+            cmd_mesonpp_encode(&input, &out, &preset)
+        }
+        Command::MesonppDecode { input, out } => cmd_mesonpp_decode(&input, &out),
     }
 }
 
@@ -789,6 +816,68 @@ fn cmd_morton_permute(input: &Path, out: &Path) -> Result<()> {
         n,
         elapsed.as_secs_f64() * 1000.0,
         out.display()
+    );
+    Ok(())
+}
+
+/// MesonGS++ encode wrapper. Maps the public preset names onto
+/// `splatforge_meson::EncodeConfig`.
+fn cmd_mesonpp_encode(input: &Path, out: &Path, preset_name: &str) -> Result<()> {
+    let cfg = match preset_name {
+        // Production default. Targets ~18-23× on Mip-NeRF360 scenes.
+        // Default-EncodeConfig (K=256 for all groups, 14-bit xyz, no
+        // perm) is what ships as the worker preset.
+        "mgs-balanced" => splatforge_meson::EncodeConfig::default(),
+        // Aggressive — K=128 for low groups, 12 xyz bits. Cuts another
+        // ~15 % off the file at the cost of 0.1 dB.
+        "mgs-aggressive" => splatforge_meson::EncodeConfig {
+            kmeans_k_low: 128,
+            kmeans_k_color: 256,
+            xyz_bits: 12,
+            kmeans_iters: 10,
+            seed: 0xC0FFEE,
+            preserve_order: false,
+        },
+        // High-fidelity — keeps the input ordering, K=256 everywhere.
+        // For pipelines downstream of a Morton-sensitive consumer.
+        "mgs-preserve-order" => splatforge_meson::EncodeConfig {
+            preserve_order: true,
+            ..splatforge_meson::EncodeConfig::default()
+        },
+        other => {
+            return Err(anyhow!(
+                "unknown mesonpp preset: {other}. valid: mgs-balanced, mgs-aggressive, mgs-preserve-order"
+            ))
+        }
+    };
+    let scene = read_ply(input)
+        .with_context(|| format!("reading PLY {}", input.display()))?;
+    let bytes = splatforge_meson::encode_scene(&scene, &cfg)
+        .with_context(|| format!("mesonpp encoding {}", input.display()))?;
+    std::fs::write(out, &bytes)
+        .with_context(|| format!("writing {}", out.display()))?;
+    println!(
+        "mesonpp encoded {} splats -> {} ({} bytes, preset={})",
+        scene.splats.len(),
+        out.display(),
+        bytes.len(),
+        preset_name,
+    );
+    Ok(())
+}
+
+/// MesonGS++ decode wrapper.
+fn cmd_mesonpp_decode(input: &Path, out: &Path) -> Result<()> {
+    let bytes = std::fs::read(input)
+        .with_context(|| format!("reading {}", input.display()))?;
+    let scene = splatforge_meson::decode_scene(&bytes)
+        .with_context(|| format!("mesonpp decoding {}", input.display()))?;
+    write_ply(&scene, out)
+        .with_context(|| format!("writing PLY {}", out.display()))?;
+    println!(
+        "mesonpp decoded {} splats -> {}",
+        scene.splats.len(),
+        out.display(),
     );
     Ok(())
 }
