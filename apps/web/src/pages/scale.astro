@@ -102,16 +102,17 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
       <div class="scale-card">
         <h2 class="scale-card-title">LOD level</h2>
         <div class="scale-lod-picker" data-lod-picker role="radiogroup" aria-label="LOD level">
-          <!-- Disabled levels: L0..L2 OOM in-browser today (wgpu maxBufferSize). -->
+          <!-- Disabled levels: L0..L2 either OOM in-browser or have no published chunks yet. -->
+          <!-- L0/L1 code-path proven via Stage 6+7 multi-page; awaiting Vercel Blob upload of L0/L1 chunks. -->
           <button type="button" class="scale-lod-btn" data-lod="0" disabled aria-disabled="true">
             <span class="scale-lod-name">L0</span>
             <span class="scale-lod-splats">119.8M</span>
-            <span class="scale-lod-tip">4090-only · in flight</span>
+            <span class="scale-lod-tip">4090-only · awaiting blob upload</span>
           </button>
           <button type="button" class="scale-lod-btn" data-lod="1" disabled aria-disabled="true">
             <span class="scale-lod-name">L1</span>
             <span class="scale-lod-splats">54.2M</span>
-            <span class="scale-lod-tip">4090-only · in flight</span>
+            <span class="scale-lod-tip">4090-only · awaiting blob upload</span>
           </button>
           <button type="button" class="scale-lod-btn" data-lod="2">
             <span class="scale-lod-name">L2</span>
@@ -610,12 +611,15 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
       setStatus("error", "navigator.gpu.requestAdapter() returned null — no compatible adapter");
       return null;
     }
-    // Cap the requested limits to what we actually need so older adapters
-    // don't reject the device request. Sweet Corals L5 = 3.2M splats × 64 B
-    // = 205 MB single buffer; we only need the storage-buffer max to be
-    // > 256 MB. maxBufferSize default is usually 256 MB on Macs.
-    const cap = Math.min(adapter.limits.maxStorageBufferBindingSize ?? 0, 1 * 1024 * 1024 * 1024);
-    const bufCap = Math.min(adapter.limits.maxBufferSize ?? 0, 1 * 1024 * 1024 * 1024);
+    // Stage 6 (sf-154): expose the adapter's full per-binding ceiling
+    // (typically 2 GiB by WebGPU spec on desktop adapters; ~256 MB on
+    // Mac default). The viewer's BufferPager handles per-buffer caps by
+    // splitting the decoded splat buffer into N pages, so we want the
+    // largest possible per-binding budget here. 4 GiB requested even
+    // though the spec caps maxStorageBufferBindingSize at 2 GiB-1 — the
+    // adapter clamps as needed.
+    const cap = adapter.limits.maxStorageBufferBindingSize ?? (256 * 1024 * 1024);
+    const bufCap = adapter.limits.maxBufferSize ?? (256 * 1024 * 1024);
     const device = await adapter.requestDevice({
       requiredLimits: {
         maxStorageBufferBindingSize: cap,
@@ -704,7 +708,10 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
     const numChunks = lvl.chunks.length;
     const capacity = lvl.splatCount + numChunks * 3;
     if (state.pipeline) state.pipeline.destroy();
-    state.pipeline = new state.ComputeDecodePipeline({ device: state.device, capacity });
+    // Stage 6+7 (sf-154): multi-page splats requires the fused project_gather
+    // path (only path that supports >33M splats per page). Single-page
+    // levels behave identically with this flag set.
+    state.pipeline = new state.ComputeDecodePipeline({ device: state.device, capacity, useFusedProject: true, useCull: false });
 
     state.loader = new state.LodgeChunkLoader(state.manifest, {
       baseUrl: lodgeManifestUrl, // chunk paths are absolute URLs in this manifest
@@ -800,8 +807,16 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
       });
       pass.setPipeline(state.renderPipeline);
       pass.setBindGroup(0, state.bindGroup);
-      pass.setVertexBuffer(0, state.pipeline.instanceBuffer);
-      pass.draw(4, state.pipeline.splatCount, 0, 0);
+      // Stage 7 (sf-154): multi-draw across instance pages so L0/L1
+      // (multi-page instance buffer) render correctly. When numPages == 1
+      // this collapses to a single draw identical to the pre-Stage-7 path.
+      const totalSplats = state.pipeline.splatCount;
+      for (const page of state.pipeline.instancePages) {
+        const pageCount = Math.min(page.splatCount, totalSplats - page.splatStart);
+        if (pageCount <= 0) break;
+        pass.setVertexBuffer(0, page.buffer);
+        pass.draw(4, pageCount, 0, 0);
+      }
       pass.end();
       state.device.queue.submit([enc.finish()]);
     }

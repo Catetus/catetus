@@ -230,9 +230,22 @@ export class WebGPURenderer {
             pass.setPipeline(this.pipeline);
             pass.setBindGroup(0, this.bindGroup);
             if (count > 0) {
-                pass.setVertexBuffer(0, this.compute.instanceBuffer);
-                pass.draw(VERTICES_PER_QUAD, count, 0, 0);
-                this.drawCallCount++;
+                // Stage 7 (sf-154): multi-draw across instance pages.
+                // The sorted instance buffer is paged the same way as the splats
+                // buffer (Stage 6). For each page, dispatch one draw with the
+                // page's bound vertex buffer + the page-local active count
+                // (= min(page.splatCount, count - page.splatStart)).
+                // When numPages == 1 this collapses to a single draw identical
+                // to the pre-Stage-7 path.
+                const pages = this.compute.instancePages;
+                for (const page of pages) {
+                    const pageCount = Math.min(page.splatCount, count - page.splatStart);
+                    if (pageCount <= 0)
+                        break;
+                    pass.setVertexBuffer(0, page.buffer);
+                    pass.draw(VERTICES_PER_QUAD, pageCount, 0, 0);
+                    this.drawCallCount++;
+                }
             }
             pass.end();
             this.device.queue.submit([encoder.finish()]);

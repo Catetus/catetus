@@ -21,8 +21,25 @@
  * after a warm-up frame and reuses the count for the timed iterations.
  */
 import { CULL_WGSL, SCAN_MULTIBLOCK_WGSL } from './shaders.generated.js';
+import { dispatchPerSplat } from './multi-dispatch.js';
 /** Workgroup size used by every kernel in cs_cull.wgsl + scan_multiblock.wgsl. */
 const WG = 256;
+/**
+ * Byte offset of `chunk_offset: u32` inside `cs_cull.wgsl::CullUniforms`.
+ * Layout: 2×mat4(128) + viewport(8) + focal(8) + splat_count(4) + tau(4) = 152.
+ */
+const CULL_UNIFORM_CHUNK_OFFSET_BYTES = 152;
+/**
+ * Byte offset of `chunk_offset: u32` inside `cs_cull.wgsl::CompactUniforms`.
+ * Layout: splat_count(4) → chunk_offset starts at 4.
+ */
+const COMPACT_UNIFORM_CHUNK_OFFSET_BYTES = 4;
+/**
+ * Byte offset of `chunk_offset: u32` inside the cs_project_cmpct uniform
+ * (cs_cull.wgsl::ProjectUniforms). Layout matches the regular ProjectUniforms:
+ * 2×mat4 + viewport + focal + splat_count(4) → chunk_offset at 148.
+ */
+const PROJECT_CMPCT_UNIFORM_CHUNK_OFFSET_BYTES = 148;
 /**
  * Override the EWA dilation floor in the cull-pipeline WGSL. Mirrors the
  * same `SF_EWA_DILATION` token-replace in `index.ts::applyDilationOverride`.
@@ -99,6 +116,9 @@ export class CullPipeline {
     /** 2-element u32 readback: [prefix[N-1], flag[N-1]]. Sum = survivor count. */
     readbackTail;
     readbackStaging;
+    /** Caller-owned project uniforms (used by cs_project_cmpct). Held for
+     *  multi-dispatch chunk_offset rewrites. */
+    projectUniformsRef;
     cullBindGroup;
     compactBindGroup;
     projectCmpctBindGroup;
@@ -111,6 +131,7 @@ export class CullPipeline {
         this.device = init.device;
         this.capacity = init.capacity;
         this.pipes = init.pipes;
+        this.projectUniformsRef = init.projectUniforms;
         const u32Size = Math.max(this.capacity * 4, 4);
         const stUsage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
         this.flagBuffer = this.device.createBuffer({ size: u32Size, usage: stUsage });
@@ -227,15 +248,15 @@ export class CullPipeline {
             this.device.queue.writeBuffer(this.compactUniforms, 0, u.buffer);
         }
         const wgs = Math.ceil(splatCount / WG);
-        // ---- cs_cull ----
-        {
-            const pass = encoder.beginComputePass();
-            pass.setPipeline(this.pipes.cull);
-            pass.setBindGroup(0, this.cullBindGroup);
-            pass.dispatchWorkgroups(wgs);
-            pass.end();
-        }
+        void wgs;
+        // ---- cs_cull (multi-dispatch over splat_count) ----
+        dispatchPerSplat(this.device, encoder, this.pipes.cull, this.cullBindGroup, this.cullUniforms, CULL_UNIFORM_CHUNK_OFFSET_BYTES, splatCount, WG);
         // ---- scan_multiblock (3 phases) on prefixBuffer in-place ----
+        // NOTE: the per-wg scan is dispatched at numScanWgs, which equals
+        // ceil(splat_count / 256). At splat_count > 16.7M this also exceeds
+        // the WebGPU dispatch cap and needs its own multi-dispatch wrapper —
+        // see the radix-sort + scan followup in
+        // tasks/scripts/wgpu-multidispatch-followup.md (Stage 5).
         {
             const pass = encoder.beginComputePass();
             pass.setPipeline(this.pipes.scanPerWg);
@@ -247,14 +268,8 @@ export class CullPipeline {
             pass.dispatchWorkgroups(numScanWgs);
             pass.end();
         }
-        // ---- cs_compact ----
-        {
-            const pass = encoder.beginComputePass();
-            pass.setPipeline(this.pipes.compact);
-            pass.setBindGroup(0, this.compactBindGroup);
-            pass.dispatchWorkgroups(wgs);
-            pass.end();
-        }
+        // ---- cs_compact (multi-dispatch over splat_count) ----
+        dispatchPerSplat(this.device, encoder, this.pipes.compact, this.compactBindGroup, this.compactUniforms, COMPACT_UNIFORM_CHUNK_OFFSET_BYTES, splatCount, WG);
         // ---- copy (prefix[N-1], flag[N-1]) into the 8B readback staging ----
         // Survivor count = prefix[N-1] + flag[N-1].
         const tailOff = (splatCount - 1) * 4;
@@ -283,11 +298,12 @@ export class CullPipeline {
             // is responsible for the uniform layout.
             void u;
             const survWgs = Math.ceil(this.cachedSurvivors / WG);
-            const pass = encoder.beginComputePass();
-            pass.setPipeline(this.pipes.projectCmpct);
-            pass.setBindGroup(0, this.projectCmpctBindGroup);
-            pass.dispatchWorkgroups(survWgs);
-            pass.end();
+            void survWgs;
+            // Multi-dispatch over survivors so > 16.7 M-survivor frames don't
+            // trip the dispatch cap. The host already packed projectUniforms
+            // with splat_count = cachedSurvivors and chunk_offset = 0; the
+            // helper rewrites only chunk_offset between chunks.
+            dispatchPerSplat(this.device, encoder, this.pipes.projectCmpct, this.projectCmpctBindGroup, this.projectUniformsRef, PROJECT_CMPCT_UNIFORM_CHUNK_OFFSET_BYTES, this.cachedSurvivors, WG);
         }
     }
     /** Read back the survivor count. Updates `cachedSurvivors`. */

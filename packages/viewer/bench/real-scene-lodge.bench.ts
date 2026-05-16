@@ -189,9 +189,16 @@ export async function runLodgeBench(
     // alignDecodedSplats in chunk-loader.ts). Bump the capacity by
     // `numChunks * 3` so the final padded count still fits.
     const numChunks = lvl.chunks.length;
+    // Stage 6 (sf-154): use the fused project_gather path so capacities
+    // > 33M splats work (multi-page splats supported only by the fused
+    // path). Cull is incompatible with the fused path; we'd lose the
+    // 2.8x bicycle speedup but gain LODGE L1/L0 viability. Bench-scope
+    // tradeoff: the LODGE pyramid IS the prod path; cull is bench-only.
     const pipeline = new ComputeDecodePipeline({
       device,
       capacity: lvl.splatCount + numChunks * 3,
+      useFusedProject: true,
+      useCull: false,
     });
 
     const loader = new LodgeChunkLoader(manifest, {
@@ -347,9 +354,26 @@ export async function main(): Promise<void> {
   // (Stage 5, feat/wgpu-multidispatch-stage5). The dispatchCap is therefore
   // dropped here: the only remaining ceiling is the device's maxBufferSize
   // for the decoded-splat / instance buffers, which is a separate followup.
+  // Stage 6 (sf-154): the canonical decoded-splat buffer can now span
+  // multiple pages (BufferPager), so the splats-per-binding cap no
+  // longer applies. The remaining single-binding ceiling is the
+  // instance buffer (12 floats × 4 B = 48 B / splat) which is bound
+  // as a vertex buffer (so still single-binding). At 2 GiB that's
+  // 2147483648 / 48 ≈ 44.7 M splats. We round down to a multiple of
+  // 256 for workgroup alignment.
+  const INSTANCE_BYTES = 12 * 4; // FLOATS_PER_INSTANCE × 4
+  // Stage 6 (sf-154): BOTH the decoded-splats buffer and the instance
+  // buffer are now paged. The remaining single-binding ceilings are the
+  // sort key/value buffers (4 B/splat) and the instance buffer at the
+  // RENDERER vertex-bind site (single GPUBuffer). For the bench (no draws)
+  // only the allocation matters, which is paged. The sort buffers cap at
+  // 2 GiB / 4 B = ~530M splats — well above LODGE L0 (~119M).
+  const sortCap = Math.floor(want.maxBufferSize / 4);
+  const instanceCap = Math.floor(want.maxBufferSize / INSTANCE_BYTES);
   const bufferCap = Math.floor(want.maxBufferSize / BYTES_PER_DECODED_SPLAT) - 1;
-  const capacityCap = bufferCap;
-  log(`bench: capacityCap = ${capacityCap} splats (bufferCap=${bufferCap})`);
+  // Cap = sort buffer ceiling (the only remaining unbounded single binding).
+  const capacityCap = sortCap;
+  log(`bench: capacityCap = ${capacityCap} splats (sortCap=${sortCap}, instanceCap=${instanceCap} paged, splatsBufferCap=${bufferCap} paged)`);
 
   const results: LodgeSceneResult[] = [];
   for (const name of scenes) {

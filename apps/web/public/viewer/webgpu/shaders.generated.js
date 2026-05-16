@@ -50,15 +50,17 @@ struct AttributeSlice {
 };
 
 struct DecodeUniforms {
-  splat_count: u32,
-  _pad0: u32,
-  _pad1: u32,
-  _pad2: u32,
-  positions: AttributeSlice,
-  rotations: AttributeSlice,
-  scales:    AttributeSlice,
-  opacities: AttributeSlice,
-  color_dc:  AttributeSlice,
+  splat_count:  u32,
+  // chunk_offset: first splat index covered by this dispatch. Multi-dispatch
+  // wrappers update only this slot between chunks (see multi-dispatch.ts).
+  chunk_offset: u32,
+  _pad1:        u32,
+  _pad2:        u32,
+  positions:    AttributeSlice,
+  rotations:    AttributeSlice,
+  scales:       AttributeSlice,
+  opacities:    AttributeSlice,
+  color_dc:     AttributeSlice,
 };
 
 @group(0) @binding(0) var<storage, read>       src_bytes : array<u32>;
@@ -124,7 +126,7 @@ fn comp_stride(slice: AttributeSlice) -> u32 {
 
 @compute @workgroup_size(256)
 fn cs_decode(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   // POSITION (vec3)
@@ -178,9 +180,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 
 // Per-instance vertex-buffer record (must match FLOATS_PER_INSTANCE=12).
@@ -232,7 +234,7 @@ fn cov3d(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + pu.chunk_offset;
   if (i >= pu.splat_count) { return; }
 
   let s = p_splats[i];
@@ -366,8 +368,16 @@ const PASSES  : u32 = 4u;        // 32 bits / 8 bits
 struct Uniforms {
   count: u32,
   bit_shift: u32,    // 0, 8, 16, 24
-  num_wgs: u32,      // ceil(count / WG_SIZE)
-  _pad: u32,
+  num_wgs: u32,      // ceil(count / WG_SIZE) — chunk-local at large N
+  // Per-chunk sort base offset (Stage 5): when the caller chunks a sort that
+  // exceeds the WebGPU 1.0 dispatch cap (16.7M splats), the orchestrator
+  // sorts each chunk in-place at [chunk_offset_splats, chunk_offset_splats +
+  // count). Reads of \`keys_in/values_in\` and writes of \`keys_out/values_out\`
+  // both add this base. The histogram array is still chunk-local
+  // (size num_wgs * RADIX) because per-chunk sort recomputes it.
+  // For non-chunked sorts (count <= 16.7M) chunk_offset_splats = 0 and the
+  // shader behaves identically to the original code.
+  chunk_offset_splats: u32,
 };
 
 @group(0) @binding(0) var<storage, read>       keys_in    : array<u32>;
@@ -406,7 +416,7 @@ fn cs_histogram(
 
   let i = gid.x;
   if (i < u.count) {
-    let k = keys_in[i];
+    let k = keys_in[i + u.chunk_offset_splats];
     let bin = (k >> u.bit_shift) & RADIX_MASK;
     atomicAdd(&wg_hist[bin], 1u);
   }
@@ -416,7 +426,8 @@ fn cs_histogram(
   // [bin * num_wgs + wgid]. This bin-major layout means the global exclusive
   // scan naturally places all of bin 0's workgroups first, then bin 1's,
   // etc. — i.e. ascending sort order without an extra grouping pass after
-  // the scan.
+  // the scan. The histogram is chunk-local; the orchestrator reuses the
+  // same buffer across chunks but reset/scanned per chunk.
   let h = atomicLoad(&wg_hist[lid.x]);
   histograms[lid.x * u.num_wgs + wgid.x] = h;
 }
@@ -506,8 +517,8 @@ fn cs_scatter(
   var local_rank: u32 = 0u;
   var live: bool = false;
   if (i < u.count) {
-    key = keys_in[i];
-    val = values_in[i];
+    key = keys_in[i + u.chunk_offset_splats];
+    val = values_in[i + u.chunk_offset_splats];
     bin = (key >> u.bit_shift) & RADIX_MASK;
     // atomicAdd returns the old value -> that's the rank of this element
     // within its bin for this workgroup.
@@ -517,7 +528,10 @@ fn cs_scatter(
   workgroupBarrier();
 
   if (live) {
-    let dst = wg_offsets[bin] + local_rank;
+    // wg_offsets[bin] is the chunk-local exclusive prefix from the scan
+    // over the chunk's histogram. Add chunk_offset_splats to land the
+    // sorted output in the correct chunk slot of the output buffer.
+    let dst = wg_offsets[bin] + local_rank + u.chunk_offset_splats;
     keys_out[dst]   = key;
     values_out[dst] = val;
   }
@@ -578,9 +592,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 
 // ---------------------------------------------------------------------------
@@ -594,7 +608,7 @@ struct ProjectUniforms {
 
 @compute @workgroup_size(256)
 fn cs_keygen(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + ku.chunk_offset;
   if (i >= ku.splat_count) { return; }
   let s = k_splats[i];
   let pos = s.pos.xyz;
@@ -655,7 +669,7 @@ fn cov3d_fg(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project_gather(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + gu.chunk_offset;
   if (i >= gu.splat_count) { return; }
 
   // Indirection: thread \`i\` writes the i-th sorted slot; we read the splat
@@ -929,7 +943,9 @@ struct Uniforms {
   count: u32,
   bit_shift: u32,
   num_wgs: u32,
-  _pad: u32,
+  // Per-chunk sort base offset (Stage 5): kept in lockstep with
+  // \`radix_sort.wgsl::Uniforms\`. See that file for the contract.
+  chunk_offset_splats: u32,
 };
 
 @group(0) @binding(0) var<storage, read>       keys_in    : array<u32>;
@@ -959,7 +975,7 @@ fn cs_histogram_subgroup(
   // for wg_hist, so the sentinel never reaches atomicAdd.
   var bin: u32 = RADIX;
   if (live) {
-    let k = keys_in[i];
+    let k = keys_in[i + u.chunk_offset_splats];
     bin = (k >> u.bit_shift) & RADIX_MASK;
   }
 
@@ -1047,7 +1063,11 @@ struct CullUniforms {
   focal:       vec2<f32>,
   splat_count: u32,
   tau:         f32,
-  _pad:        vec2<u32>,
+  // chunk_offset: first splat index covered by this dispatch. Multi-dispatch
+  // wrappers update only this slot between chunks (see multi-dispatch.ts).
+  // Single-dispatch callers leave it 0.
+  chunk_offset: u32,
+  _pad:         u32,
 };
 
 // =============================================================================
@@ -1095,7 +1115,7 @@ fn cov3d_cull(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_cull(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + cu_u.chunk_offset;
   if (i >= cu_u.splat_count) { return; }
 
   let s = cu_splats[i];
@@ -1166,8 +1186,9 @@ fn cs_cull(@builtin(global_invocation_id) gid : vec3<u32>) {
 //   3 (uniform)     : { splat_count, _pad, _pad, _pad }
 // =============================================================================
 struct CompactUniforms {
-  splat_count: u32,
-  _pad: vec3<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad:         vec2<u32>,
 };
 @group(0) @binding(0) var<storage, read>       co_flag    : array<u32>;
 @group(0) @binding(1) var<storage, read>       co_prefix  : array<u32>;
@@ -1176,7 +1197,7 @@ struct CompactUniforms {
 
 @compute @workgroup_size(256)
 fn cs_compact(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + co_u.chunk_offset;
   if (i >= co_u.splat_count) { return; }
   if (co_flag[i] == 1u) {
     co_compact[co_prefix[i]] = i;
@@ -1199,9 +1220,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 @group(0) @binding(0) var<storage, read>       pc_splats   : array<DecodedSplat>;
 @group(0) @binding(1) var<storage, read_write> pc_inst     : array<Instance>;
@@ -1242,7 +1263,7 @@ fn cov3d_pc(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project_cmpct(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + pc_u.chunk_offset;
   if (i >= pc_u.splat_count) { return; }   // splat_count here = survivors
 
   let si = pc_compact[i];
@@ -1403,7 +1424,8 @@ struct WSRUniforms {
   viewport:    vec2<f32>,
   focal:       vec2<f32>,
   splat_count: u32,
-  _pad0:       u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
   // Per-frame WSR parameters. PR1 uses a single scene-wide σ derived host-
   // side from \`2 × scene_mean_depth\`; PR3 replaces this with a learned σ
   // baked into the manifest. v_i is treated as 0 in PR1 (no per-splat
@@ -1470,7 +1492,7 @@ fn atomic_add_f32(slot: ptr<storage, atomic<u32>, read_write>, value: f32) {
 
 @compute @workgroup_size(256)
 fn cs_wsr_accumulate(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   let s = splats[i];
@@ -1685,7 +1707,8 @@ struct TileBinUniforms {
   tiles_x:     u32,          // ceil(W / tile_size)
   tiles_y:     u32,          // ceil(H / tile_size)
   max_per_tile: u32,         // hard cap on per-tile list length
-  _pad0:        u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
   sigma:        f32,
   v_default:    f32,
 };
@@ -1728,7 +1751,7 @@ fn cov3d_w(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_tile_bin(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   let s = splats[i];
@@ -2324,7 +2347,8 @@ struct LodBlendUniforms {
   // When \`force_passthrough == 1\`, this kernel becomes a no-op (used by
   // the test harness to bypass the blend without re-creating buffers).
   force_passthrough: u32,
-  _pad: u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
 };
 
 @group(0) @binding(0) var<storage, read_write> lb_splats     : array<DecodedSplat>;
@@ -2334,7 +2358,7 @@ struct LodBlendUniforms {
 
 @compute @workgroup_size(256)
 fn cs_lod_blend(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + lb_u.chunk_offset;
   if (i >= lb_u.splat_count) { return; }
   if (lb_u.force_passthrough == 1u) { return; }
 
@@ -2378,8 +2402,9 @@ fn cs_lod_blend(@builtin(global_invocation_id) gid: vec3<u32>) {
 //   2 (uniform)    : { splat_count, _pad×3 }
 // =============================================================================
 struct ResetUniforms {
-  splat_count: u32,
-  _pad: vec3<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad:         vec2<u32>,
 };
 
 @group(0) @binding(0) var<storage, read_write> lr_splats : array<DecodedSplat>;
@@ -2388,9 +2413,161 @@ struct ResetUniforms {
 
 @compute @workgroup_size(256)
 fn cs_lod_alpha_reset(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + lr_u.chunk_offset;
   if (i >= lr_u.splat_count) { return; }
   lr_splats[i].pos.w = lr_alpha[i];
+}
+`;
+export const RADIX_MERGE_WGSL = `// SPDX-License-Identifier: Apache-2.0
+//
+// Pairwise stable merge over two adjacent sorted runs of (u32 key, u32 value).
+//
+// Used by the chunked radix-sort path (\`RadixSort.encode\` when
+// \`count > SPLAT_DISPATCH_CAP\`): the input is split into K <= 8 chunks each
+// of which is sorted independently with the existing 4-pass radix kernels.
+// We then run log2(K) merge passes, each merging adjacent pairs of runs into
+// runs of double the length.
+//
+// One workgroup per chunk-of-output (workgroup_size = 256 = WG_SIZE). Each
+// thread is responsible for ONE output slot at index
+// \`out_idx = u.merge_out_base + u.chunk_offset_splats + gid.x\`. It performs
+// a Merge-Path binary search across the two runs to find which input owns
+// that slot, then writes the (key, value).
+//
+// Stability: when keys tie between runs A and B, the merge picks from A
+// first. Since A's run starts before B's run in the input and the per-chunk
+// radix sort is stable within a chunk, the overall sort is stable.
+//
+// Uniform layout (one merge invocation merges ONE adjacent pair):
+//   count                — total elements in the dst buffer (for guard).
+//   chunk_offset_splats  — splat-index offset added inside the kernel so the
+//                          same dispatch can be chunked across multiple
+//                          <= 65535 wg sub-dispatches. The kernel-visible
+//                          output slot is gid.x + chunk_offset_splats.
+//   merge_out_base       — splat-index where this merge pair's output
+//                          starts (== run_a_start).
+//   merge_out_len        — total length of the merged run (== a_len + b_len).
+//   run_a_start          — input start of run A (sorted).
+//   run_a_len            — length of run A.
+//   run_b_start          — input start of run B (sorted). Adjacent: ==
+//                          run_a_start + run_a_len, BUT we pass it
+//                          explicitly so this kernel can also be used to
+//                          collapse a tail run (set run_b_len = 0).
+//   run_b_len            — length of run B. May be 0 for odd-count tails.
+//
+// Guard: if (gid.x + chunk_offset_splats) >= merge_out_len, the thread
+// returns immediately. This handles the tail of the last chunked
+// sub-dispatch as well as the per-pass shrinking output set.
+
+const WG_SIZE : u32 = 256u;
+
+struct MergeUniforms {
+  count:               u32,
+  chunk_offset_splats: u32,
+  merge_out_base:      u32,
+  merge_out_len:       u32,
+  run_a_start:         u32,
+  run_a_len:           u32,
+  run_b_start:         u32,
+  run_b_len:           u32,
+};
+
+@group(0) @binding(0) var<storage, read>       keys_in    : array<u32>;
+@group(0) @binding(1) var<storage, read>       values_in  : array<u32>;
+@group(0) @binding(2) var<storage, read_write> keys_out   : array<u32>;
+@group(0) @binding(3) var<storage, read_write> values_out : array<u32>;
+@group(0) @binding(4) var<uniform>             u          : MergeUniforms;
+
+// Merge-Path: for output slot k (within the merged run), find the (i, j)
+// split such that i + j == k AND A[i-1] <= B[j] AND B[j-1] < A[i] (stable,
+// favoring A on ties). We binary-search the diagonal i + j = k.
+//
+// Returns vec2<u32>(i, j) — the count of A and B elements that go before
+// slot k. The element at slot k is then:
+//   if (i < a_len && (j == b_len || A[i] <= B[j])) take A[i]
+//   else                                            take B[j]
+fn merge_path(k: u32) -> vec2<u32> {
+  let a_len = u.run_a_len;
+  let b_len = u.run_b_len;
+  // Search range for i: max(0, k - b_len) .. min(a_len, k).
+  var lo: u32 = 0u;
+  if (k > b_len) { lo = k - b_len; }
+  var hi: u32 = a_len;
+  if (k < hi) { hi = k; }
+
+  loop {
+    if (lo >= hi) { break; }
+    let i = (lo + hi) >> 1u;
+    let j = k - i;
+    // We want: A[i-1] <= B[j] (when i > 0 and j < b_len) AND
+    //          B[j-1] < A[i]  (when j > 0 and i < a_len).
+    // If A[i] <= B[j-1], i is too small — search right.
+    var a_too_small = false;
+    if (j > 0u && i < a_len) {
+      let a_i = keys_in[u.run_a_start + i];
+      let b_jm1 = keys_in[u.run_b_start + (j - 1u)];
+      // Stable: B[j-1] must be strictly less than A[i] for split to be valid.
+      // If A[i] <= B[j-1], A side is too small.
+      if (a_i <= b_jm1) { a_too_small = true; }
+    }
+    if (a_too_small) {
+      lo = i + 1u;
+    } else {
+      hi = i;
+    }
+  }
+  let i_final = lo;
+  let j_final = k - i_final;
+  return vec2<u32>(i_final, j_final);
+}
+
+@compute @workgroup_size(WG_SIZE)
+fn cs_radix_merge(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let local_k = gid.x + u.chunk_offset_splats;
+  if (local_k >= u.merge_out_len) { return; }
+
+  // Degenerate cases (one side empty): straight copy.
+  if (u.run_b_len == 0u) {
+    let src = u.run_a_start + local_k;
+    let dst = u.merge_out_base + local_k;
+    keys_out[dst]   = keys_in[src];
+    values_out[dst] = values_in[src];
+    return;
+  }
+  if (u.run_a_len == 0u) {
+    let src = u.run_b_start + local_k;
+    let dst = u.merge_out_base + local_k;
+    keys_out[dst]   = keys_in[src];
+    values_out[dst] = values_in[src];
+    return;
+  }
+
+  let ij = merge_path(local_k);
+  let i = ij.x;
+  let j = ij.y;
+  let dst = u.merge_out_base + local_k;
+
+  // Pick from A if A still has elements AND (B exhausted OR A[i] <= B[j]).
+  // Equal keys tie-break to A for stability.
+  var pick_a: bool = false;
+  if (i < u.run_a_len) {
+    if (j >= u.run_b_len) {
+      pick_a = true;
+    } else {
+      let a_i = keys_in[u.run_a_start + i];
+      let b_j = keys_in[u.run_b_start + j];
+      if (a_i <= b_j) { pick_a = true; }
+    }
+  }
+  if (pick_a) {
+    let src = u.run_a_start + i;
+    keys_out[dst]   = keys_in[src];
+    values_out[dst] = values_in[src];
+  } else {
+    let src = u.run_b_start + j;
+    keys_out[dst]   = keys_in[src];
+    values_out[dst] = values_in[src];
+  }
 }
 `;
 //# sourceMappingURL=shaders.generated.js.map

@@ -23,55 +23,37 @@
 // This file is the single source of truth for the dispatch carving math
 // so the unit test (multi-dispatch.test.ts) can pin the slicing without
 // reaching into individual kernel call sites.
-
 /** Maximum workgroups dispatchable per dimension by WebGPU 1.0. */
 export const WEBGPU_MAX_DISPATCH_PER_DIM = 65535;
-
 /** Default per-splat workgroup size (splats / WG). Matches all 1D splat kernels today. */
 export const SPLAT_WORKGROUP_SIZE = 256;
-
 /** Largest splat count a single dispatch can cover at workgroup_size=256. */
-export const SPLAT_DISPATCH_CAP =
-  WEBGPU_MAX_DISPATCH_PER_DIM * SPLAT_WORKGROUP_SIZE; // 16,776,960
-
-export interface DispatchChunk {
-  /** Splat-index offset for this chunk (0 for the first). */
-  chunkOffset: number;
-  /** Number of workgroups to dispatch for this chunk (<= 65535). */
-  workgroupCount: number;
-  /** Number of splats this chunk's dispatch covers. */
-  splatCount: number;
-}
-
+export const SPLAT_DISPATCH_CAP = WEBGPU_MAX_DISPATCH_PER_DIM * SPLAT_WORKGROUP_SIZE; // 16,776,960
 /**
  * Carve `splatCount` total splats into 1..N chunks of <= `dispatchCap`
  * workgroups (default 65535). Each chunk's workgroup count is `ceil(slice/wg)`.
  *
  * Pure function. Used both by the dispatch wrapper and the unit test.
  */
-export function planDispatchChunks(
-  splatCount: number,
-  workgroupSize: number = SPLAT_WORKGROUP_SIZE,
-  dispatchCap: number = WEBGPU_MAX_DISPATCH_PER_DIM,
-): DispatchChunk[] {
-  if (splatCount <= 0) return [];
-  if (!Number.isFinite(splatCount) || splatCount < 0) {
-    throw new Error(`planDispatchChunks: invalid splatCount ${splatCount}`);
-  }
-  const splatsPerChunk = dispatchCap * workgroupSize;
-  const chunks: DispatchChunk[] = [];
-  let remaining = splatCount;
-  let offset = 0;
-  while (remaining > 0) {
-    const slice = Math.min(remaining, splatsPerChunk);
-    const wgs = Math.ceil(slice / workgroupSize);
-    chunks.push({ chunkOffset: offset, workgroupCount: wgs, splatCount: slice });
-    offset += slice;
-    remaining -= slice;
-  }
-  return chunks;
+export function planDispatchChunks(splatCount, workgroupSize = SPLAT_WORKGROUP_SIZE, dispatchCap = WEBGPU_MAX_DISPATCH_PER_DIM) {
+    if (splatCount <= 0)
+        return [];
+    if (!Number.isFinite(splatCount) || splatCount < 0) {
+        throw new Error(`planDispatchChunks: invalid splatCount ${splatCount}`);
+    }
+    const splatsPerChunk = dispatchCap * workgroupSize;
+    const chunks = [];
+    let remaining = splatCount;
+    let offset = 0;
+    while (remaining > 0) {
+        const slice = Math.min(remaining, splatsPerChunk);
+        const wgs = Math.ceil(slice / workgroupSize);
+        chunks.push({ chunkOffset: offset, workgroupCount: wgs, splatCount: slice });
+        offset += slice;
+        remaining -= slice;
+    }
+    return chunks;
 }
-
 /**
  * Per-chunk dispatch wrapper. The caller owns the queue and uniform buffer;
  * we update the chunk-offset slot between chunks (queue.writeBuffer) and
@@ -100,41 +82,22 @@ export function planDispatchChunks(
  *   - We always rewrite chunk_offset BEFORE the pass that uses it,
  *     even for chunk 0, to guarantee it isn't stale from a prior frame.
  */
-export function dispatchPerSplat(
-  device: GPUDevice,
-  encoder: GPUCommandEncoder,
-  pipeline: GPUComputePipeline,
-  bindGroup: GPUBindGroup,
-  uniformBuffer: GPUBuffer,
-  uniformChunkOffsetBytes: number,
-  splatCount: number,
-  workgroupSize: number = SPLAT_WORKGROUP_SIZE,
-): number {
-  const chunks = planDispatchChunks(splatCount, workgroupSize);
-  if (chunks.length === 0) return 0;
-  const scratch = new Uint32Array(1);
-  for (const chunk of chunks) {
-    scratch[0] = chunk.chunkOffset >>> 0;
-    device.queue.writeBuffer(uniformBuffer, uniformChunkOffsetBytes, scratch.buffer, 0, 4);
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup);
-    pass.dispatchWorkgroups(chunk.workgroupCount);
-    pass.end();
-  }
-  return chunks.length;
+export function dispatchPerSplat(device, encoder, pipeline, bindGroup, uniformBuffer, uniformChunkOffsetBytes, splatCount, workgroupSize = SPLAT_WORKGROUP_SIZE) {
+    const chunks = planDispatchChunks(splatCount, workgroupSize);
+    if (chunks.length === 0)
+        return 0;
+    const scratch = new Uint32Array(1);
+    for (const chunk of chunks) {
+        scratch[0] = chunk.chunkOffset >>> 0;
+        device.queue.writeBuffer(uniformBuffer, uniformChunkOffsetBytes, scratch.buffer, 0, 4);
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.dispatchWorkgroups(chunk.workgroupCount);
+        pass.end();
+    }
+    return chunks.length;
 }
-
-/**
- * Per-page splat range. A single page holds [splatStart, splatStart+splatCount)
- * in global splat indices.
- */
-export interface PageRange {
-  page: number;
-  splatStart: number;
-  splatCount: number;
-}
-
 /**
  * Per-page dispatch wrapper for monotonic kernels (Stage 6 / sf-154).
  *
@@ -175,34 +138,27 @@ export interface PageRange {
  * `read_idx = gid.x` for splats and `write_idx = chunk_offset + gid.x`
  * for downstream writes. See `cs_keygen` post-Stage-6 for the pattern.
  */
-export function dispatchPerSplatPaged(
-  device: GPUDevice,
-  encoder: GPUCommandEncoder,
-  pipeline: GPUComputePipeline,
-  bindGroupForPage: (page: number) => GPUBindGroup,
-  uniformBuffer: GPUBuffer,
-  uniformChunkOffsetBytes: number,
-  pages: PageRange[],
-  workgroupSize: number = SPLAT_WORKGROUP_SIZE,
-): number {
-  let totalDispatches = 0;
-  const scratch = new Uint32Array(1);
-  for (const page of pages) {
-    if (page.splatCount <= 0) continue;
-    // Plan inner dispatches for this page (page may exceed 65535 wgs at 256 wg-size = 16.7M splats).
-    const inner = planDispatchChunks(page.splatCount, workgroupSize);
-    const bg = bindGroupForPage(page.page);
-    for (const chunk of inner) {
-      const globalOffset = page.splatStart + chunk.chunkOffset;
-      scratch[0] = globalOffset >>> 0;
-      device.queue.writeBuffer(uniformBuffer, uniformChunkOffsetBytes, scratch.buffer, 0, 4);
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, bg);
-      pass.dispatchWorkgroups(chunk.workgroupCount);
-      pass.end();
-      totalDispatches++;
+export function dispatchPerSplatPaged(device, encoder, pipeline, bindGroupForPage, uniformBuffer, uniformChunkOffsetBytes, pages, workgroupSize = SPLAT_WORKGROUP_SIZE) {
+    let totalDispatches = 0;
+    const scratch = new Uint32Array(1);
+    for (const page of pages) {
+        if (page.splatCount <= 0)
+            continue;
+        // Plan inner dispatches for this page (page may exceed 65535 wgs at 256 wg-size = 16.7M splats).
+        const inner = planDispatchChunks(page.splatCount, workgroupSize);
+        const bg = bindGroupForPage(page.page);
+        for (const chunk of inner) {
+            const globalOffset = page.splatStart + chunk.chunkOffset;
+            scratch[0] = globalOffset >>> 0;
+            device.queue.writeBuffer(uniformBuffer, uniformChunkOffsetBytes, scratch.buffer, 0, 4);
+            const pass = encoder.beginComputePass();
+            pass.setPipeline(pipeline);
+            pass.setBindGroup(0, bg);
+            pass.dispatchWorkgroups(chunk.workgroupCount);
+            pass.end();
+            totalDispatches++;
+        }
     }
-  }
-  return totalDispatches;
+    return totalDispatches;
 }
+//# sourceMappingURL=multi-dispatch.js.map

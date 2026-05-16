@@ -46,6 +46,7 @@ import {
   SCAN_MULTIBLOCK_WGSL,
   RADIX_MERGE_WGSL,
 } from './shaders.generated.js';
+import { BufferPager, templateSplatsAccess } from './buffer-pager.js';
 import { createRadixSortPipelines, RadixSort, type RadixSortPipelines } from './radix_sort.js';
 import { createCullPipelines, CullPipeline } from './cull.js';
 import { WSRPipeline, WSR_DEFAULT_BG_WEIGHT } from './wsr.js';
@@ -294,6 +295,48 @@ function buildDecodeUniforms(
   return buf;
 }
 
+/**
+ * Per-sub-range variant of buildDecodeUniforms. Same layout, but with
+ * each SoA slice's byteOffset shifted by `srcSplatOffset` × the slice's
+ * per-splat stride so the kernel's chunk_offset = 0 reads the sub-range.
+ *
+ * Stage 6 (sf-154): used by uploadChunk when a chunk straddles a
+ * splats-page boundary; we split into per-page sub-dispatches and rebase
+ * the SoA reads here.
+ */
+function buildDecodeUniformsForRange(
+  device: GPUDevice,
+  layout: SoaAttributeLayout,
+  splatCount: number,
+  srcSplatOffset: number,
+): GPUBuffer {
+  // Per-slice stride: components × component-size.
+  // positions: 3 components, rotations: 4, scales: 3, opacities: 1, colorDC: 3.
+  // Component size: f32=4, u16=2, u8=1.
+  const compSize = (t: number | undefined): number => {
+    if (t === USHORT_CT) return 2;
+    if (t === UBYTE_CT) return 1;
+    return 4;
+  };
+  const componentsForSlice = (idx: number): number => {
+    // 0:pos(3) 1:rot(4) 2:scale(3) 3:opacity(1) 4:colorDC(3)
+    return [3, 4, 3, 1, 3][idx]!;
+  };
+  const rebased: SoaAttributeLayout = {
+    positions:  { ...layout.positions  },
+    rotations:  { ...layout.rotations  },
+    scales:     { ...layout.scales     },
+    opacities:  { ...layout.opacities  },
+    colorDC:    { ...layout.colorDC    },
+  };
+  const slices = [rebased.positions, rebased.rotations, rebased.scales, rebased.opacities, rebased.colorDC];
+  for (let i = 0; i < slices.length; i++) {
+    const stride = componentsForSlice(i) * compSize(slices[i].componentType);
+    slices[i].byteOffset = slices[i].byteOffset + srcSplatOffset * stride;
+  }
+  return buildDecodeUniforms(device, rebased, splatCount);
+}
+
 /* --------------------------------------------------------------------------- */
 /* Public compute-decode pipeline.                                             */
 /* --------------------------------------------------------------------------- */
@@ -398,12 +441,26 @@ export class ComputeDecodePipeline {
   readonly dilation: number;
   private readonly pipes: DecodePipelines;
   private readonly radixPipes: RadixSortPipelines;
-  /** Canonical decoded-splat buffer. One per-splat record across all chunks. */
-  private readonly splatsBuffer: GPUBuffer;
+  /** Canonical decoded-splat buffer pager (Stage 6 / sf-154).
+   *  When numPages == 1 this is functionally identical to the old single-buffer
+   *  path. When numPages > 1 the fused project_gather path uses templated
+   *  multi-page bindings; non-fused / cull / WSR paths are unsupported and
+   *  throw at construction. */
+  readonly pager: BufferPager;
+  /** Convenience: page 0's buffer. Used by single-page bind groups for the
+   *  cull/WSR/non-fused paths and by uploadChunk's dstView. */
+  private get splatsBuffer(): GPUBuffer { return this.pager.pageBuffers[0]; }
   /** Unsorted instance buffer (project shader output). Only allocated in the non-fused path. */
   private readonly instUnsorted: GPUBuffer | null;
   /** Sorted final instance buffer. Used as the vertex buffer by the renderer. */
   readonly instanceBuffer: GPUBuffer;
+  /** Stage 6 (sf-154): instance buffer pages. Length 1 in the
+   *  single-page path; > 1 when the total instance bytes exceed
+   *  the per-binding cap. Each page covers a contiguous range of
+   *  splat-output indices `[splatStart, splatStart + splatCount)`. */
+  readonly instancePages: { splatStart: number; splatCount: number; byteSize: number; buffer: GPUBuffer }[];
+  /** Splats per instance page (last page may be shorter). */
+  readonly instanceSplatsPerPage: number;
   /** Radix-sort runner. `keysA`/`valuesA` are scratch we write into in cs_project. */
   private readonly sorter: RadixSort;
   /** Project pass uniform buffer (view + viewProj + viewport + focal + count). */
@@ -416,6 +473,9 @@ export class ComputeDecodePipeline {
   /** Bind groups for the fused path (keygen + project_gather). */
   private readonly keygenBindGroup: GPUBindGroup | null;
   private readonly projectGatherBindGroup: GPUBindGroup | null;
+  /** Stage 6 (sf-154): one project_gather bind group per INSTANCE page.
+   *  Empty for the cull / WSR / non-fused paths. */
+  private projectGatherBindGroups: GPUBindGroup[] = [];
   /** Optional opacity-radius pre-sort cull. Allocated when useCull=true. */
   readonly cull: CullPipeline | null;
   /** True when useCull was requested at construction. */
@@ -434,6 +494,10 @@ export class ComputeDecodePipeline {
    * sets this before the first `encode()` call. PR1 default keeps the
    * heuristic in safe territory for sub-cube synthetic scenes.
    */
+  /** Stage 6 paged-keygen pipeline (multi-page splats). Null when numPages==1. */
+  private _pagedKeygen: GPUComputePipeline | null = null;
+  /** Stage 6 paged project_gather pipeline. Null when numPages==1. */
+  private _pagedProjectGather: GPUComputePipeline | null = null;
   wsrSigma = 2.0;
   /** WSR background color + weight `w_B`. PR1 default = (black, 1e-4). */
   wsrBgColor: [number, number, number, number] = [0, 0, 0, WSR_DEFAULT_BG_WEIGHT];
@@ -467,22 +531,62 @@ export class ComputeDecodePipeline {
       RADIX_MERGE_WGSL,
     );
 
-    const decodedSize = Math.max(this.capacity * BYTES_PER_DECODED_SPLAT, BYTES_PER_DECODED_SPLAT);
-    this.splatsBuffer = this.device.createBuffer({
-      size: decodedSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const instSize = Math.max(this.capacity * FLOATS_PER_INSTANCE * 4, FLOATS_PER_INSTANCE * 4);
+    // Stage 6 (sf-154): split the canonical decoded-splat storage across N
+    // GPUBuffers (each <= adapter.maxStorageBufferBindingSize). For
+    // <= 33 M splats this is one page (identical layout to the old single-
+    // buffer path). At LODGE L1 (~54 M, 3.5 GB) it's 2 pages; at L0
+    // (~119 M, 7.6 GB) it's 4 pages at a 2 GiB cap.
+    const lim = (this.device as unknown as { limits: GPUSupportedLimits }).limits;
+    const maxBufferBytes = Math.min(
+      lim.maxStorageBufferBindingSize ?? (2 * 1024 * 1024 * 1024 - 1),
+      lim.maxBufferSize ?? (2 * 1024 * 1024 * 1024 - 1),
+    );
+    this.pager = new BufferPager(this.device, this.capacity, maxBufferBytes);
+    if (this.pager.numPages > 1 && !this.useFusedProject) {
+      throw new Error(
+        `ComputeDecodePipeline: capacity ${this.capacity} requires ${this.pager.numPages} ` +
+        `splat pages but useFusedProject=false (only the fused project_gather path supports multi-page splats — ` +
+        `set useFusedProject=true or reduce capacity to <= ${this.pager.splatsPerPage}).`,
+      );
+    }
+    const INSTANCE_BYTES = FLOATS_PER_INSTANCE * 4; // 48 B / splat
+    const instSize = Math.max(this.capacity * INSTANCE_BYTES, INSTANCE_BYTES);
     // The 640-MB-at-10M scratch buffer is only needed for the non-fused path.
     // In the fused path we write the final instance record directly from the
     // project_gather kernel, so we skip the allocation entirely.
     this.instUnsorted = this.useFusedProject
       ? null
       : this.device.createBuffer({ size: instSize, usage: GPUBufferUsage.STORAGE });
-    this.instanceBuffer = this.device.createBuffer({
-      size: instSize,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
+    // Stage 6 (sf-154): page the instance buffer the same way we page the
+    // splats buffer. At 48 B/splat, 2 GiB caps us at ~44.7M splats per page;
+    // L1 (54M) needs 2 pages, L0 (119M) needs 3.
+    //
+    // Each page is allocated VERTEX | STORAGE | COPY_SRC. The first page
+    // serves as `instanceBuffer` for the renderer (single-page paths) and
+    // backward compat; multi-page consumers must iterate `instancePages`.
+    const instSplatsPerPage = Math.floor(maxBufferBytes / INSTANCE_BYTES);
+    // Round down to a multiple of 256 to keep workgroup-aligned dispatches.
+    const instSplatsPerPage256 = Math.floor(instSplatsPerPage / 256) * 256;
+    if (instSplatsPerPage256 < 256) {
+      throw new Error(`ComputeDecodePipeline: maxBufferBytes ${maxBufferBytes} too small for one instance workgroup`);
+    }
+    const numInstPages = Math.max(1, Math.ceil(this.capacity / instSplatsPerPage256));
+    this.instancePages = [];
+    for (let p = 0; p < numInstPages; p++) {
+      const start = p * instSplatsPerPage256;
+      const count = Math.min(instSplatsPerPage256, Math.max(this.capacity - start, 0));
+      const byteSize = Math.max(count * INSTANCE_BYTES, INSTANCE_BYTES);
+      const buf = this.device.createBuffer({
+        size: byteSize,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      });
+      this.instancePages.push({ splatStart: start, splatCount: count, byteSize, buffer: buf });
+    }
+    this.instanceSplatsPerPage = instSplatsPerPage256;
+    // Backward-compat: `instanceBuffer` is the first page. Single-page
+    // paths see the same buffer they always saw; multi-page consumers
+    // walk `instancePages` instead.
+    this.instanceBuffer = this.instancePages[0].buffer;
     this.sorter = new RadixSort(this.device, this.capacity, this.radixPipes);
 
     // Project uniforms: 2 mat4 (32 floats) + viewport vec2 + focal vec2 + count u32 + pads = 40 floats; round to 48 for alignment.
@@ -525,24 +629,72 @@ export class ComputeDecodePipeline {
       this.gatherUniforms = null;
       this.gatherBindGroup = null;
       // Fused path: reuse the same projectUniforms buffer (matching struct).
-      this.keygenBindGroup = this.device.createBindGroup({
-        layout: this.pipes.keygenBgl!,
-        entries: [
-          { binding: 0, resource: { buffer: this.splatsBuffer } },
-          { binding: 1, resource: { buffer: this.sorter.keysA } },
-          { binding: 2, resource: { buffer: this.sorter.valuesA } },
-          { binding: 3, resource: { buffer: this.projectUniforms } },
-        ],
-      });
-      this.projectGatherBindGroup = this.device.createBindGroup({
-        layout: this.pipes.projectGatherBgl!,
-        entries: [
-          { binding: 0, resource: { buffer: this.splatsBuffer } },
-          { binding: 1, resource: { buffer: this.sorter.valuesA } },
-          { binding: 2, resource: { buffer: this.instanceBuffer } },
-          { binding: 3, resource: { buffer: this.projectUniforms } },
-        ],
-      });
+      // When the splats are multi-page (Stage 6 / sf-154), rebuild the keygen
+      // and project_gather pipelines from templated WGSL with N page bindings
+      // and a `read_splats_*` switch helper.
+      if (this.pager.numPages > 1) {
+        const pagedPipes = this._buildPagedFusedPipelines(this.pager.numPages, this.pager.splatsPerPage);
+        this._pagedKeygen = pagedPipes.keygen;
+        this._pagedProjectGather = pagedPipes.projectGather;
+        // Build per-pipeline bind groups that bind ALL pages on bindings
+        // [0, numPages), with downstream bindings rebased (see
+        // templateSplatsAccess in buffer-pager.ts).
+        const N = this.pager.numPages;
+        const pageEntries = (downstream: GPUBindGroupEntry[]) => [
+          ...this.pager.pageBuffers.map((b, i) => ({ binding: i, resource: { buffer: b } as GPUBindingResource })),
+          ...downstream.map((e) => ({ ...e, binding: e.binding + (N - 1) })),
+        ];
+        this.keygenBindGroup = this.device.createBindGroup({
+          layout: pagedPipes.keygenBgl,
+          entries: pageEntries([
+            { binding: 1, resource: { buffer: this.sorter.keysA } },
+            { binding: 2, resource: { buffer: this.sorter.valuesA } },
+            { binding: 3, resource: { buffer: this.projectUniforms } },
+          ]),
+        });
+        // Stage 6 (sf-154): build one project_gather bind group per
+        // INSTANCE page so the kernel writes the correct slice. Indices
+        // (4 B/splat → fits in 2 GiB even at 119M) and inst_out are
+        // dynamic-offset-sliced; chunk_offset is set per dispatch in encode().
+        this.projectGatherBindGroups = [];
+        for (const ipage of this.instancePages) {
+          const idxOffset = ipage.splatStart * 4;
+          const idxSize = Math.max(ipage.splatCount * 4, 4);
+          void ipage.splatStart;
+          const outSize = Math.max(ipage.splatCount * INSTANCE_BYTES, INSTANCE_BYTES);
+          this.projectGatherBindGroups.push(this.device.createBindGroup({
+            layout: pagedPipes.projectGatherBgl,
+            entries: pageEntries([
+              { binding: 1, resource: { buffer: this.sorter.valuesA, offset: idxOffset, size: idxSize } },
+              { binding: 2, resource: { buffer: ipage.buffer, offset: 0, size: outSize } },
+              { binding: 3, resource: { buffer: this.projectUniforms } },
+            ]),
+          }));
+        }
+        // Backward-compat: first page's bind group serves as the legacy
+        // projectGatherBindGroup for code paths that still read it.
+        this.projectGatherBindGroup = this.projectGatherBindGroups[0];
+      } else {
+        this.keygenBindGroup = this.device.createBindGroup({
+          layout: this.pipes.keygenBgl!,
+          entries: [
+            { binding: 0, resource: { buffer: this.splatsBuffer } },
+            { binding: 1, resource: { buffer: this.sorter.keysA } },
+            { binding: 2, resource: { buffer: this.sorter.valuesA } },
+            { binding: 3, resource: { buffer: this.projectUniforms } },
+          ],
+        });
+        this.projectGatherBindGroup = this.device.createBindGroup({
+          layout: this.pipes.projectGatherBgl!,
+          entries: [
+            { binding: 0, resource: { buffer: this.splatsBuffer } },
+            { binding: 1, resource: { buffer: this.sorter.valuesA } },
+            { binding: 2, resource: { buffer: this.instanceBuffer } },
+            { binding: 3, resource: { buffer: this.projectUniforms } },
+          ],
+        });
+        this.projectGatherBindGroups = [this.projectGatherBindGroup];
+      }
     }
 
     // -----------------------------------------------------------------
@@ -555,6 +707,13 @@ export class ComputeDecodePipeline {
     // Callers can still opt out by passing useCull: false.
     // -----------------------------------------------------------------
     this.useCull = init.useCull ?? true;
+    if (this.useCull && this.pager.numPages > 1) {
+      throw new Error(
+        `ComputeDecodePipeline: useCull is not supported with multi-page splats ` +
+        `(${this.pager.numPages} pages required for capacity ${this.capacity}). ` +
+        `Pass useCull=false or reduce capacity to <= ${this.pager.splatsPerPage}.`,
+      );
+    }
     if (this.useCull) {
       const cullPipes = createCullPipelines(this.device, this.dilation);
       // For the cull path we write Instance records straight into the
@@ -587,6 +746,12 @@ export class ComputeDecodePipeline {
     // testing.
     // -----------------------------------------------------------------
     this.useWSR = init.useWSR ?? false;
+    if (this.useWSR && this.pager.numPages > 1) {
+      throw new Error(
+        `ComputeDecodePipeline: useWSR is not supported with multi-page splats ` +
+        `(${this.pager.numPages} pages required). Reduce capacity to <= ${this.pager.splatsPerPage}.`,
+      );
+    }
     if (this.useWSR) {
       this.wsr = new WSRPipeline({
         device: this.device,
@@ -606,6 +771,13 @@ export class ComputeDecodePipeline {
     // when both are set.
     // -----------------------------------------------------------------
     this.useWSRTile = init.useWSRTile ?? false;
+    if (this.useWSRTile && this.pager.numPages > 1) {
+      throw new Error(
+        `ComputeDecodePipeline: useWSRTile is not yet supported with multi-page splats ` +
+        `(${this.pager.numPages} pages required for capacity ${this.capacity}). ` +
+        `Reduce capacity to <= ${this.pager.splatsPerPage} or use the fused project_gather path.`,
+      );
+    }
     if (this.useWSRTile) {
       this.wsrTile = new WSRTilePipeline({
         device: this.device,
@@ -652,48 +824,77 @@ export class ComputeDecodePipeline {
 
     const decodeUniforms = buildDecodeUniforms(this.device, descriptor.attributeLayout, descriptor.splatCount);
 
-    // A per-chunk "splats slice" view — since WebGPU doesn't have offset
-    // bindings for storage buffers without dynamic offsets, we bind the full
-    // buffer and pass the destination offset via a *separate* uniform. The
-    // shader writes at `dst_splats[i]`, so we need a second tiny shader OR a
-    // per-chunk dst buffer. We pick the simpler latter: per-chunk dst slice
-    // expressed via `binding.offset` of the bind group (which IS supported).
-    const dstView: GPUBindingResource = {
-      buffer: this.splatsBuffer,
-      offset: this.decodedSplats * BYTES_PER_DECODED_SPLAT,
-      size: descriptor.splatCount * BYTES_PER_DECODED_SPLAT,
-    };
-    const decodeBindGroup = this.device.createBindGroup({
-      layout: this.pipes.decodeBgl,
-      entries: [
-        { binding: 0, resource: { buffer: bytesBuffer } },
-        { binding: 1, resource: dstView },
-        { binding: 2, resource: { buffer: decodeUniforms } },
-      ],
-    });
-
-    // Dispatch decode immediately. Subsequent project passes will see the
-    // decoded splats. Multi-dispatch carves the per-splat work into
-    // <= 65535-workgroup chunks so > 16.7 M-splat scenes (LODGE L1/L0)
-    // don't trip the WebGPU 1.0 dispatch limit.
+    // Stage 6 (sf-154): the destination splats live across N pager pages.
+    // For each page sub-range that this chunk overlaps, we issue a
+    // separate decode dispatch with the page's GPUBuffer bound (with a
+    // dynamic-offset binding) and a per-sub-range chunk_offset that
+    // selects the right slice of the source bytes. When numPages == 1
+    // this collapses to a single dispatch identical to the pre-Stage-6
+    // path.
     const encoder = this.device.createCommandEncoder();
-    dispatchPerSplat(
-      this.device,
-      encoder,
-      this.pipes.decode,
-      decodeBindGroup,
-      decodeUniforms,
-      UNIFORM_CHUNK_OFFSET_BYTES.decode,
-      descriptor.splatCount,
-    );
+    let srcSplatOffset = 0;
+    for (const range of this.pager.pageRanges(this.decodedSplats, descriptor.splatCount)) {
+      const dstView: GPUBindingResource = {
+        buffer: this.pager.pageBuffers[range.page],
+        offset: range.localStart * BYTES_PER_DECODED_SPLAT,
+        size: range.localCount * BYTES_PER_DECODED_SPLAT,
+      };
+      // The decode kernel reads source bytes by index relative to splat 0
+      // of the chunk and writes dst_splats[i]. Since we sliced dst with a
+      // dynamic-offset binding, the write index `i` for THIS sub-range is
+      // also page-local — so we pass chunk_offset = srcSplatOffset to
+      // make the shader read source slice [srcSplatOffset..]. Currently
+      // the decode kernel uses i = gid.x + chunk_offset for BOTH the source
+      // SoA index AND the dst index. We patch by giving each sub-range a
+      // freshly built decodeUniforms with splat_count = sub-range count
+      // and SoA byteOffset rebased.
+      // Chunk may straddle a splats-page boundary. For each sub-range we
+      // build a fresh decodeUniforms whose SoA byteOffsets are rebased by
+      // srcSplatOffset so the kernel reads the right source slice with
+      // chunk_offset = 0. The dst binding is already sliced via dynamic
+      // offset to the destination page's local range.
+      const subUniforms = buildDecodeUniformsForRange(
+        this.device,
+        descriptor.attributeLayout!,
+        range.localCount,
+        srcSplatOffset,
+      );
+      const subBindGroupSliced = this.device.createBindGroup({
+        layout: this.pipes.decodeBgl,
+        entries: [
+          { binding: 0, resource: { buffer: bytesBuffer } },
+          { binding: 1, resource: dstView },
+          { binding: 2, resource: { buffer: subUniforms } },
+        ],
+      });
+      dispatchPerSplat(
+        this.device,
+        encoder,
+        this.pipes.decode,
+        subBindGroupSliced,
+        subUniforms,
+        UNIFORM_CHUNK_OFFSET_BYTES.decode,
+        range.localCount,
+      );
+      srcSplatOffset += range.localCount;
+    }
     this.device.queue.submit([encoder.finish()]);
 
     this.chunks.push({
       splatCount: descriptor.splatCount,
       bytesBuffer,
-      splatsBuffer: this.splatsBuffer,
+      splatsBuffer: this.pager.pageBuffers[0],
       decodeUniforms,
-      decodeBindGroup,
+      // decodeBindGroup field kept for backward-compat — the per-sub-range
+      // bind group is created+used inline above and not retained.
+      decodeBindGroup: this.device.createBindGroup({
+        layout: this.pipes.decodeBgl,
+        entries: [
+          { binding: 0, resource: { buffer: bytesBuffer } },
+          { binding: 1, resource: { buffer: this.pager.pageBuffers[0] } },
+          { binding: 2, resource: { buffer: decodeUniforms } },
+        ],
+      }),
     });
     this.decodedSplats += descriptor.splatCount;
   }
@@ -770,22 +971,62 @@ export class ComputeDecodePipeline {
       dispatchPerSplat(
         this.device,
         encoder,
-        this.pipes.keygen!,
+        this._pagedKeygen ?? this.pipes.keygen!,
         this.keygenBindGroup!,
         this.projectUniforms,
         UNIFORM_CHUNK_OFFSET_BYTES.project,
         count,
       );
       this.sorter.encode(encoder, count);
-      dispatchPerSplat(
-        this.device,
-        encoder,
-        this.pipes.projectGather!,
-        this.projectGatherBindGroup!,
-        this.projectUniforms,
-        UNIFORM_CHUNK_OFFSET_BYTES.project,
-        count,
-      );
+      // Stage 6 (sf-154): dispatch project_gather once per INSTANCE page
+      // with chunk_offset = page.splatStart so the kernel's bounds guard
+      // (i >= splat_count) still triggers correctly. The bind groups
+      // dynamically slice the indices + inst_out buffers to the page's
+      // range, so `i = gid.x + chunk_offset` reads/writes the right
+      // global slot for THIS page. Splat-count uniform stays at the
+      // global `count` so the dispatch caps at the last page's tail.
+      const pgPipeline = this._pagedProjectGather ?? this.pipes.projectGather!;
+      for (let pi = 0; pi < this.projectGatherBindGroups.length; pi++) {
+        const page = this.instancePages[pi];
+        const pageStart = page.splatStart;
+        const pageCount = Math.min(page.splatCount, count - pageStart);
+        if (pageCount <= 0) break;
+        // Carve this page into <=65535-WG chunks. chunk_offset starts at
+        // pageStart so g_indices / g_inst_out reads land in the page's
+        // slice (the bind group's dynamic offset has subtracted pageStart
+        // worth of bytes, so kernel-side `i - pageStart` indexes from 0).
+        // Wait — the bind group offset means kernel sees buffer starting
+        // at byte=offset. So kernel's `g_inst_out[i]` with i = gid.x +
+        // chunk_offset and chunk_offset = pageStart maps to global slot
+        // pageStart + (offset/48) + (gid.x + chunk_offset). That double-
+        // counts pageStart. Fix: chunk_offset for the kernel must be 0
+        // when the binding is already sliced. But then the bounds guard
+        // `i >= splat_count` fires at pageCount, not at global count.
+        // So: set splat_count = pageCount and chunk_offset = 0 for each
+        // page dispatch.
+        const scratch = new Uint32Array(2);
+        scratch[0] = pageCount >>> 0;  // splat_count slot
+        scratch[1] = 0;                 // chunk_offset slot
+        // ProjectUniforms layout: 2×mat4(128) + viewport(8) + focal(8)
+        // + splat_count(4) + chunk_offset(4). splat_count at byte 144.
+        this.device.queue.writeBuffer(this.projectUniforms, 144, scratch.buffer, 0, 8);
+        dispatchPerSplat(
+          this.device,
+          encoder,
+          pgPipeline,
+          this.projectGatherBindGroups[pi],
+          this.projectUniforms,
+          UNIFORM_CHUNK_OFFSET_BYTES.project,
+          pageCount,
+        );
+      }
+      // Restore splat_count = global count after the per-page loop so any
+      // downstream code that re-reads the uniforms sees the global value.
+      {
+        const scratch = new Uint32Array(1);
+        scratch[0] = count >>> 0;
+        this.device.queue.writeBuffer(this.projectUniforms, 144, scratch.buffer, 0, 4);
+      }
       return;
     }
 
@@ -1154,7 +1395,7 @@ export class ComputeDecodePipeline {
             endOfPassWriteIndex: baseIndex + 1,
           },
         });
-        pass.setPipeline(this.pipes.keygen!);
+        pass.setPipeline(this._pagedKeygen ?? this.pipes.keygen!);
         pass.setBindGroup(0, this.keygenBindGroup!);
         pass.dispatchWorkgroups(wgs);
         pass.end();
@@ -1173,7 +1414,7 @@ export class ComputeDecodePipeline {
             endOfPassWriteIndex: baseIndex + 5,
           },
         });
-        pass.setPipeline(this.pipes.projectGather!);
+        pass.setPipeline(this._pagedProjectGather ?? this.pipes.projectGather!);
         pass.setBindGroup(0, this.projectGatherBindGroup!);
         pass.dispatchWorkgroups(wgs);
         pass.end();
@@ -1264,7 +1505,7 @@ export class ComputeDecodePipeline {
     if (this.useFusedProject) {
       {
         const pass = encoder.beginComputePass(ts(baseIndex + 0, baseIndex + 1));
-        pass.setPipeline(this.pipes.keygen!);
+        pass.setPipeline(this._pagedKeygen ?? this.pipes.keygen!);
         pass.setBindGroup(0, this.keygenBindGroup!);
         pass.dispatchWorkgroups(wgs);
         pass.end();
@@ -1272,7 +1513,7 @@ export class ComputeDecodePipeline {
       this.sorter.encodeTimedDrilled(encoder, count, querySet, baseIndex + 2);
       {
         const pass = encoder.beginComputePass(ts(baseIndex + 18, baseIndex + 19));
-        pass.setPipeline(this.pipes.projectGather!);
+        pass.setPipeline(this._pagedProjectGather ?? this.pipes.projectGather!);
         pass.setBindGroup(0, this.projectGatherBindGroup!);
         pass.dispatchWorkgroups(wgs);
         pass.end();
@@ -1301,6 +1542,85 @@ export class ComputeDecodePipeline {
     return 20;
   }
 
+  /**
+   * Stage 6: build templated cs_keygen + cs_project_gather pipelines for
+   * multi-page splats. The original PROJECT_GATHER_WGSL has a single
+   * splats binding (k_splats / g_splats); we rewrite each entry point's
+   * WGSL to declare N page bindings + a `read_splats_*(i)` helper, then
+   * compile a fresh shader module + pipeline per entry point.
+   *
+   * Returns the templated keygen and project_gather pipelines plus their
+   * matching bind-group layouts (which are also paged: bindings
+   * [0, N) are page buffers, downstream bindings are shifted by N-1).
+   */
+  private _buildPagedFusedPipelines(numPages: number, splatsPerPage: number): {
+    keygen: GPUComputePipeline;
+    projectGather: GPUComputePipeline;
+    keygenBgl: GPUBindGroupLayout;
+    projectGatherBgl: GPUBindGroupLayout;
+  } {
+    const COMPUTE = GPUShaderStage.COMPUTE;
+    // PROJECT_GATHER_WGSL contains BOTH cs_keygen (binding name k_splats)
+    // and cs_project_gather (binding name g_splats). We template each binding
+    // separately; templateSplatsAccess emits N page bindings for the named
+    // binding and rebases the others.
+    const dilSrc = applyDilationOverride(PROJECT_GATHER_WGSL, this.dilation);
+    // The WGSL file contains BOTH cs_keygen and cs_project_gather; each
+    // entry point declares its own binding-0 splats array. If we template
+    // the whole file for 'k_splats' (numPages > 1), the rebasing also
+    // shifts the g_splats bindings into the same slot as k_keys, causing
+    // a 'multiple variables use the same binding' WGSL error.
+    //
+    // Fix: split the source at the cs_project_gather marker so each
+    // templating pass only sees its own entry point's bindings. The
+    // common preamble (structs, helpers above cs_keygen) stays in the
+    // keygen half; we replicate it into the gather half so the gather
+    // module is self-contained.
+    const splitMarker = '// cs_project_gather — full projection';
+    const markerIdx = dilSrc.indexOf(splitMarker);
+    if (markerIdx < 0) {
+      throw new Error('cs_project_gather split marker not found in PROJECT_GATHER_WGSL');
+    }
+    // Common preamble = everything up to the structs section's end (before
+    // the first @group(0) binding).
+    const firstBindingIdx = dilSrc.indexOf('@group(0) @binding(0)');
+    const preamble = dilSrc.slice(0, firstBindingIdx);
+    const keygenSrc  = preamble + dilSrc.slice(firstBindingIdx, markerIdx);
+    const gatherSrc  = preamble + dilSrc.slice(markerIdx);
+    const tplK = templateSplatsAccess(keygenSrc, 'k_splats', numPages, splatsPerPage);
+    const tplG = templateSplatsAccess(gatherSrc, 'g_splats', numPages, splatsPerPage);
+    const keygenMod = this.device.createShaderModule({ code: tplK.wgsl });
+    const pgMod     = this.device.createShaderModule({ code: tplG.wgsl });
+    // Keygen BGL: N page bindings (read-only-storage) + 3 downstream bindings
+    // (keys, indices, uniforms) shifted by (N-1).
+    const keygenEntries: GPUBindGroupLayoutEntry[] = [];
+    for (let p = 0; p < numPages; p++) {
+      keygenEntries.push({ binding: p, visibility: COMPUTE, buffer: { type: 'read-only-storage' } });
+    }
+    keygenEntries.push({ binding: numPages,     visibility: COMPUTE, buffer: { type: 'storage' } });
+    keygenEntries.push({ binding: numPages + 1, visibility: COMPUTE, buffer: { type: 'storage' } });
+    keygenEntries.push({ binding: numPages + 2, visibility: COMPUTE, buffer: { type: 'uniform' } });
+    const keygenBgl = this.device.createBindGroupLayout({ entries: keygenEntries });
+    // Project_gather BGL: N page bindings + (indices, inst_out, uniforms).
+    const pgEntries: GPUBindGroupLayoutEntry[] = [];
+    for (let p = 0; p < numPages; p++) {
+      pgEntries.push({ binding: p, visibility: COMPUTE, buffer: { type: 'read-only-storage' } });
+    }
+    pgEntries.push({ binding: numPages,     visibility: COMPUTE, buffer: { type: 'read-only-storage' } });
+    pgEntries.push({ binding: numPages + 1, visibility: COMPUTE, buffer: { type: 'storage' } });
+    pgEntries.push({ binding: numPages + 2, visibility: COMPUTE, buffer: { type: 'uniform' } });
+    const projectGatherBgl = this.device.createBindGroupLayout({ entries: pgEntries });
+    const keygen = this.device.createComputePipeline({
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [keygenBgl] }),
+      compute: { module: keygenMod, entryPoint: 'cs_keygen' },
+    });
+    const projectGather = this.device.createComputePipeline({
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [projectGatherBgl] }),
+      compute: { module: pgMod, entryPoint: 'cs_project_gather' },
+    });
+    return { keygen, projectGather, keygenBgl, projectGatherBgl };
+  }
+
   /** Tear down. Idempotent. */
   destroy(): void {
     for (const c of this.chunks) {
@@ -1308,9 +1628,9 @@ export class ComputeDecodePipeline {
       c.decodeUniforms.destroy();
     }
     this.chunks.length = 0;
-    this.splatsBuffer.destroy();
+    this.pager.destroy();
     this.instUnsorted?.destroy();
-    this.instanceBuffer.destroy();
+    for (const p of this.instancePages) p.buffer.destroy();
     this.projectUniforms.destroy();
     this.gatherUniforms?.destroy();
     this.sorter.destroy();
