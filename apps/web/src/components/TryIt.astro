@@ -12,6 +12,32 @@ const apiBase = import.meta.env.PUBLIC_API_BASE ?? "/api";
 const partnerHref =
   "https://github.com/montabano1/SplatForge/issues/new?title=design-partner-interest&body=Hi%20%E2%80%94%20I%27d%20like%20to%20run%20a%20splat%20through%20SplatForge";
 const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
+
+// Preset picker entries. The first is the default. Ratio claims are from
+// bonsai (273.7 MB Inria PLY) end-to-end Modal validation; real-world
+// ratios vary by scene density and SH degree.
+const presetOptions = [
+  {
+    value: "web-mobile",
+    label: "Web-mobile (default)",
+    blurb: "SH-preserving repack · ~5× · drop-in",
+  },
+  {
+    value: "codec-gs-mixed",
+    label: "CodecGS-mixed",
+    blurb: "Feature-plane video codec · ~24× · highest ratio",
+  },
+  {
+    value: "fcgs-instant",
+    label: "FCGS-instant",
+    blurb: "Zero-train feed-forward · ~20× · fastest encode",
+  },
+  {
+    value: "size-min",
+    label: "Size-min",
+    blurb: "Aggressive quantize + LOD · ~10× · web-friendly",
+  },
+];
 ---
 
 <section id="try" class="try-section" aria-labelledby="try-title">
@@ -50,6 +76,15 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       <label for="splat-file-input" class="btn btn-primary dropzone-cta">
         <span aria-hidden="true">📎</span>&nbsp;Choose file
       </label>
+      <div class="preset-picker" data-tryit-preset-picker aria-label="Compression preset">
+        <label for="tryit-preset-select" class="preset-label">Preset</label>
+        <select id="tryit-preset-select" data-tryit-preset-select class="preset-select">
+          {presetOptions.map((p, i) => (
+            <option value={p.value} selected={i === 0}>{p.label}</option>
+          ))}
+        </select>
+        <span class="preset-blurb" data-tryit-preset-blurb>{presetOptions[0].blurb}</span>
+      </div>
       <div class="format-chips" aria-label="Supported input formats">
         {supported.map((ext) => <span class="chip">{ext}</span>)}
       </div>
@@ -236,6 +271,41 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     justify-content: center;
   }
 
+  /* Preset picker */
+  .preset-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-top: 0.85rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .preset-label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.6;
+  }
+  .preset-select {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--fg);
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.88rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .preset-select:focus {
+    outline: 2px solid #8b5cf6;
+    outline-offset: 1px;
+  }
+  .preset-blurb {
+    font-size: 0.78rem;
+    opacity: 0.55;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
   /* Error region */
   .error-headline {
     font-weight: 600;
@@ -256,7 +326,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
   }
 </style>
 
-<script is:inline define:vars={{ apiBase, partnerHref }}>
+<script is:inline define:vars={{ apiBase, partnerHref, presetOptions }}>
   (function () {
     const zone = document.querySelector("[data-uploader]");
     const input = document.querySelector("[data-file-input]");
@@ -275,7 +345,20 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
     const resultInput = document.querySelector("[data-result-input]");
     const resultOutput = document.querySelector("[data-result-output]");
     const resultRatio = document.querySelector("[data-result-ratio]");
+    const presetSelect = document.querySelector("[data-tryit-preset-select]");
+    const presetBlurb = document.querySelector("[data-tryit-preset-blurb]");
     if (!(zone instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
+
+    function selectedPreset() {
+      if (presetSelect instanceof HTMLSelectElement) return presetSelect.value || "web-mobile";
+      return "web-mobile";
+    }
+    if (presetSelect instanceof HTMLSelectElement && presetBlurb instanceof HTMLElement) {
+      presetSelect.addEventListener("change", function () {
+        const opt = presetOptions.find(function (p) { return p.value === presetSelect.value; });
+        if (opt) presetBlurb.textContent = opt.blurb;
+      });
+    }
 
     let viewerHandle = null;
 
@@ -384,7 +467,7 @@ const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
       const r = await fetch(apiBase + "/v1/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ preset: "web-mobile", source_url: sourceUrl }),
+        body: JSON.stringify({ preset: selectedPreset(), source_url: sourceUrl }),
       });
       if (!r.ok) throw new Error("could not start job (" + r.status + ")");
       return await r.json();
