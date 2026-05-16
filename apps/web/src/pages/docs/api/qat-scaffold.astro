@@ -3,7 +3,7 @@ import Base from "../../../layouts/Base.astro";
 
 const title = "SplatForge — QAT-Scaffold (Scaffold-GS PLY) API";
 const description =
-  "Post-training Quant-Aware codec for Scaffold-GS PLYs. Aggregate 37.25% PLY save across 6 Mip-NeRF 360 scenes with a positive PSNR delta on every scene (mean +0.172 dB). Lossless in the codec sense — deterministic dequant. Free tier: 1 scene/day under 100 MB. Paid tier: $0.50/GB processed, no daily cap.";
+  "Post-training Quant-Aware codec for Scaffold-GS PLYs. Two tiers: live single-PLY endpoint delivers ~10.13% lossless prefix; full QAT recipe (37.25% PLY save, +0.172 dB mean PSNR) requires GT cameras via premium bundle-upload tier. Free tier: 1 scene/day under 100 MB. Paid tier: $0.50/GB processed.";
 
 const apiBase = import.meta.env.PUBLIC_API_BASE ?? "https://api.splatforge.com";
 ---
@@ -26,14 +26,41 @@ const apiBase = import.meta.env.PUBLIC_API_BASE ?? "https://api.splatforge.com";
   <p class="lede">
     The <code>splatforge-qat-scaffold</code> preset is a
     <strong>post-training Quant-Aware codec</strong> for Scaffold-GS PLYs.
-    It takes a Scaffold-GS PLY and returns a smaller Scaffold-GS PLY
-    with strictly <em>better</em> PSNR / SSIM / LPIPS on the same
-    training-time eval cameras. The codec is lossless in the codec
-    sense — dequant is deterministic — and the PSNR delta is measured
-    vs the source PLY, not vs a retrained baseline.
+    It has two tiers with different inputs and different deliverables.
   </p>
 
-  <h2>Bench numbers (6 scenes, 2026-05-16)</h2>
+  <h2>What the live single-PLY endpoint delivers</h2>
+  <p>
+    The default endpoint takes a single Scaffold-GS PLY (no GT
+    cameras) and returns a smaller Scaffold-GS PLY using the
+    <strong>lossless constant-strip prefix</strong> only. Measured on
+    bonsai 30k:
+  </p>
+  <ul>
+    <li><strong>~10.13% PLY-size save</strong>, lossless (deterministic dequant)</li>
+    <li><strong>Δ PSNR / SSIM / LPIPS = 0</strong> by construction — codec asserts byte-exact attribute round-trip</li>
+    <li>Encode wall ≈ 1.3 s on Modal; total round-trip ≈ 25 s including upload/download</li>
+  </ul>
+  <p>
+    Stripped fields are the eight Scaffold-GS columns the trainer
+    initialises and never updates (<code>nx, ny, nz, opacity,
+    rot_0..rot_3</code>). Bench data lives in
+    <code>benches/encoders/qat-scaffold-gs/</code>.
+  </p>
+
+  <h2>Full QAT recipe — premium tier (requires GT cameras)</h2>
+  <p>
+    The bench numbers below come from the full QAT recipe: constant-strip
+    plus int8 quant-aware retrain of <code>f_anchor_feat</code> plus int4
+    per-anchor quant of <code>f_offset</code>. The retrain pass needs
+    the original training images + COLMAP cameras to evaluate against,
+    so it is exposed via a separate <strong>bundle-upload</strong>
+    workflow (premium tier, ~$0.50/scene, ~10&nbsp;min on A100). Contact
+    <a href="mailto:monte@splatforge.dev">monte@splatforge.dev</a> for
+    early access while the bundle-upload UI is in build.
+  </p>
+
+  <h2>Bench numbers — full recipe, 6 scenes, 2026-05-16</h2>
   <p>
     Aggregate <strong>37.25% PLY-size save</strong> across the six
     trained Mip-NeRF 360 scenes, with a positive PSNR delta on every
