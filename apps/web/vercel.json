@@ -3,11 +3,11 @@
   "rewrites": [
     {
       "source": "/api/healthz",
-      "destination": "http://splatforge-api.fly.dev:8080/healthz"
+      "destination": "https://splatforge-api.fly.dev/healthz"
     },
     {
       "source": "/api/v1/:path*",
-      "destination": "http://splatforge-api.fly.dev:8080/v1/:path*"
+      "destination": "https://splatforge-api.fly.dev/v1/:path*"
     }
   ]
 }
