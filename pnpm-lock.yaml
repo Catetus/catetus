@@ -6,7 +6,11 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      playwright-core:
+        specifier: ^1.45.0
+        version: 1.60.0
 
   apps/web:
     dependencies:

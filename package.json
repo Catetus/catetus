@@ -13,5 +13,8 @@
     "test": "pnpm -r --if-present run test",
     "build": "pnpm -r --if-present run build",
     "playwright": "pnpm -F splatforge-visual test"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.45.0"
   }
 }

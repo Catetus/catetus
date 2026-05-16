@@ -1,0 +1,17 @@
+import { chromium } from 'playwright-core';
+const url = process.argv[2] || 'http://127.0.0.1:4321/capture';
+const out = process.argv[3] || 'apps/web/screenshots/capture-page.png';
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 1800 } });
+const page = await ctx.newPage();
+const errors = [];
+page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+page.on('pageerror', err => errors.push(String(err)));
+await page.goto(url, { waitUntil: 'networkidle' });
+await page.waitForTimeout(800);
+const title = await page.title();
+const h1 = await page.locator('.cap-hero-headline').textContent();
+const totalWall = await page.locator('.cap-totals .num').first().textContent();
+await page.screenshot({ path: out, fullPage: true });
+console.log(JSON.stringify({ title, h1: h1.trim().replace(/\s+/g, ' '), totalWall: totalWall.trim(), console_errors: errors }, null, 2));
+await browser.close();
