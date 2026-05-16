@@ -49,22 +49,107 @@ const benchExpectations = [
     pull-credentials issued per customer.
   </p>
 
+  <h2>Two tiers, two compute profiles</h2>
+  <p>
+    The on-prem image ships two endpoints. Pick whichever matches your
+    hardware:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Endpoint</th>
+        <th>GPU required?</th>
+        <th>Compression</th>
+        <th>Quality</th>
+        <th>Wall time</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/qat-scaffold</code></td>
+        <td>No (CPU-only)</td>
+        <td>~10% lossless</td>
+        <td>Bit-exact roundtrip</td>
+        <td>seconds</td>
+      </tr>
+      <tr>
+        <td><code>/qat-bundle</code></td>
+        <td>Yes (NVIDIA, 24 GB+)</td>
+        <td>33-40% per scene</td>
+        <td>+0.03..+0.58 dB PSNR</td>
+        <td>30-60 min</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Customers without an NVIDIA GPU can still run the container and use
+    the lossless <code>/qat-scaffold</code> tier &mdash; it strips
+    always-constant attribute columns (<code>nx, ny, nz, opacity,
+    rot_0..rot_3</code>) from a Scaffold-GS PLY and emits a header that
+    any QAT-PLY-v1-aware decoder reconstructs bit-exactly. No GPU, no
+    accuracy loss, no retrain.
+  </p>
+  <p>
+    The retrain tier (<code>/qat-bundle</code>) needs an NVIDIA GPU
+    because it runs a 5000-iteration QAT finetune to absorb int8 quant
+    noise on <code>f_anchor_feat</code> &mdash; that's where the
+    33-40% number comes from. Without a GPU, this endpoint returns 503
+    with a customer-actionable detail string.
+  </p>
+
   <h2>System requirements</h2>
+
+  <h3>Lossless tier (<code>/qat-scaffold</code>) &mdash; CPU only</h3>
   <ul>
-    <li><strong>GPU:</strong> NVIDIA with ≥ 24 GB VRAM
-      (A6000 / A100 / L40 / H100 / RTX 4090).</li>
+    <li><strong>CPU:</strong> any x86_64 host (the image is linux/amd64).</li>
+    <li><strong>RAM:</strong> 4 GB host RAM is plenty &mdash; the
+      constant-strip codec is a streaming numpy pass.</li>
+    <li><strong>Disk:</strong> 16 GB for the image + your PLYs.</li>
+    <li><strong>No GPU, no driver, no <code>nvidia-container-toolkit</code></strong>
+      required. Run with plain <code>docker run</code>.</li>
+  </ul>
+
+  <h3>Retrain tier (<code>/qat-bundle</code>) &mdash; GPU required</h3>
+  <ul>
+    <li><strong>GPU:</strong> NVIDIA with &ge; 24 GB VRAM
+      (A10 / A100 / L40 / H100 / RTX 4090 / A6000).</li>
     <li><strong>Driver:</strong> CUDA 12.1 or newer on the host.</li>
     <li><strong>Docker:</strong> 24.0 or newer with
       <code>nvidia-container-toolkit</code> installed so
       <code>--gpus all</code> works.</li>
     <li><strong>Disk:</strong> 16 GB for the image plus your training
-      data. Image is ~7 GB compressed.</li>
+      bundles. Image is ~7 GB compressed.</li>
     <li><strong>RAM:</strong> 32 GB host RAM recommended; the trainer
       streams scenes from disk so peak host-side memory stays small.</li>
     <li><strong>Network:</strong> none required at runtime. Air-gapped
       installs use <code>docker load</code> from an offline tarball;
       we ship a flat tarball alongside the registry image.</li>
   </ul>
+
+  <h2>Compute cost: who pays what</h2>
+  <p>
+    Both tiers run on your hardware &mdash; SplatForge bills only the
+    Team Seat. There is no per-job metering on your container.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Tier</th><th>Where it runs</th><th>SplatForge charge</th><th>Your cost</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/qat-scaffold</code></td>
+        <td>Your container (CPU)</td>
+        <td>Team Seat only</td>
+        <td>negligible &mdash; seconds of CPU</td>
+      </tr>
+      <tr>
+        <td><code>/qat-bundle</code></td>
+        <td>Your container (NVIDIA GPU)</td>
+        <td>Team Seat only</td>
+        <td>your GPU cost &mdash; ~30-60 min per scene</td>
+      </tr>
+    </tbody>
+  </table>
 
   <h2>Quickstart</h2>
   <ol>
@@ -74,14 +159,21 @@ const benchExpectations = [
       <pre><code>docker pull ghcr.io/splatforge/codec:latest</code></pre>
     </li>
     <li>
-      <strong>Start the container</strong> with your signed license
-      token:
-      <pre><code>docker run --gpus all -p 8080:8080 \
+      <strong>Start the container.</strong> Use one of two flavors:
+      <pre><code># Retrain tier (requires NVIDIA GPU + nvidia-container-toolkit):
+docker run --gpus all -p 8080:8080 \
+  -e SPLATFORGE_LICENSE=&quot;$TOKEN&quot; \
+  ghcr.io/splatforge/codec:latest
+
+# Lossless tier only (no GPU required):
+docker run -p 8080:8080 \
   -e SPLATFORGE_LICENSE=&quot;$TOKEN&quot; \
   ghcr.io/splatforge/codec:latest</code></pre>
       A missing or expired token exits the container with
       <code>exit 1</code> before CUDA initializes — no
-      partial-startup state.
+      partial-startup state. The license is re-checked every hour; if
+      it expires mid-run, routes return 503 with a renewal hint
+      (without crashing in-flight jobs).
     </li>
     <li>
       <strong>Verify the install:</strong>
@@ -143,8 +235,8 @@ const benchExpectations = [
     Each install ships with a tiny sample bundle and a smoke script.
     From the host that's running the container:
   </p>
-  <pre><code>curl -O https://splatforge.com/sample/bonsai-tiny.tar.gz
-curl -O https://splatforge.com/sample/smoke.sh
+  <pre><code>curl -O https://splatforge.dev/sample/bonsai-tiny.tar.gz
+curl -O https://splatforge.dev/sample/smoke.sh
 chmod +x smoke.sh
 ./smoke.sh bonsai-tiny.tar.gz http://localhost:8080</code></pre>
   <p>
@@ -156,7 +248,7 @@ chmod +x smoke.sh
   <h2>Air-gapped install</h2>
   <p>
     For environments with no outbound internet, request the offline
-    tarball from <a href="mailto:sales@splatforge.com">sales@splatforge.com</a>
+    tarball from <a href="mailto:sales@splatforge.dev">sales@splatforge.dev</a>
     after your contract is signed. Load it once on the target host:
   </p>
   <pre><code>docker load -i splatforge-codec-0.1.0.tar.gz
@@ -180,7 +272,7 @@ docker run --gpus all -p 8080:8080 \
     <a href="/pricing#team">Team Seat</a> plan. Per-image runtime is
     unmetered — you pay for the seat, not for compute. See
     <a href="/pricing">/pricing</a> for tier details, or
-    <a href="mailto:sales@splatforge.com">email sales</a> for a defense
+    <a href="mailto:sales@splatforge.dev">email sales</a> for a defense
     or government quote.
   </p>
 
