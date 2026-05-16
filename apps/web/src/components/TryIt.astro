@@ -51,11 +51,18 @@ const presetOptions = [
     label: "FCGS-instant",
     blurb: "Zero-train feed-forward · ~20× · fastest encode",
   },
-  {
-    value: "hosted-neural",
-    label: "Hosted Neural",
-    blurb: "Per-scene A100 fit · ~7×/+8dB outdoor, 3-5× indoor · ~$0.13/scene",
-  },
+  // hosted-neural REMOVED 2026-05-16 — Principle 2 render-PSNR violation.
+  // p2-audit-2026-05-15 v2 harness (8 content-bearing orbit cams — the same
+  // orbit-8 path the production viewer wires below, src-vs-src=100 dB baseline):
+  //   bonsai_iter7000  → 12.56 dB content-cam mean (6.07 dB min, 2.00× ratio)
+  //   bicycle_iter7000 → 10.36 dB content-cam mean (7.14 dB min, 2.00× ratio)
+  // Both land BELOW the already-killed codec-gs-mixed (16.78 / 12.70 dB on the
+  // same harness). The picker's "+8dB outdoor" copy described a delta vs an
+  // internal opacity-prune baseline, not absolute PSNR; on the orbit-camera
+  // regime the viewer actually renders from, the encoder destroys fidelity.
+  // Encoder stays wired through worker/CLI/Modal so research can drive it via
+  // API. Recovery paths (co-train on orbit cams; drop sh3 from objective)
+  // documented in splatforge-private/research/p2-audit-2026-05-15.md.
   {
     value: "size-min",
     label: "Size-min",

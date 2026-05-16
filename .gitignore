@@ -122,3 +122,7 @@ integrations/blender/dist/*.zip
 # novel-5 morton pre-permute bench scratch (large .bin scenes)
 /.bench-scenes/
 
+# p2-audit-v2 decoded PLY caches (~280 MB; reproducible via the Modal app)
+/tasks/scripts/p2-audit-v2/results/*.ply
+/tasks/scripts/p2-audit-v2/*.log
+
