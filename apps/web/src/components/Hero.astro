@@ -125,9 +125,11 @@ const version = splatbench.splatforgeVersion;
             autoRotateSpeed: 8,
             // The default orbit pulls the camera back 2.5× the bbox
             // half-diagonal — perfect for visual-regression frames but a
-            // little airy as a hero. 0.45 pushes the camera close enough
-            // that the bonsai fills most of the canvas.
-            autoRotateFraming: 0.75,
+            // little airy as a hero. The bonsai_real bbox is padded by
+            // background floaters (FloaterPrune removed 0 in scene.json)
+            // so the actual subject lives in maybe 25% of the bbox volume;
+            // pull the framing in hard so the bonsai fills the canvas.
+            autoRotateFraming: 0.45,
           });
           viewer.on("firstRender", () => {
             setStatus("live · auto-orbit");
