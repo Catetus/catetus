@@ -11,7 +11,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const ALLOWED_EXTS = [".ply", ".spz", ".gltf", ".glb", ".splat"];
+const ALLOWED_EXTS = [
+  ".ply", ".spz", ".gltf", ".glb", ".splat",
+  // Bundle uploads: hacpp-lzma (Scaffold-GS .tar bundle) + qat-bundle (PLY +
+  // cameras.txt + images.txt + image folder, tar.gz) + ios-capture (.zip
+  // of phone photos for the server-side COLMAP → Scaffold → QAT path).
+  ".tar", ".tar.gz", ".tgz", ".zip",
+];
 const MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB (R2 single-PUT cap)
 
 interface SignBody {
