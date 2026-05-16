@@ -4,7 +4,13 @@
  * transparently.
  */
 import type { CameraPose } from '../camera.js';
-import type { ChunkDescriptor, SoaAttributeLayout } from '../manifest.js';
+import type { ChunkDescriptor, SoaAttributeLayout, SoaAttributeSlice } from '../manifest.js';
+
+/**
+ * SH degree-1 band-1 normalization constant (matches the 3DGS reference
+ * implementation): `Y_1^m(d) = SH_C1 * d_axis` for d normalized.
+ */
+export const SH_C1 = 0.4886025119029199;
 
 /** One-time renderer initialization options. */
 export interface RendererInitOptions {
@@ -43,6 +49,48 @@ export interface DecodedSplat {
   rotation: [number, number, number, number]; // quaternion (x,y,z,w)
   opacity: number;
   colorDC: [number, number, number];
+  /**
+   * SH degree-1 coefficients, 3 coefs × 3 channels = 9 floats, laid out as
+   * `[c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c2.r, c2.g, c2.b]`. Undefined when
+   * the chunk only carries DC (degree 0). Coefficient order matches the
+   * `KHR_gaussian_splatting:SH_DEGREE_1_COEF_{0,1,2}` accessors emitted by
+   * the Rust encoder.
+   */
+  sh1?: Float32Array;
+}
+
+/**
+ * Evaluate the view-dependent color contribution of degree-1 SH for `splat`
+ * given the (normalized) splat-to-camera direction `dir = (x, y, z)`.
+ *
+ * Reference (3DGS Eq. 6): `c = SH_C0*sh0 - SH_C1*y*sh1 + SH_C1*z*sh2 - SH_C1*x*sh3`.
+ * The DC term is already pre-baked into `splat.colorDC` (with SplatForge's
+ * convention of passing f_dc through directly as RGB rather than applying
+ * `SH_C0 + 0.5`), so this function returns only the *additive* degree-1 part.
+ *
+ * Sign convention here matches gsplat / antimatter15:
+ *   `+SH_C1*y*sh[0] +SH_C1*z*sh[1] +SH_C1*x*sh[2]`
+ * with `dir = normalize(splat.position - camera.position)` (splat→camera
+ * direction). Different reference implementations vary the signs; the test
+ * pins the chosen convention so a regression surfaces immediately.
+ *
+ * Returns `[r, g, b]` to add to `colorDC` before clamping into [0, 1].
+ */
+export function evaluateSh1(
+  sh1: Float32Array,
+  dirX: number,
+  dirY: number,
+  dirZ: number,
+): [number, number, number] {
+  const ky = SH_C1 * dirY;
+  const kz = SH_C1 * dirZ;
+  const kx = SH_C1 * dirX;
+  // Coefficient layout: [c0=Y_1^-1, c1=Y_1^0, c2=Y_1^1] (rgb-major).
+  return [
+    ky * sh1[0]! + kz * sh1[3]! + kx * sh1[6]!,
+    ky * sh1[1]! + kz * sh1[4]! + kx * sh1[7]!,
+    ky * sh1[2]! + kz * sh1[5]! + kx * sh1[8]!,
+  ];
 }
 
 /**
@@ -83,15 +131,46 @@ export function decodeSplatsSoa(
   const scl = decodeAttribute(bytes, layout.scales, splatCount, 3);
   const op = decodeAttribute(bytes, layout.opacities, splatCount, 1);
   const dc = decodeAttribute(bytes, layout.colorDC, splatCount, 3);
+  // Optional SH degree-1 coefficients. Each is a VEC3 FLOAT accessor of
+  // length `splatCount`. We re-pack into a single 9-float interleaved slice
+  // per splat so the per-instance attribute build stays a single pass.
+  const sh1Slices: (SoaAttributeSlice | undefined)[] = [
+    layout.sh1Coef0,
+    layout.sh1Coef1,
+    layout.sh1Coef2,
+  ];
+  let sh1: Float32Array | undefined;
+  if (sh1Slices.every((s) => s !== undefined)) {
+    const c0 = decodeAttribute(bytes, sh1Slices[0]!, splatCount, 3);
+    const c1 = decodeAttribute(bytes, sh1Slices[1]!, splatCount, 3);
+    const c2 = decodeAttribute(bytes, sh1Slices[2]!, splatCount, 3);
+    sh1 = new Float32Array(splatCount * 9);
+    for (let i = 0; i < splatCount; i++) {
+      const o = i * 9;
+      sh1[o + 0] = c0[i * 3]!;
+      sh1[o + 1] = c0[i * 3 + 1]!;
+      sh1[o + 2] = c0[i * 3 + 2]!;
+      sh1[o + 3] = c1[i * 3]!;
+      sh1[o + 4] = c1[i * 3 + 1]!;
+      sh1[o + 5] = c1[i * 3 + 2]!;
+      sh1[o + 6] = c2[i * 3]!;
+      sh1[o + 7] = c2[i * 3 + 1]!;
+      sh1[o + 8] = c2[i * 3 + 2]!;
+    }
+  }
   const out: DecodedSplat[] = new Array(splatCount);
   for (let i = 0; i < splatCount; i++) {
-    out[i] = {
+    const splat: DecodedSplat = {
       position: [pos[i * 3]!, pos[i * 3 + 1]!, pos[i * 3 + 2]!],
       rotation: [rot[i * 4]!, rot[i * 4 + 1]!, rot[i * 4 + 2]!, rot[i * 4 + 3]!],
       scale: [scl[i * 3]!, scl[i * 3 + 1]!, scl[i * 3 + 2]!],
       opacity: op[i]!,
       colorDC: [dc[i * 3]!, dc[i * 3 + 1]!, dc[i * 3 + 2]!],
     };
+    if (sh1) {
+      splat.sh1 = sh1.subarray(i * 9, i * 9 + 9);
+    }
+    out[i] = splat;
   }
   return out;
 }

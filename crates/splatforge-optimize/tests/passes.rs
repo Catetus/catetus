@@ -73,6 +73,49 @@ fn reduce_sh_collapses_to_rgb() {
 }
 
 #[test]
+fn reduce_sh_to_degree_1_preserves_degree_1_coeffs() {
+    // Degree-3 source: 3 DC + (3+5+7)*3 = 48 scalars total.
+    let mut scene = SplatScene::new();
+    let mut coeffs = Vec::with_capacity(48);
+    for i in 0..48 {
+        coeffs.push(0.01 * (i as f32));
+    }
+    scene.splats.push(Splat {
+        position: [0.0, 0.0, 0.0],
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        scale: [1.0, 1.0, 1.0],
+        opacity: 0.5,
+        color: Color::Sh {
+            degree: 3,
+            coeffs: coeffs.clone(),
+        },
+    });
+    let mut ctx = PassContext::default();
+    ReduceSHDegree { target_degree: 1 }
+        .run(&mut scene, &mut ctx)
+        .unwrap();
+    // Expect degree=1 with 3 DC + 3*3 = 12 scalars, preserving the first 12.
+    match &scene.splats[0].color {
+        Color::Sh {
+            degree,
+            coeffs: out,
+        } => {
+            assert_eq!(*degree, 1, "target_degree=1 must reduce to degree 1");
+            assert_eq!(out.len(), 12, "degree-1 SH has 4 bands × 3 channels = 12");
+            for i in 0..12 {
+                assert!(
+                    (out[i] - coeffs[i]).abs() < 1e-9,
+                    "coefficient {i} drifted: {} vs {}",
+                    out[i],
+                    coeffs[i]
+                );
+            }
+        }
+        other => panic!("expected SH degree 1, got {other:?}"),
+    }
+}
+
+#[test]
 fn preset_web_mobile_builds() {
     let pipe = preset("web-mobile").unwrap();
     assert!(!pipe.passes.is_empty());

@@ -48,6 +48,12 @@ importers:
         specifier: ^0.20.0
         version: 0.20.2
 
+  apps/codec/qat-ply-wasm:
+    devDependencies:
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@25.8.0)
+
   apps/codec/threejs-qat:
     devDependencies:
       '@types/three':

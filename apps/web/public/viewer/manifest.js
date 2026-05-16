@@ -64,6 +64,13 @@ const RC_ATTR_KEYS = {
     OPACITY: `${GS_EXT}:OPACITY`,
     COLOR_DC: `${GS_EXT}:COLOR_DC`,
     COLOR_SH: `${GS_EXT}:COLOR_SH`,
+    // KHR_gaussian_splatting RC pre-2026: DC color lives in the SH degree-0
+    // slot (`SH_DEGREE_0_COEF_0`). The Rust writer emits this name; treat it
+    // as a synonym for COLOR_DC so we can read both layouts.
+    COLOR_DC_RC: `${GS_EXT}:SH_DEGREE_0_COEF_0`,
+    SH1_COEF_0: `${GS_EXT}:SH_DEGREE_1_COEF_0`,
+    SH1_COEF_1: `${GS_EXT}:SH_DEGREE_1_COEF_1`,
+    SH1_COEF_2: `${GS_EXT}:SH_DEGREE_1_COEF_2`,
 };
 /**
  * Extract the attribute → accessor index table from the first splat primitive,
@@ -81,14 +88,26 @@ function extractGaussianAttributes(g) {
                 const pa = primAttrs;
                 const hasRc = Object.keys(pa).some((k) => k.startsWith(`${GS_EXT}:`));
                 if (hasRc) {
+                    // RC DC may live under either `COLOR_DC` (early RC drafts and the
+                    // SOG synthesizer) or the canonical SH-degree-0 slot
+                    // (`SH_DEGREE_0_COEF_0`, what the Rust writer emits). Prefer the
+                    // explicit COLOR_DC key, fall back to SH_DEGREE_0_COEF_0.
+                    const dcIdx = typeof pa[RC_ATTR_KEYS.COLOR_DC] === 'number'
+                        ? pa[RC_ATTR_KEYS.COLOR_DC]
+                        : typeof pa[RC_ATTR_KEYS.COLOR_DC_RC] === 'number'
+                            ? pa[RC_ATTR_KEYS.COLOR_DC_RC]
+                            : undefined;
                     return {
                         attrs: {
                             POSITION: typeof pa[RC_ATTR_KEYS.POSITION] === 'number' ? pa[RC_ATTR_KEYS.POSITION] : undefined,
                             _ROTATION: typeof pa[RC_ATTR_KEYS.ROTATION] === 'number' ? pa[RC_ATTR_KEYS.ROTATION] : undefined,
                             _SCALE: typeof pa[RC_ATTR_KEYS.SCALE] === 'number' ? pa[RC_ATTR_KEYS.SCALE] : undefined,
                             _OPACITY: typeof pa[RC_ATTR_KEYS.OPACITY] === 'number' ? pa[RC_ATTR_KEYS.OPACITY] : undefined,
-                            _COLOR_DC: typeof pa[RC_ATTR_KEYS.COLOR_DC] === 'number' ? pa[RC_ATTR_KEYS.COLOR_DC] : undefined,
+                            _COLOR_DC: dcIdx,
                             _COLOR_SH: typeof pa[RC_ATTR_KEYS.COLOR_SH] === 'number' ? pa[RC_ATTR_KEYS.COLOR_SH] : undefined,
+                            _SH1_COEF_0: typeof pa[RC_ATTR_KEYS.SH1_COEF_0] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_0] : undefined,
+                            _SH1_COEF_1: typeof pa[RC_ATTR_KEYS.SH1_COEF_1] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_1] : undefined,
+                            _SH1_COEF_2: typeof pa[RC_ATTR_KEYS.SH1_COEF_2] === 'number' ? pa[RC_ATTR_KEYS.SH1_COEF_2] : undefined,
                         },
                         layout: 'rc',
                     };
@@ -169,6 +188,9 @@ export function parseManifest(json) {
     const sclSlice = accessorSlice(g, attrs._SCALE);
     const opSlice = accessorSlice(g, attrs._OPACITY);
     const dcSlice = accessorSlice(g, attrs._COLOR_DC);
+    const sh1c0Slice = accessorSlice(g, attrs._SH1_COEF_0);
+    const sh1c1Slice = accessorSlice(g, attrs._SH1_COEF_1);
+    const sh1c2Slice = accessorSlice(g, attrs._SH1_COEF_2);
     // splatCount: prefer scene-level extension; fall back to POSITION accessor
     // count; fall back to streaming-index records (handled below).
     let splatCount = typeof sceneExt?.splatCount === 'number' ? sceneExt.splatCount : 0;
@@ -210,7 +232,11 @@ export function parseManifest(json) {
         if (!buf?.uri) {
             throw new Error('manifest_invalid: no streaming index and no primary buffer uri');
         }
-        const layout = buildAttributeLayout(posSlice, rotSlice, sclSlice, opSlice, dcSlice, 0);
+        const layout = buildAttributeLayout(posSlice, rotSlice, sclSlice, opSlice, dcSlice, 0, {
+            c0: sh1c0Slice,
+            c1: sh1c1Slice,
+            c2: sh1c2Slice,
+        });
         chunks = [
             {
                 uri: buf.uri,
@@ -229,7 +255,7 @@ export function parseManifest(json) {
     chunks.sort((a, b) => a.loadPriority !== b.loadPriority ? a.loadPriority - b.loadPriority : a.lod - b.lod);
     return { splatCount, bbox, chunks, shDegree };
 }
-function buildAttributeLayout(positions, rotations, scales, opacities, colorDC, chunkByteOffset) {
+function buildAttributeLayout(positions, rotations, scales, opacities, colorDC, chunkByteOffset, sh1 = {}) {
     if (!positions || !rotations || !scales || !opacities || !colorDC) {
         return undefined;
     }
@@ -241,13 +267,19 @@ function buildAttributeLayout(positions, rotations, scales, opacities, colorDC, 
         min: s.min,
         max: s.max,
     });
-    return {
+    const layout = {
         positions: rebase(positions),
         rotations: rebase(rotations),
         scales: rebase(scales),
         opacities: rebase(opacities),
         colorDC: rebase(colorDC),
     };
+    if (sh1.c0 && sh1.c1 && sh1.c2) {
+        layout.sh1Coef0 = rebase(sh1.c0);
+        layout.sh1Coef1 = rebase(sh1.c1);
+        layout.sh1Coef2 = rebase(sh1.c2);
+    }
+    return layout;
 }
 function normalizeChunk(c, index, sceneBbox, totalSplats, g, attrs) {
     // The chunk may carry `uri` (preferred) or `buffer` (index into root.buffers).
@@ -266,16 +298,20 @@ function normalizeChunk(c, index, sceneBbox, totalSplats, g, attrs) {
     // per chunk this always holds; treating it conservatively keeps the legacy
     // path active when assumptions don't.
     const bufIdx = typeof c.buffer === 'number' ? c.buffer : undefined;
-    const slice = (accIdx) => {
+    const fullSlice = (accIdx) => {
         const s = accessorSlice(g, accIdx);
         if (!s)
             return undefined;
         if (bufIdx !== undefined && s.bufferIdx !== bufIdx)
             return undefined;
-        return { byteOffset: s.byteOffset, byteLength: s.byteLength };
+        return s;
     };
     const layout = bufIdx !== undefined
-        ? buildAttributeLayout(slice(attrs.POSITION), slice(attrs._ROTATION), slice(attrs._SCALE), slice(attrs._OPACITY), slice(attrs._COLOR_DC), chunkByteOffset)
+        ? buildAttributeLayout(fullSlice(attrs.POSITION), fullSlice(attrs._ROTATION), fullSlice(attrs._SCALE), fullSlice(attrs._OPACITY), fullSlice(attrs._COLOR_DC), chunkByteOffset, {
+            c0: fullSlice(attrs._SH1_COEF_0),
+            c1: fullSlice(attrs._SH1_COEF_1),
+            c2: fullSlice(attrs._SH1_COEF_2),
+        })
         : undefined;
     return {
         uri,

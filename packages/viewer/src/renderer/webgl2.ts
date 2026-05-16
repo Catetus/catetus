@@ -8,6 +8,7 @@ import type { CameraPose } from '../camera.js';
 import type { ChunkDescriptor } from '../manifest.js';
 import {
   decodeChunkBytes,
+  evaluateSh1,
   sortBackToFront,
   type DecodedSplat,
   type Renderer,
@@ -191,6 +192,28 @@ export class WebGL2Renderer implements Renderer {
       const term = Math.sqrt(Math.max(halfTrace * halfTrace - (c00 * c11 - c01 * c01), 0));
       const lambdaMax = halfTrace + term;
       const radius = behind ? 0 : 3 * Math.sqrt(Math.max(lambdaMax, 0));
+      // View-dependent color: DC + degree-1 SH evaluated against the
+      // splat-to-camera direction. The DC term is passed through verbatim
+      // (SplatForge stores f_dc directly as RGB rather than SH-encoded), so
+      // SH degree-1 is purely additive. When `s.sh1` is absent (DC-only
+      // scenes) we fall through to the flat color and the rendered output
+      // is bit-identical to the pre-SH path.
+      let r = s.colorDC[0];
+      let g = s.colorDC[1];
+      let b = s.colorDC[2];
+      if (s.sh1) {
+        // direction = normalize(splat → camera). Behind-camera splats are
+        // already culled (radius=0) so we don't bother guarding against
+        // zero-length here.
+        const dx = camera.position[0] - s.position[0];
+        const dy = camera.position[1] - s.position[1];
+        const dz = camera.position[2] - s.position[2];
+        const len = Math.hypot(dx, dy, dz) || 1;
+        const [dr, dg, db] = evaluateSh1(s.sh1, dx / len, dy / len, dz / len);
+        r += dr;
+        g += dg;
+        b += db;
+      }
       const o = i * FLOATS_PER_INSTANCE;
       data[o + 0] = proj.ndc[0];
       data[o + 1] = proj.ndc[1];
@@ -200,9 +223,11 @@ export class WebGL2Renderer implements Renderer {
       data[o + 5] = c01;
       data[o + 6] = c11;
       data[o + 7] = radius;
-      data[o + 8] = s.colorDC[0];
-      data[o + 9] = s.colorDC[1];
-      data[o + 10] = s.colorDC[2];
+      // Clamp to [0,1] before alpha blend — the EWA fragment shader treats
+      // the per-instance color as already-in-gamut.
+      data[o + 8] = Math.min(Math.max(r, 0), 1);
+      data[o + 9] = Math.min(Math.max(g, 0), 1);
+      data[o + 10] = Math.min(Math.max(b, 0), 1);
       data[o + 11] = s.opacity;
     }
 

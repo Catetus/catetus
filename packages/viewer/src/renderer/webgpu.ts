@@ -11,6 +11,7 @@ import type { CameraPose } from '../camera.js';
 import type { ChunkDescriptor } from '../manifest.js';
 import {
   decodeChunkBytes,
+  evaluateSh1,
   sortBackToFront,
   type DecodedSplat,
   type Renderer,
@@ -325,6 +326,23 @@ export class WebGPURenderer implements Renderer {
       const term = Math.sqrt(Math.max(halfTrace * halfTrace - (c00 * c11 - c01 * c01), 0));
       const lambdaMax = halfTrace + term;
       const radius = behind ? 0 : 3 * Math.sqrt(Math.max(lambdaMax, 0));
+      // View-dependent color: DC + degree-1 SH (additive). See `webgl2.ts`
+      // for the rationale — both backends evaluate identically on the CPU
+      // so the WebGL2 and WebGPU paths produce the same per-instance RGB
+      // and the existing fragment shader can stay unchanged.
+      let r = s.colorDC[0];
+      let g = s.colorDC[1];
+      let b = s.colorDC[2];
+      if (s.sh1) {
+        const dx = camera.position[0] - s.position[0];
+        const dy = camera.position[1] - s.position[1];
+        const dz = camera.position[2] - s.position[2];
+        const len = Math.hypot(dx, dy, dz) || 1;
+        const [dr, dg, db] = evaluateSh1(s.sh1, dx / len, dy / len, dz / len);
+        r += dr;
+        g += dg;
+        b += db;
+      }
       const o = i * FLOATS_PER_INSTANCE;
       instanceData[o + 0] = proj.ndc[0];
       instanceData[o + 1] = proj.ndc[1];
@@ -334,9 +352,9 @@ export class WebGPURenderer implements Renderer {
       instanceData[o + 5] = c01;
       instanceData[o + 6] = c11;
       instanceData[o + 7] = radius;
-      instanceData[o + 8] = s.colorDC[0];
-      instanceData[o + 9] = s.colorDC[1];
-      instanceData[o + 10] = s.colorDC[2];
+      instanceData[o + 8] = Math.min(Math.max(r, 0), 1);
+      instanceData[o + 9] = Math.min(Math.max(g, 0), 1);
+      instanceData[o + 10] = Math.min(Math.max(b, 0), 1);
       instanceData[o + 11] = s.opacity;
     }
 
