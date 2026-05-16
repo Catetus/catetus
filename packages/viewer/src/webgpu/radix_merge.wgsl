@@ -58,48 +58,6 @@ struct MergeUniforms {
 @group(0) @binding(3) var<storage, read_write> values_out : array<u32>;
 @group(0) @binding(4) var<uniform>             u          : MergeUniforms;
 
-// Binary search for the smallest index `i` in [lo, hi] such that:
-//   (i == u.run_a_len || keys_in[u.run_a_start + i] > pivot) ||
-//   (i == hi)                                              // saturate
-// I.e. the count of A elements with key <= pivot.
-//
-// For tie-breaking favoring A (stable merge): treat A keys as "<=" pivot when
-// equal — i.e. find first A index whose key is STRICTLY GREATER than pivot.
-fn upper_bound_a(pivot: u32, lo: u32, hi: u32) -> u32 {
-  var l = lo;
-  var r = hi;
-  loop {
-    if (l >= r) { break; }
-    let m = (l + r) >> 1u;
-    let k = keys_in[u.run_a_start + m];
-    if (k <= pivot) {
-      l = m + 1u;
-    } else {
-      r = m;
-    }
-  }
-  return l;
-}
-
-// Mirror for B: count of B elements with key strictly less than pivot.
-// (For stable merge favoring A, ties go to A — so B contributes only when
-// its key is < the current A pivot.)
-fn lower_bound_b(pivot: u32, lo: u32, hi: u32) -> u32 {
-  var l = lo;
-  var r = hi;
-  loop {
-    if (l >= r) { break; }
-    let m = (l + r) >> 1u;
-    let k = keys_in[u.run_b_start + m];
-    if (k < pivot) {
-      l = m + 1u;
-    } else {
-      r = m;
-    }
-  }
-  return l;
-}
-
 // Merge-Path: for output slot k (within the merged run), find the (i, j)
 // split such that i + j == k AND A[i-1] <= B[j] AND B[j-1] < A[i] (stable,
 // favoring A on ties). We binary-search the diagonal i + j = k.
