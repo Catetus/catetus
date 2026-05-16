@@ -1,0 +1,6 @@
+fps samples (20x 1s): 60.7,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1,60.1
+console: [
+  'warning: [hero] viewer init failed: Error: unknown\n' +
+    '    at SplatForgeViewer.load (http://127.0.0.1:4330/viewer/viewer.js:125:19)\n' +
+    '    at async http://127.0.0.1:4330/:4:979'
+]

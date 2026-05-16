@@ -95,7 +95,15 @@ export class SplatForgeViewer {
       autoRotateSpeed: options.autoRotateSpeed ?? 10,
       autoRotateFraming: options.autoRotateFraming ?? 1.0,
       cameraBbox: options.cameraBbox,
-      useComputeDecode: options.useComputeDecode ?? false,
+      // Stage 7 (sf-154) fast path: WebGPU compute-decode + per-page sort +
+      // multi-draw. Default ON so every page (hero, /optimize TryIt, explore,
+      // compare) gets the renderer that handles >100M splats without freezing
+      // the browser. The legacy CPU project/sort path stays reachable by
+      // passing `useComputeDecode: false` explicitly (deterministic tests,
+      // bench harness). When the renderer ends up on WebGL2 (no WebGPU in
+      // the browser), this flag is ignored — WebGL2Renderer has no compute
+      // pipeline and uses the CPU path regardless.
+      useComputeDecode: options.useComputeDecode ?? true,
     };
   }
 
@@ -535,12 +543,37 @@ export class SplatForgeViewer {
     if (typeof raf !== 'function') return;
     const speedRad = (this.opts.autoRotateSpeed * Math.PI) / 180;
     const t0 = performance.now();
+    // Single in-flight frame guard. The pre-Stage-7 path used "fire-and-
+    // forget" — `void renderer.renderFrame(pose)` and immediately scheduled
+    // the next rAF. That works for the CPU rasterizer (each renderFrame
+    // blocks the main thread synchronously, so the rAF cadence self-limits)
+    // but the WebGPU compute path returns to the event loop after
+    // `queue.submit()` without waiting for presentation. Successive rAF
+    // ticks then pile submits into the GPU's swap chain faster than the
+    // compositor can present them. On Apple Silicon the swap chain
+    // backpressures after ~5 seconds and the page collapses from 60 fps to
+    // <1 fps for the rest of its life (this was the "machine freeze"
+    // symptom reproduced on the marketing hero with the bonsai scene).
+    //
+    // Fix: gate the rAF on the previous renderFrame's Promise settling.
+    // We still drop a frame if the GPU is behind — there's no queueing —
+    // but we never accumulate work, so the queue can drain between vsyncs.
+    let inFlight: Promise<void> | null = null;
     const step = (now: number): void => {
-      if (this.disposed || !this.renderer || !this.cachedManifest) return;
+      if (this.disposed || !this.renderer || !this.cachedManifest) {
+        this.autoRotateRaf = null;
+        return;
+      }
       const canvas = this.opts.canvas;
       // Bail cheaply when the canvas has been detached or hidden.
       if (!canvas.isConnected) {
         this.autoRotateRaf = null;
+        return;
+      }
+      // If the previous frame's submit hasn't returned yet, skip this
+      // vsync. raf re-fires anyway and we'll catch up on the next tick.
+      if (inFlight) {
+        this.autoRotateRaf = raf(step);
         return;
       }
       const aspect = canvas.width > 0 ? canvas.width / Math.max(canvas.height, 1) : 16 / 9;
@@ -560,8 +593,9 @@ export class SplatForgeViewer {
           center[2] + (pose.position[2] - center[2]) * framing,
         ];
       }
-      // Fire-and-forget — we'd rather drop a frame than back up the queue.
-      void this.renderer.renderFrame(pose);
+      inFlight = this.renderer.renderFrame(pose).finally(() => {
+        inFlight = null;
+      });
       this.autoRotateRaf = raf(step);
     };
     this.autoRotateRaf = raf(step);
@@ -582,19 +616,22 @@ export class SplatForgeViewer {
 
   private async pickRenderer(): Promise<Renderer> {
     const kind = this.opts.renderer;
-    if (kind === 'webgpu') {
-      if (!(await isWebGPUAvailable())) {
-        throw new Error('renderer_unavailable: WebGPU requested but missing');
-      }
-      return new WebGPURenderer({ useComputeDecode: this.opts.useComputeDecode });
-    }
     if (kind === 'webgl2') {
       return new WebGL2Renderer();
     }
-    // auto
+    // 'webgpu' and 'auto' both prefer WebGPU and silently fall back to
+    // WebGL2 when WebGPU is missing. Callers should not need to probe
+    // `navigator.gpu` themselves — pre-Stage-7 the explicit `webgpu`
+    // mode threw, which forced every embed site to write its own
+    // capability gate. Now the SDK is the single source of truth.
     if (await isWebGPUAvailable()) {
       return new WebGPURenderer({ useComputeDecode: this.opts.useComputeDecode });
     }
+    this.emitter.emit('warning', {
+      type: 'warning',
+      code: 'webgpu_unavailable',
+      message: 'WebGPU not available; falling back to WebGL2 renderer',
+    });
     return new WebGL2Renderer();
   }
 

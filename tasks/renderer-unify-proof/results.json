@@ -1,0 +1,56 @@
+[
+  {
+    "name": "hero",
+    "url": "http://127.0.0.1:4330/",
+    "fps": 60.3568349145848,
+    "minFps": 30,
+    "canvasFound": true,
+    "diag": {
+      "hasWebGPU": true,
+      "adapter": {
+        "ok": true
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.7778.96 Safari/537.36"
+    },
+    "screenshot": "/Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/hero.png",
+    "fullPage": null,
+    "consoleNotes": []
+  },
+  {
+    "name": "optimize-tryit-preview",
+    "url": "http://127.0.0.1:4330/preview-hero.html?src=/hero-scene/scene.gltf&framing=0.85",
+    "fps": 60.49325267518372,
+    "minFps": 30,
+    "canvasFound": true,
+    "diag": {
+      "hasWebGPU": true,
+      "adapter": {
+        "ok": true
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.7778.96 Safari/537.36"
+    },
+    "screenshot": "/Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/optimize-tryit-preview.png",
+    "fullPage": null,
+    "consoleNotes": []
+  },
+  {
+    "name": "scale",
+    "url": "http://127.0.0.1:4330/scale",
+    "fps": 60.2688919781738,
+    "minFps": 5,
+    "canvasFound": true,
+    "diag": {
+      "hasWebGPU": true,
+      "adapter": {
+        "ok": true
+      },
+      "devicePixelRatio": 1,
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.7778.96 Safari/537.36"
+    },
+    "screenshot": null,
+    "fullPage": null,
+    "consoleNotes": []
+  }
+]

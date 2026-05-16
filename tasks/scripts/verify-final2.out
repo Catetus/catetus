@@ -1,0 +1,26 @@
+---
+[hero] loading http://127.0.0.1:4330/
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 15.0s...
+  measured fps (windows): 60.2 / 60.4 -> best 60.4
+  screenshot: /Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/hero.png
+---
+[optimize-tryit-preview] loading http://127.0.0.1:4330/preview-hero.html?src=/hero-scene/scene.gltf&framing=0.85
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 15.0s...
+  measured fps (windows): 60.5 / 60.2 -> best 60.5
+  screenshot: /Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/optimize-tryit-preview.png
+---
+[scale] loading http://127.0.0.1:4330/scale
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 45.0s...
+  measured fps (windows): 0.0 / 60.3 -> best 60.3
+  WARN: screenshot failed: page.evaluate: Target page, context or browser has been closed
+
+=== SUMMARY ===
+PASS  hero: 60.4 fps (>= 30)  canvas=true  webgpu=true
+PASS  optimize-tryit-preview: 60.5 fps (>= 30)  canvas=true  webgpu=true
+PASS  scale: 60.3 fps (>= 5)  canvas=true  webgpu=true

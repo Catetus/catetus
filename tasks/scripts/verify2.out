@@ -1,0 +1,26 @@
+---
+[hero] loading http://127.0.0.1:4330/
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 9.0s...
+  measured fps (windows): 60.1 / 60.1 -> best 60.1
+  screenshot: /Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/hero.png
+---
+[optimize-tryit-preview] loading http://127.0.0.1:4330/preview-hero.html?src=/hero-scene/scene.gltf&framing=0.85
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 9.0s...
+  measured fps (windows): 60.7 / 60.8 -> best 60.8
+  screenshot: /Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/optimize-tryit-preview.png
+---
+[scale] loading http://127.0.0.1:4330/scale
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 45.0s...
+  measured fps (windows): 0.0 / 0.0 -> best 0.0
+  screenshot: /Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/scale.png
+
+=== SUMMARY ===
+PASS  hero: 60.1 fps  canvas=true  webgpu=true
+PASS  optimize-tryit-preview: 60.8 fps  canvas=true  webgpu=true
+FAIL  scale: 0.0 fps  canvas=true  webgpu=true

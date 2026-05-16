@@ -182,7 +182,24 @@ export class WebGPURenderer {
             // from this chunk + a generous 8× growth headroom for streaming chunks.
             if (!this.compute) {
                 const cap = this.options.computeCapacity ?? Math.max(descriptor.splatCount * 8, 1 << 20);
-                this.compute = new ComputeDecodePipeline({ device: this.device, capacity: cap });
+                // useFusedProject: true matches the Stage 7 production path that
+                // /scale wires up — the unfused (gather-into-scratch) variant
+                // allocates a ~640 MB intermediate buffer at L0 sizes AND, more
+                // importantly, performs an extra GPU→GPU copy per frame on small
+                // scenes which combines with `onSubmittedWorkDone` backpressure to
+                // tank to ~1 fps on Apple Silicon. The fused path writes directly
+                // into the per-page instance buffers and sustains 60 fps.
+                this.compute = new ComputeDecodePipeline({
+                    device: this.device,
+                    capacity: cap,
+                    useFusedProject: true,
+                    // useCull defaults to true but is incompatible with the fused
+                    // project path — disable it here so the SDK matches /scale's
+                    // working Stage 7 wiring. (Pre-sort cull is an optional perf
+                    // optimization, not correctness-required; the gather kernel
+                    // already handles behind-camera splats via radius=0.)
+                    useCull: false,
+                });
             }
             this.compute.uploadChunk(descriptor, bytes);
             // Keep the descriptor so we can compute the total splat count for draws.
@@ -249,6 +266,14 @@ export class WebGPURenderer {
             }
             pass.end();
             this.device.queue.submit([encoder.finish()]);
+            // Apply presentation backpressure on the compute path. Without this
+            // the renderFrame Promise resolves the instant `queue.submit` returns
+            // (microseconds), which lets the caller pile up rAF-scheduled
+            // submits into the swap chain. After ~5 s on Apple Silicon the swap
+            // chain saturates and presentation collapses from 60 fps to <1 fps.
+            // Waiting for the queue to actually drain caps in-flight work at
+            // ~1 frame and keeps the auto-rotate loop stable.
+            await this.device.queue.onSubmittedWorkDone();
             return;
         }
         const all = this.flattenSplats();

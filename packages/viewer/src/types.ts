@@ -9,9 +9,10 @@
 /**
  * Renderer backend selector.
  *
- * - `webgpu` — force WebGPU. Throws `renderer_unavailable` if unsupported.
+ * - `webgpu` — prefer WebGPU; silently falls back to WebGL2 if missing
+ *              (emits a `warning` event with code `webgpu_unavailable`).
  * - `webgl2` — force WebGL2 fallback path.
- * - `auto`   — probe WebGPU first, fall back to WebGL2.
+ * - `auto`   — same behavior as `webgpu` (alias kept for callsite clarity).
  */
 export type RendererKind = 'webgpu' | 'webgl2' | 'auto';
 
@@ -92,9 +93,12 @@ export interface ViewerOptions {
    */
   cameraBbox?: { min: [number, number, number]; max: [number, number, number] };
   /**
-   * Use the WGSL compute-decode + GPU radix-sort pipeline (queue #62) when on
-   * the WebGPU backend. Defaults to `false` — the CPU decode/sort path stays
-   * as the conservative default. Has no effect under the WebGL2 backend.
+   * Use the WGSL compute-decode + GPU radix-sort + Stage-7 multi-page draw
+   * pipeline when on the WebGPU backend. **Defaults to `true`** — the
+   * compute path is now the canonical browser renderer and handles up to
+   * ~119M splats. Pass `false` to opt back into the legacy CPU decode/sort
+   * path (used by deterministic visual-regression tests in SPEC-0009 and
+   * the bench harness). Has no effect under the WebGL2 backend.
    *
    * The compute path moves dequantization, projection, depth-key generation,
    * and back-to-front sorting entirely onto the GPU. This is the path that

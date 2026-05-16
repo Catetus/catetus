@@ -1,0 +1,35 @@
+---
+[hero] loading http://127.0.0.1:4330/
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 15.0s...
+  measured fps (windows): 60.3 / 60.1 -> best 60.3
+  screenshot: /Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/hero.png
+---
+[optimize-tryit-preview] loading http://127.0.0.1:4330/preview-hero.html?src=/hero-scene/scene.gltf&framing=0.85
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 15.0s...
+  measured fps (windows): 60.6 / 60.1 -> best 60.6
+  screenshot: /Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/renderer-unify-proof/optimize-tryit-preview.png
+---
+[scale] loading http://127.0.0.1:4330/scale
+  WebGPU available: true adapter: {"ok":true}
+  adapter deep: {"ok":true}
+  settling for 45.0s...
+  measured fps (windows): 0.4 / 0.2 -> best 0.4
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+page.screenshot: Timeout 30000ms exceeded.
+Call log:
+[2m  - taking page screenshot[22m
+[2m  - waiting for fonts to load...[22m
+[2m  - fonts loaded[22m
+
+    at /Users/montabano1/Desktop/SplatForge/.wt-renderer-unify/tasks/scripts/verify-renderer.mjs:205:20 {
+  name: 'TimeoutError'
+}
+
+Node.js v25.9.0

@@ -98,7 +98,11 @@
         deterministic: true,
         seed,
         ...(cameraBbox ? { cameraBbox } : {}),
-        ...(useComputeDecode ? { useComputeDecode: true } : {}),
+        // SDK default is now `true` (Stage 7 fast path). The deterministic
+        // SPEC-0009 visual-regression goldens were captured against the CPU
+        // sort path, so the harness explicitly forces `false` unless the
+        // caller opts in to compute decode via the query param.
+        useComputeDecode: !!useComputeDecode,
       });
 
       viewer.on('warning', (e) => sf.warnings.push({ code: e.code, message: e.message }));
