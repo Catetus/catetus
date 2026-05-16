@@ -1,6 +1,6 @@
 {
-  "splats_before": 1157141,
-  "splats_after": 1142762,
+  "splats_before": 250000,
+  "splats_after": 244815,
   "passes": [
     {
       "name": "RemoveInvalidSplats",
@@ -14,11 +14,11 @@
     {
       "name": "FloaterPrune",
       "stats": {
-        "removed": 14379,
+        "removed": 5185,
         "modified": 0,
         "duration_ms": 0,
         "notes": [
-          "knn_median=0.3233 mad=0.1639 threshold=0.9698 cells=26"
+          "knn_median=0.5136 mad=0.2639 threshold=1.5407 cells=16"
         ]
       }
     },
@@ -26,7 +26,7 @@
       "name": "QuantizePosition",
       "stats": {
         "removed": 0,
-        "modified": 3425456,
+        "modified": 733982,
         "duration_ms": 0,
         "notes": []
       }
@@ -35,7 +35,7 @@
       "name": "QuantizeScale",
       "stats": {
         "removed": 0,
-        "modified": 3336591,
+        "modified": 712717,
         "duration_ms": 0,
         "notes": []
       }
@@ -44,7 +44,7 @@
       "name": "QuantizeRotation",
       "stats": {
         "removed": 0,
-        "modified": 4531214,
+        "modified": 970808,
         "duration_ms": 0,
         "notes": []
       }
@@ -53,7 +53,7 @@
       "name": "ReduceSHDegree",
       "stats": {
         "removed": 0,
-        "modified": 1142762,
+        "modified": 0,
         "duration_ms": 0,
         "notes": []
       }
@@ -62,7 +62,7 @@
       "name": "MortonSort",
       "stats": {
         "removed": 0,
-        "modified": 1142762,
+        "modified": 244815,
         "duration_ms": 0,
         "notes": []
       }
