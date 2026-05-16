@@ -144,7 +144,6 @@ try {
   }
 
   if (sf.error) throw new Error('harness reported error: ' + sf.error);
-  console.log('[playwright] harness ready: pages=' + sf.numPages);
 
   result.success = true;
 } catch (err) {
