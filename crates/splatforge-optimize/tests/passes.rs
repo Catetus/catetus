@@ -1,7 +1,7 @@
 use splatforge_core::{Color, SemanticLabel, Splat, SplatScene};
 use splatforge_optimize::{
-    preset, BuildLOD, MortonSort, ObjectAwarePruneExperimental, OpacityPrune, Pass, PassContext,
-    Pipeline, ReduceSHDegree, RemoveInvalidSplats,
+    preset, BuildLOD, FloaterPrune, MortonSort, ObjectAwarePruneExperimental, OpacityPrune, Pass,
+    PassContext, Pipeline, ReduceSHDegree, RemoveInvalidSplats,
 };
 
 fn make_scene(n: usize) -> SplatScene {
@@ -200,4 +200,160 @@ fn empty_pipeline_runs() {
     let r = pipe.run(&mut scene).unwrap();
     assert_eq!(r.splats_before, 3);
     assert_eq!(r.splats_after, 3);
+}
+
+// --- FloaterPrune (k-NN) -------------------------------------------------
+
+fn splat_at(p: [f32; 3]) -> Splat {
+    Splat {
+        position: p,
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        scale: [1.0, 1.0, 1.0],
+        opacity: 0.9,
+        color: Color::Rgb([0.5, 0.5, 0.5]),
+    }
+}
+
+/// Build a deterministic "subject + halo" scene. The subject is a dense
+/// 12×12×12 grid (1728 splats) inside a unit cube; the halo is 50 splats
+/// scattered uniformly across a 10× larger volume. The halo MUST be pruned
+/// (sparse, isolated) while the subject MUST survive intact.
+fn subject_and_halo() -> (SplatScene, usize, usize) {
+    let mut scene = SplatScene::new();
+    let subject_n = 12usize;
+    for i in 0..subject_n {
+        for j in 0..subject_n {
+            for k in 0..subject_n {
+                let x = (i as f32 / (subject_n - 1) as f32) * 2.0 - 1.0;
+                let y = (j as f32 / (subject_n - 1) as f32) * 2.0 - 1.0;
+                let z = (k as f32 / (subject_n - 1) as f32) * 2.0 - 1.0;
+                scene.splats.push(splat_at([x, y, z]));
+            }
+        }
+    }
+    let subject_count = scene.splats.len(); // 1728
+                                              // Halo: deterministic LCG, scatter across [-10, 10]³, far from subject.
+    let mut s: u32 = 0x12345678;
+    let halo_n = 50usize;
+    for _ in 0..halo_n {
+        // Three independent u32 LCG draws → [-10, 10] each.
+        let mut next = || {
+            s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            ((s >> 8) as f32 / (1u32 << 24) as f32) * 20.0 - 10.0
+        };
+        // Reject anything inside the subject ±1.5 envelope so we're guaranteed
+        // a sparse-vs-dense contrast, not a tied near-neighbor.
+        loop {
+            let p = [next(), next(), next()];
+            if p[0].abs() > 1.5 || p[1].abs() > 1.5 || p[2].abs() > 1.5 {
+                scene.splats.push(splat_at(p));
+                break;
+            }
+        }
+    }
+    (scene, subject_count, halo_n)
+}
+
+#[test]
+fn floater_prune_removes_isolated_halo_but_keeps_subject() {
+    let (mut scene, subject_count, halo_n) = subject_and_halo();
+    let before = scene.splats.len();
+    assert_eq!(before, subject_count + halo_n);
+
+    let mut ctx = PassContext::default();
+    let stats = FloaterPrune::default().run(&mut scene, &mut ctx).unwrap();
+
+    // The halo should be entirely pruned; some grid-boundary points may also
+    // get pruned because they have fewer than k=8 neighbors inside the
+    // sphere of distance R (corner subject points have ~7-13 grid neighbors).
+    // Accept any removal in [halo_n, halo_n + grid_corner_slack] but require
+    // the dense interior of the subject to survive — at least 90% of it.
+    assert!(
+        stats.removed >= halo_n,
+        "removed {} < halo_n {}; FloaterPrune didn't catch the halo",
+        stats.removed,
+        halo_n
+    );
+    let kept_subject_floor = (subject_count as f64 * 0.90) as usize;
+    assert!(
+        scene.splats.len() >= kept_subject_floor,
+        "kept {} < {} (90% of subject); FloaterPrune over-pruned the dense subject",
+        scene.splats.len(),
+        kept_subject_floor
+    );
+}
+
+#[test]
+fn floater_prune_is_deterministic() {
+    let (mut a, _, _) = subject_and_halo();
+    let (mut b, _, _) = subject_and_halo();
+    let mut ctx = PassContext::default();
+    let sa = FloaterPrune::default().run(&mut a, &mut ctx).unwrap();
+    let sb = FloaterPrune::default().run(&mut b, &mut ctx).unwrap();
+    assert_eq!(sa.removed, sb.removed);
+    let pa: Vec<_> = a.splats.iter().map(|s| s.position).collect();
+    let pb: Vec<_> = b.splats.iter().map(|s| s.position).collect();
+    assert_eq!(pa, pb);
+}
+
+#[test]
+fn floater_prune_noop_below_k() {
+    // Default k=8; n=5 must not panic and must not remove anything.
+    let mut scene = SplatScene::new();
+    for i in 0..5 {
+        scene
+            .splats
+            .push(splat_at([i as f32 * 0.1, 0.0, 0.0]));
+    }
+    let mut ctx = PassContext::default();
+    let stats = FloaterPrune::default().run(&mut scene, &mut ctx).unwrap();
+    assert_eq!(stats.removed, 0);
+    assert_eq!(scene.splats.len(), 5);
+}
+
+#[test]
+fn floater_prune_keeps_uniform_grid() {
+    // A uniform 10×10×10 grid (1000 splats) has near-zero MAD; the floor
+    // clamp must prevent over-pruning. Accept up to 5% removal as the
+    // grid-boundary artifact.
+    let mut scene = SplatScene::new();
+    let n = 10;
+    for i in 0..n {
+        for j in 0..n {
+            for k in 0..n {
+                scene.splats.push(splat_at([
+                    i as f32 * 0.1,
+                    j as f32 * 0.1,
+                    k as f32 * 0.1,
+                ]));
+            }
+        }
+    }
+    let before = scene.splats.len();
+    let mut ctx = PassContext::default();
+    let stats = FloaterPrune::default().run(&mut scene, &mut ctx).unwrap();
+    let removed_pct = stats.removed as f64 / before as f64;
+    assert!(
+        removed_pct <= 0.05,
+        "uniform grid lost {:.1}% (expected ≤ 5%)",
+        removed_pct * 100.0
+    );
+}
+
+#[test]
+fn floater_prune_reports_threshold_stats() {
+    // After running on a real subject+halo, the notes must surface the
+    // median / MAD / threshold so an operator can sanity-check the pass
+    // without rebuilding the binary. Catches regressions where someone
+    // strips the notes vec.
+    let (mut scene, _, _) = subject_and_halo();
+    let mut ctx = PassContext::default();
+    let stats = FloaterPrune::default().run(&mut scene, &mut ctx).unwrap();
+    let notes_blob = stats.notes.join(" ");
+    assert!(
+        notes_blob.contains("knn_median=")
+            && notes_blob.contains("mad=")
+            && notes_blob.contains("threshold="),
+        "expected diagnostic notes, got: {notes_blob}"
+    );
 }

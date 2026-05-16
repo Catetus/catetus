@@ -1,6 +1,6 @@
 {
-  "splats_before": 100000,
-  "splats_after": 90626,
+  "splats_before": 150000,
+  "splats_after": 148772,
   "passes": [
     {
       "name": "RemoveInvalidSplats",
@@ -14,7 +14,7 @@
     {
       "name": "OpacityPrune",
       "stats": {
-        "removed": 9374,
+        "removed": 206,
         "modified": 0,
         "duration_ms": 0,
         "notes": []
@@ -23,17 +23,19 @@
     {
       "name": "FloaterPrune",
       "stats": {
-        "removed": 0,
+        "removed": 1022,
         "modified": 0,
         "duration_ms": 0,
-        "notes": []
+        "notes": [
+          "knn_median=0.4021 mad=0.1547 threshold=1.2062 cells=13"
+        ]
       }
     },
     {
       "name": "QuantizePosition",
       "stats": {
         "removed": 0,
-        "modified": 271647,
+        "modified": 445935,
         "duration_ms": 0,
         "notes": []
       }
@@ -42,7 +44,7 @@
       "name": "QuantizeScale",
       "stats": {
         "removed": 0,
-        "modified": 271840,
+        "modified": 446264,
         "duration_ms": 0,
         "notes": []
       }
@@ -51,7 +53,7 @@
       "name": "QuantizeRotation",
       "stats": {
         "removed": 0,
-        "modified": 362496,
+        "modified": 595073,
         "duration_ms": 0,
         "notes": []
       }
@@ -60,7 +62,7 @@
       "name": "ReduceSHDegree",
       "stats": {
         "removed": 0,
-        "modified": 90626,
+        "modified": 148772,
         "duration_ms": 0,
         "notes": []
       }
@@ -69,7 +71,7 @@
       "name": "MortonSort",
       "stats": {
         "removed": 0,
-        "modified": 90626,
+        "modified": 148772,
         "duration_ms": 0,
         "notes": []
       }
@@ -81,9 +83,9 @@
         "modified": 0,
         "duration_ms": 0,
         "notes": [
-          "LOD0 count=90626",
-          "LOD1 fraction=0.5 stride=2 count=45313",
-          "LOD2 fraction=0.25 stride=4 count=22657"
+          "LOD0 count=148772",
+          "LOD1 fraction=0.5 stride=2 count=74386",
+          "LOD2 fraction=0.25 stride=4 count=37193"
         ]
       }
     }

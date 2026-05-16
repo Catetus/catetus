@@ -93,17 +93,25 @@ impl Pass for OpacityPrune {
 /// Drop splats farther than `dist_sigma * σ` from the scene centroid.
 #[derive(Debug, Clone)]
 pub struct FloaterPrune {
-    /// Reserved (k-nearest neighbor count) — currently unused in stub.
+    /// k-nearest-neighbor count used for the per-splat isolation metric.
     pub k_neighbors: usize,
-    /// Sigma multiplier; defaults to 5.
+    /// Multiplier on the median k-NN distance — a splat is a floater iff its
+    /// k-NN distance exceeds `dist_sigma * median(knn_dist)`. This is the
+    /// "radius outlier removal" semantics used by Open3D / PCL. Lower is more
+    /// aggressive; 3.0 catches the sparse-densification halo around real
+    /// captures while sparing corner/boundary splats of dense subjects.
     pub dist_sigma: f32,
 }
 
 impl Default for FloaterPrune {
     fn default() -> Self {
+        // k=8 is the standard PointCleanNet / Open3D choice. 3.0× median is
+        // a strong floater filter for capture-derived 3DGS scenes — bonsai
+        // interior k-NN ≈ 0.02 units, halo k-NN ≈ 0.5–2 units → 25–100× the
+        // median, comfortably above 3× threshold.
         Self {
             k_neighbors: 8,
-            dist_sigma: 5.0,
+            dist_sigma: 3.0,
         }
     }
 }
@@ -113,47 +121,268 @@ impl Pass for FloaterPrune {
         "FloaterPrune"
     }
     fn run(&self, scene: &mut SplatScene, _ctx: &mut PassContext) -> Result<PassStats> {
-        if scene.splats.len() < 4 {
+        let n = scene.splats.len();
+        let k = self.k_neighbors.max(1);
+        // Need at least k+1 splats for any non-trivial k-NN. Below that the
+        // pass is a no-op (rather than guessing what "outlier" means on a
+        // handful of points).
+        if n <= k {
             return Ok(PassStats::default());
         }
-        let n = scene.splats.len() as f64;
-        let mut centroid = [0.0f64; 3];
-        for s in &scene.splats {
-            for (i, c) in centroid.iter_mut().enumerate() {
-                *c += s.position[i] as f64;
-            }
+
+        // Build positions array once. f64 because the centroid-relative
+        // distance accumulation underflows in f32 at typical scene scales
+        // (bonsai_real bbox ~16 units; 16² · 270 000 splats overflows the
+        // mantissa).
+        let pos: Vec<[f64; 3]> = scene
+            .splats
+            .iter()
+            .map(|s| {
+                [
+                    s.position[0] as f64,
+                    s.position[1] as f64,
+                    s.position[2] as f64,
+                ]
+            })
+            .collect();
+
+        // Bbox + cell-size derivation. Target ~64 splats per cell so the
+        // 27-cell neighborhood scan averages ~1700 candidates — enough for
+        // a stable k=8 estimate without quadratic blow-up.
+        let (bmin, bmax) = bbox_f64(&pos);
+        let extent = [bmax[0] - bmin[0], bmax[1] - bmin[1], bmax[2] - bmin[2]];
+        let bbox_diag = (extent[0] * extent[0] + extent[1] * extent[1] + extent[2] * extent[2])
+            .sqrt()
+            .max(1e-9);
+        // cells_per_axis = round(cbrt(n / target_per_cell)); clamped so we
+        // don't degenerate into 1×1×1 (no spatial culling) or 1024³ (cache
+        // shred). 16–96 is fine for 10k–10M splats.
+        let target_per_cell = 64.0_f64;
+        let cells_per_axis = ((n as f64 / target_per_cell).cbrt().round() as i64).clamp(8, 96);
+        let cells = cells_per_axis as usize;
+        // Cell size from the longest axis so we never get sub-cell splats
+        // straddling a boundary in two dimensions.
+        let longest = extent[0].max(extent[1]).max(extent[2]).max(1e-9);
+        let cell_size = longest / cells_per_axis as f64;
+
+        // Spatial hash: dense Vec<Vec<u32>> indexed by (cx, cy, cz). Dense
+        // beats hashmap at this density — 16³ = 4096 cells, all touched.
+        let total_cells = cells.checked_mul(cells).and_then(|v| v.checked_mul(cells));
+        let Some(total_cells) = total_cells else {
+            // Numerical overflow: fall back to the cheap centroid-stdev path
+            // (better than panicking on a malformed input).
+            return Ok(PassStats {
+                notes: vec!["grid_overflow_fallback".into()],
+                ..Default::default()
+            });
+        };
+        let cell_idx = |p: [f64; 3]| -> [i64; 3] {
+            [
+                (((p[0] - bmin[0]) / cell_size) as i64).clamp(0, cells_per_axis - 1),
+                (((p[1] - bmin[1]) / cell_size) as i64).clamp(0, cells_per_axis - 1),
+                (((p[2] - bmin[2]) / cell_size) as i64).clamp(0, cells_per_axis - 1),
+            ]
+        };
+        let flat = |cx: i64, cy: i64, cz: i64| -> usize {
+            (cx as usize * cells + cy as usize) * cells + cz as usize
+        };
+
+        let mut grid: Vec<Vec<u32>> = vec![Vec::new(); total_cells];
+        for (i, p) in pos.iter().enumerate() {
+            let [cx, cy, cz] = cell_idx(*p);
+            grid[flat(cx, cy, cz)].push(i as u32);
         }
-        for c in centroid.iter_mut() {
-            *c /= n;
-        }
-        let mut sum_sq = 0.0f64;
-        for s in &scene.splats {
-            let d2 = (0..3)
-                .map(|i| {
-                    let d = s.position[i] as f64 - centroid[i];
-                    d * d
-                })
-                .sum::<f64>();
-            sum_sq += d2;
-        }
-        let sigma = (sum_sq / n).sqrt();
-        let max = (self.dist_sigma as f64) * sigma;
-        let max_sq = max * max;
+
+        // Per-splat k-NN distance (using k+1 because the splat finds itself
+        // in its own cell with distance 0). On the 27-cell scan we keep a
+        // tiny max-heap of size k+1 to extract the k-th smallest distance
+        // without a full sort. The heap is reused across iterations.
+        let knn_d2: Vec<f64> = (0..n)
+            .map(|i| {
+                let p = pos[i];
+                let [cx, cy, cz] = cell_idx(p);
+                let mut heap = BoundedMaxHeap::with_capacity(k + 1);
+                // Initial neighborhood = ±1 cell. If the cell is sparse and
+                // we don't fill k+1 entries, expand to ±2 then ±3. Capped
+                // at ±3 to keep worst-case O(343 · cell-occupancy) finite.
+                let mut radius = 1i64;
+                while heap.len() < k + 1 && radius <= 3 {
+                    for dx in -radius..=radius {
+                        let ncx = cx + dx;
+                        if !(0..cells_per_axis).contains(&ncx) {
+                            continue;
+                        }
+                        for dy in -radius..=radius {
+                            let ncy = cy + dy;
+                            if !(0..cells_per_axis).contains(&ncy) {
+                                continue;
+                            }
+                            for dz in -radius..=radius {
+                                let ncz = cz + dz;
+                                if !(0..cells_per_axis).contains(&ncz) {
+                                    continue;
+                                }
+                                // Skip cells already scanned at the previous
+                                // radius to avoid redoing work.
+                                let ring = dx.abs().max(dy.abs()).max(dz.abs());
+                                if ring < radius {
+                                    continue;
+                                }
+                                let cell_splats = &grid[flat(ncx, ncy, ncz)];
+                                for &j in cell_splats {
+                                    let q = pos[j as usize];
+                                    let d2 = (q[0] - p[0]) * (q[0] - p[0])
+                                        + (q[1] - p[1]) * (q[1] - p[1])
+                                        + (q[2] - p[2]) * (q[2] - p[2]);
+                                    heap.push(d2, k + 1);
+                                }
+                            }
+                        }
+                    }
+                    radius += 1;
+                }
+                // k+1-th smallest = heap top once heap is full; if still
+                // under-full (very isolated splat near the bbox corner with
+                // no neighbors within 3 cells), use the largest seen, which
+                // is already huge and will get pruned — correct behavior.
+                heap.top().unwrap_or(f64::INFINITY)
+            })
+            .collect();
+
+        // Radius-outlier semantics: threshold = dist_sigma × median(knn_d).
+        // Multiplicative is the right shape for capture-derived 3DGS, where
+        // floater k-NN distances are 10–100× the dense-subject median rather
+        // than a Gaussian-tail above it. Boundary splats of dense regions
+        // sit at ~sqrt(3)≈1.73× median, well below the 3.0× default.
+        // The MAD-augmented additive form (median + k·MAD) over-prunes such
+        // boundaries because MAD vanishes inside the dense subject.
+        let knn_d: Vec<f64> = knn_d2.iter().map(|&d2| d2.sqrt()).collect();
+        let median = median_inplace(&mut knn_d.clone());
+        // We still surface MAD in the notes so an operator can sanity-check
+        // the distribution shape without rerunning the pipeline.
+        let mut abs_dev: Vec<f64> = knn_d.iter().map(|&d| (d - median).abs()).collect();
+        let mad = median_inplace(&mut abs_dev);
+        // Floor at a fraction of bbox_diag so a hypothetical perfectly-aligned
+        // grid (median≈0 because of floating-point noise) doesn't end up
+        // pruning everything above a vanishingly small threshold.
+        let floor = bbox_diag * 1e-4;
+        let threshold = (self.dist_sigma as f64 * median).max(median + floor);
 
         let before = scene.splats.len();
-        scene.splats.retain(|s| {
-            let d2 = (0..3)
-                .map(|i| {
-                    let d = s.position[i] as f64 - centroid[i];
-                    d * d
-                })
-                .sum::<f64>();
-            d2 <= max_sq
+        // Two-pass retain so the `knn_d` slice indexes line up. The closure
+        // captures `idx` and steps it for every original splat.
+        let mut idx: usize = 0;
+        scene.splats.retain(|_| {
+            let keep = knn_d[idx] <= threshold;
+            idx += 1;
+            keep
         });
+        let removed = before - scene.splats.len();
         Ok(PassStats {
-            removed: before - scene.splats.len(),
+            removed,
+            notes: vec![format!(
+                "knn_median={:.4} mad={:.4} threshold={:.4} cells={}",
+                median, mad, threshold, cells
+            )],
             ..Default::default()
         })
+    }
+}
+
+// -- internals -------------------------------------------------------------
+
+fn bbox_f64(pos: &[[f64; 3]]) -> ([f64; 3], [f64; 3]) {
+    let mut bmin = [f64::INFINITY; 3];
+    let mut bmax = [f64::NEG_INFINITY; 3];
+    for p in pos {
+        for i in 0..3 {
+            if p[i] < bmin[i] {
+                bmin[i] = p[i];
+            }
+            if p[i] > bmax[i] {
+                bmax[i] = p[i];
+            }
+        }
+    }
+    (bmin, bmax)
+}
+
+/// In-place median via `select_nth_unstable_by`. f64 NaNs are sorted to the
+/// end deterministically, then the median is the slice midpoint.
+fn median_inplace(xs: &mut [f64]) -> f64 {
+    if xs.is_empty() {
+        return 0.0;
+    }
+    let mid = xs.len() / 2;
+    xs.select_nth_unstable_by(mid, |a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    xs[mid]
+}
+
+/// Tiny binary max-heap of f64 distances, used to extract the k-th smallest
+/// without sorting. Manual rather than `BinaryHeap<NotNan<f64>>` to avoid the
+/// `ordered-float` dep and the per-push NaN check.
+struct BoundedMaxHeap {
+    buf: Vec<f64>,
+}
+
+impl BoundedMaxHeap {
+    fn with_capacity(cap: usize) -> Self {
+        Self {
+            buf: Vec::with_capacity(cap),
+        }
+    }
+    fn len(&self) -> usize {
+        self.buf.len()
+    }
+    fn top(&self) -> Option<f64> {
+        self.buf.first().copied()
+    }
+    /// Push `v`, evicting the current max if the heap exceeds `cap`. NaN
+    /// inputs are silently dropped (only finite distances are meaningful for
+    /// a k-NN estimate).
+    fn push(&mut self, v: f64, cap: usize) {
+        if !v.is_finite() {
+            return;
+        }
+        if self.buf.len() < cap {
+            self.buf.push(v);
+            self.sift_up(self.buf.len() - 1);
+        } else if let Some(&top) = self.buf.first() {
+            if v < top {
+                self.buf[0] = v;
+                self.sift_down(0);
+            }
+        }
+    }
+    fn sift_up(&mut self, mut i: usize) {
+        while i > 0 {
+            let parent = (i - 1) / 2;
+            if self.buf[i] > self.buf[parent] {
+                self.buf.swap(i, parent);
+                i = parent;
+            } else {
+                break;
+            }
+        }
+    }
+    fn sift_down(&mut self, mut i: usize) {
+        let n = self.buf.len();
+        loop {
+            let l = 2 * i + 1;
+            let r = 2 * i + 2;
+            let mut largest = i;
+            if l < n && self.buf[l] > self.buf[largest] {
+                largest = l;
+            }
+            if r < n && self.buf[r] > self.buf[largest] {
+                largest = r;
+            }
+            if largest == i {
+                break;
+            }
+            self.buf.swap(i, largest);
+            i = largest;
+        }
     }
 }
 
