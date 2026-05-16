@@ -96,12 +96,15 @@ fn preset_compute_curve(preset: &str) -> (f64, f64) {
         // bounded by the 1000-iter cap.
         // Anchor: bicycle 855 MB → ~75 s at 1000 iters on A100.
         "hosted-neural-outdoor" => (12.0, 0.090),
-        // MesonGS++ post-training codec — CPU-only, no GPU needed.
-        // Validated 2026-05-15 (A2 spike): 18-19× compression on bonsai
-        // and bicycle, 2-9 s CPU encode/decode. Render-ΔPSNR pending
-        // (A2.1 deferred). Per-MB cost is tiny because no GPU.
-        "mgs-balanced" => (1.0, 0.012),
-        "mgs-aggressive" => (1.5, 0.018),
+        // MesonGS++ — REMOVED as customer-facing preset 2026-05-15 (task
+        // #141). Render-PSNR gate failed by 13-20 dB on bonsai / bicycle:
+        // K=256 K-means quantization of the scale group (d=3, 1.1M+
+        // splats, log-scale dynamic range) is fundamentally under-
+        // resourced. Isolation pinned `scales` as the dominant culprit
+        // (21.6 dB hybrid PSNR ≈ 21.5 dB all-decoded). Fix requires
+        // scalar-per-channel quantization, not "more K". Crate
+        // `splatforge-meson` and CLI `mesonpp-encode`/`-decode` retained
+        // for future research; not priced because not sold.
         // CodecGS — feature-plane projection + standard video codec
         // (HEVC). A4 spike 2026-05-15 reproduced the Lee et al. ICCV 2025
         // (arXiv:2501.03399) compression ratios (26.2× at CRF 28; 144.9×

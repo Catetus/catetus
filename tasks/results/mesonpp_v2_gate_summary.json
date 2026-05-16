@@ -1,0 +1,77 @@
+{
+  "task": "task#141 — MesonGS++ codec gate v2 (fix-or-remove)",
+  "commit_base": "026f4d1",
+  "branch": "bench/mesonpp-v2-gate",
+  "harness": "tasks/scripts/meson_attribute_isolation.py (gsplat 1.5.3 + torch 2.7.0+cu126, 4090 Laptop GPU)",
+  "n_cams": 5,
+  "image_size": 512,
+  "ref_floor_db": 35.0,
+  "gate_threshold_db": 0.3,
+
+  "path_1_f_dc_isolation": {
+    "scenes": ["bonsai_iter7000"],
+    "result_file": "tasks/results/bonsai_attribution_unaligned.json",
+    "note_on_alignment": "First run used the existing K=256 mgs-balanced decoded PLY which is in Morton order; Morton-key align left a 0.95-unit mean pos error so row-aligned attribute swaps were contaminated. Re-ran against mgs-preserve-order decode (row-aligned, see bonsai_preserve_attribution.json) for the clean signal.",
+    "row_aligned_attribution_db_psnr_vs_src": {
+      "none_src_only": 100.0,
+      "all_decoded": 21.55,
+      "swap_scales_only": 21.63,
+      "swap_quats_only": 37.97,
+      "swap_f_dc_only": 40.12,
+      "swap_f_rest_only": 42.20,
+      "swap_means_only": 50.10,
+      "swap_opacities_only": 71.42
+    },
+    "verdict": "scales (d=3, K-means K=256) is the DOMINANT cause. PSNR with only scales swapped (21.63 dB) is within 0.08 dB of the fully-decoded 21.55 dB — every other group is benign. The initial f_dc hypothesis was WRONG; the K=256 K-means failure is on the scale (log-scale exp-decoded) group, not the DC color term."
+  },
+
+  "path_2_K_sweep": {
+    "status": "NOT_RUN — verdict already determined by Path 1; running the sweep would not change the outcome",
+    "reasoning": [
+      "Current encoder's range-coder caps the conditional Markov-1 context at kk = k.min(256). Symbols at indices >= 256 get silently clamped, producing corrupt decoded indices. Supporting K=512/1024 requires a code change (lib.rs L647 + L680).",
+      "Even with that fix, K-means at d=3 with N=1.1M splats and K=1024 leaves ~1100 splats per codebook entry. The dynamic range of `scales` (log-scale exp-decoded over ~6 orders of magnitude) is fundamentally a per-channel scalar-quantization problem, not a vector-quantization problem.",
+      "Doubling K cuts per-centroid MSE by ~2^(1/d) = 26% per doubling; a 12 dB rescue would need K ~ 2^40 — impossible.",
+      "The architectural fix is to bypass K-means for `scales` (and likely `opacity`, `quats`, `f_dc`) and use uniform scalar quantization per channel at ~12-16 bits. That is a codec redesign, out of scope for this gate."
+    ]
+  },
+
+  "path_3_mgs_preserve_order": {
+    "encode": {
+      "scene": "bonsai_iter7000 (273.7 MB, 1,157,141 splats, sh_deg=3)",
+      "ratio_x": 16.79,
+      "meson_size_bytes": 17087776,
+      "encode_seconds": 15.9,
+      "decode_seconds": 0.7
+    },
+    "render_psnr_content_mean_db": 21.55,
+    "drop_vs_35db_floor_db": 13.45,
+    "result_file": "tasks/results/bonsai_preserve_attribution.json",
+    "verdict": "Preserve-order PRESERVES the K-means quantization drift entirely. PSNR is identical to mgs-balanced. The perm flag affects file size (16.79x vs 23.0x), NOT codec fidelity. Path 3 falsified the hypothesis that K-means cluster reordering was breaking attribute coherence."
+  },
+
+  "decision": "REMOVE",
+  "decision_rationale": [
+    "Best measured config (mgs-preserve-order) shows 13.45 dB content PSNR drop on bonsai at 16.79× ratio.",
+    "Decision rule: '> 2 dB drop at any ratio above 5×' → REMOVE from picker entirely.",
+    "Path 2 K-sweep skipped because Path 1 + Path 3 together pin the failure mode as architectural (K-means on a wide-dynamic-range scalar channel), not tunable via K.",
+    "Crate splatforge-meson retained for future research; the right fix is per-channel uniform quantization, which is a codec redesign, not a knob turn."
+  ],
+
+  "actions_taken": [
+    "Removed `mgs-balanced` entry from apps/web/src/components/TryIt.astro preset picker.",
+    "Removed `mgs-balanced` and `mgs-aggressive` from the customer-facing glTF-quantize gate in crates/splatforge-cli/src/main.rs.",
+    "Removed `mgs-balanced` / `mgs-aggressive` pricing entries from apps/api/src/pricing.rs (unknown presets fall through to the default web-mobile rate which is fine — no customer can select them anyway).",
+    "Deleted tests/visual/scripts/shoot-tryit-meson.mjs (was asserting the preset existed).",
+    "Kept `splatforge-meson` crate, `mesonpp-encode`/`mesonpp-decode` CLI subcommands, and the bin-target intact — research can still drive the codec from the command line."
+  ],
+
+  "picker_state_at_end": [
+    "web-mobile",
+    "hacpp-lzma",
+    "codec-gs-mixed",
+    "fcgs-instant",
+    "size-min"
+  ],
+
+  "visual_proof": "apps/web/screenshots/tryit-postmeson.png"
+}

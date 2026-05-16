@@ -1137,10 +1137,6 @@ fn cmd_optimize(
                 // splatforge-private/apps/diff-repack), this just encodes
                 // the quantized splats into glTF.
                 | "hosted-neural-outdoor"
-                // MesonGS++ post-training codec presets — quantized
-                // by the codec itself, glTF emission stays in int range.
-                | "mgs-balanced"
-                | "mgs-aggressive"
                 // CodecGS presets — feature-plane + standard video codec
                 // (HEVC / AV1). Splat attributes are quantized to fit
                 // the codec's input range; glTF wrapper carries the
