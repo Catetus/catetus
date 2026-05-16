@@ -7,7 +7,28 @@ import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { createReadStream, statSync } from 'node:fs';
 import { resolve, join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright-core';
+const REPO_PRE_RESOLVE = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+import { pathToFileURL } from 'node:url';
+// Resolve playwright-core relative to this repo's tests/visual/node_modules
+// (the bench harness already installs it there).
+let chromium;
+{
+  const candidates = [
+    'playwright-core',
+    pathToFileURL(resolve(REPO_PRE_RESOLVE, 'tests/visual/node_modules/playwright-core/index.js')).href,
+  ];
+  for (const c of candidates) {
+    try {
+      const m = await import(c);
+      chromium = m.chromium ?? m.default?.chromium;
+      if (chromium) break;
+    } catch (_) {}
+  }
+  if (!chromium) {
+    console.error('FATAL: cannot find playwright-core in any of: ' + candidates.join(', '));
+    process.exit(2);
+  }
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..');
