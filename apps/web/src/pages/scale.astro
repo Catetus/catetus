@@ -37,11 +37,12 @@ const description =
 // (reuses prior L4/L5 chunk URLs; only L2 + L3 chunks were uploaded
 // this pass). Honest-claim Path A: published L2 (28M) + L3 (13.3M)
 // to lift /scale above the 12 dB L4-only viewer-PSNR floor.
-// To add L1/L0 (still 4090-only, in-flight per task #154 buffer-split):
-//   1. Re-run publish_l2_l3.py with --level 1 --level 0.
-//   2. Replace this URL with the returned `manifest_url`.
+// L0 (1199 chunks / 119.8M splats) + L1 (543 / 54.2M) published to Vercel Blob.
+// Stage 7 multi-draw renderer (commit aa61615) iterates instancePages so both
+// fit on a consumer GPU. L0 = 3 draws/pose, L1 = 2 draws/pose; L2-L5 collapse
+// to byte-identical single draw.
 const lodgeManifestUrl =
-  "https://xmcqr5nqjygbqjqw.public.blob.vercel-storage.com/samples/sweet-corals.lodge/manifest-l2-l3-l4-l5-apDScMeYFOVyHZ3Z14G65QLvv3z0fA.json";
+  "https://xmcqr5nqjygbqjqw.public.blob.vercel-storage.com/samples/sweet-corals.lodge/manifest-l0-l1-l2-l3-l4-l5-a4edlflIXIIayUoOu7gDYkkYB5W97Y.json";
 
 const githubUrl = "https://github.com/montabano1/SplatForge";
 ---
@@ -102,14 +103,13 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
       <div class="scale-card">
         <h2 class="scale-card-title">LOD level</h2>
         <div class="scale-lod-picker" data-lod-picker role="radiogroup" aria-label="LOD level">
-          <!-- Disabled levels: L0..L2 either OOM in-browser or have no published chunks yet. -->
-          <!-- L0/L1 code-path proven via Stage 6+7 multi-page; awaiting Vercel Blob upload of L0/L1 chunks. -->
-          <button type="button" class="scale-lod-btn" data-lod="0" disabled aria-disabled="true">
+          <!-- L0/L1 published 2026-05-16 — Stage 7 multi-draw splits across instance pages on consumer GPUs. -->
+          <button type="button" class="scale-lod-btn" data-lod="0">
             <span class="scale-lod-name">L0</span>
             <span class="scale-lod-splats">119.8M</span>
-            <span class="scale-lod-tip">4090-only · awaiting blob upload</span>
+            <span class="scale-lod-tip">desktop GPU recommended</span>
           </button>
-          <button type="button" class="scale-lod-btn" data-lod="1" disabled aria-disabled="true">
+          <button type="button" class="scale-lod-btn" data-lod="1">
             <span class="scale-lod-name">L1</span>
             <span class="scale-lod-splats">54.2M</span>
             <span class="scale-lod-tip">4090-only · awaiting blob upload</span>
