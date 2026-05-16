@@ -1,0 +1,35 @@
+{
+  "name": "@splatforge/babylonjs-qat",
+  "version": "0.1.0",
+  "description": "Babylon.js loader for SplatForge QAT-PLY quantized Gaussian splat scenes.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/cjs/index.cjs",
+  "module": "dist/esm/index.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "node scripts/build.mjs && tsc -p tsconfig.types.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "size": "node scripts/size.mjs"
+  },
+  "peerDependencies": {
+    "@babylonjs/core": ">=7.0.0"
+  },
+  "devDependencies": {
+    "@babylonjs/core": "^7.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  },
+  "publishConfig": { "access": "public" },
+  "keywords": ["babylonjs", "gaussian-splatting", "splatforge", "ply", "qat", "loader"]
+}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>@splatforge/three-qat — QAT-PLY loader demo</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #111; color: #eee; font-family: system-ui; }
+    #c { width: 100vw; height: 100vh; display: block; }
+    #status {
+      position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,0.6);
+      padding: 6px 10px; border-radius: 4px; font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="status">loading…</div>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/examples/jsm/controls/OrbitControls.js":
+        "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+    // In a real install: import { QATPlyLoader } from "@splatforge/three-qat";
+    import { QATPlyLoader } from "../dist/esm/index.js";
+
+    const canvas = document.getElementById("c");
+    const status = document.getElementById("status");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(devicePixelRatio);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+      60, window.innerWidth / window.innerHeight, 0.01, 1000,
+    );
+    camera.position.set(3, 2, 4);
+    const controls = new OrbitControls(camera, canvas);
+    controls.target.set(0, 0, 0);
+
+    // The demo PLY URL is configurable via ?src= query param so we never
+    // hard-code a URL that might 404. Default: build a tiny synthetic PLY in
+    // the browser so the page works with zero infra.
+    const params = new URLSearchParams(location.search);
+    const src = params.get("src");
+
+    const loader = new QATPlyLoader();
+    try {
+      let result;
+      if (src) {
+        status.textContent = `fetching ${src}…`;
+        result = await loader.loadAsync(src);
+      } else {
+        status.textContent = "no ?src= URL — rendering a synthetic 256-point demo.";
+        const synth = await synthesizeDemoPly();
+        result = loader.parse(synth);
+      }
+      scene.add(result.points);
+      result.geometry.computeBoundingSphere();
+      const c = result.geometry.boundingSphere.center;
+      controls.target.copy(c);
+      camera.position.set(c.x + 2, c.y + 1, c.z + 2);
+      status.textContent = `loaded ${result.vertexCount} anchors`;
+    } catch (err) {
+      console.error(err);
+      status.textContent = `error: ${err.message}`;
+    }
+
+    function animate() {
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    async function synthesizeDemoPly() {
+      // Generate a small grid-of-cubes PLY with the QAT header markers so the
+      // demo page renders something without any server. This mirrors what the
+      // unit-test fixture does, just inlined.
+      const N = 256;
+      const lines = [
+        "ply",
+        "format binary_little_endian 1.0",
+        "comment constant_field nx 0x0.0p+0",
+        "comment constant_field ny 0x0.0p+0",
+        "comment constant_field nz 0x0.0p+0",
+        `element vertex ${N}`,
+        "property float x",
+        "property float y",
+        "property float z",
+        "property float f_dc_0",
+        "property float f_dc_1",
+        "property float f_dc_2",
+        "end_header",
+      ].join("\n") + "\n";
+      const header = new TextEncoder().encode(lines);
+      const rowStride = 4 * 6;
+      const body = new Uint8Array(rowStride * N);
+      const view = new DataView(body.buffer);
+      for (let i = 0; i < N; i++) {
+        const t = i / N;
+        const a = t * Math.PI * 4;
+        const r = 1.5 + 0.5 * Math.cos(a * 3);
+        view.setFloat32(i * rowStride + 0, r * Math.cos(a), true);
+        view.setFloat32(i * rowStride + 4, 1.0 * Math.sin(t * Math.PI * 2), true);
+        view.setFloat32(i * rowStride + 8, r * Math.sin(a), true);
+        view.setFloat32(i * rowStride + 12, Math.cos(a) * 1.5, true);
+        view.setFloat32(i * rowStride + 16, Math.sin(a * 1.7) * 1.5, true);
+        view.setFloat32(i * rowStride + 20, Math.sin(a * 0.5) * 1.5, true);
+      }
+      const out = new Uint8Array(header.byteLength + body.byteLength);
+      out.set(header, 0);
+      out.set(body, header.byteLength);
+      return out;
+    }
+
+    addEventListener("resize", () => {
+      renderer.setSize(innerWidth, innerHeight);
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+    });
+  </script>
+</body>
+</html>

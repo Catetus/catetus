@@ -1,0 +1,10 @@
+{
+  "name": "@splatforge/qat-fixtures",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal: shared QAT-PLY test fixtures used by all three plugin packages.",
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

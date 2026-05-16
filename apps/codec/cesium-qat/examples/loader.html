@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>@splatforge/cesium-qat — globe demo</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.115.0/Build/Cesium/Widgets/widgets.css" />
+  <style>
+    html, body, #cesium { margin: 0; height: 100%; }
+    body { background: #000; color: #eee; font-family: system-ui; }
+    #status {
+      position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,0.6);
+      padding: 6px 10px; border-radius: 4px; font-size: 12px; z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="cesium"></div>
+  <div id="status">loading…</div>
+  <script type="module">
+    import * as Cesium from "https://cdn.jsdelivr.net/npm/cesium@1.115.0/Build/Cesium/index.js";
+    window.CESIUM_BASE_URL = "https://cdn.jsdelivr.net/npm/cesium@1.115.0/Build/Cesium/";
+    // In a real install: import { QATPlyDataSource } from "@splatforge/cesium-qat";
+    import { QATPlyDataSource } from "../dist/esm/index.js";
+
+    const status = document.getElementById("status");
+    const viewer = new Cesium.Viewer("cesium", {
+      baseLayerPicker: false,
+      timeline: false,
+      animation: false,
+      geocoder: false,
+    });
+
+    // Fake demo location: somewhere over the Eiffel Tower for a recognizable view.
+    const origin = { longitude: 2.2945, latitude: 48.8584, height: 50 };
+
+    const params = new URLSearchParams(location.search);
+    const src = params.get("src");
+    const ds = new QATPlyDataSource("demo-splats");
+    try {
+      let bytes;
+      if (src) {
+        status.textContent = `fetching ${src}…`;
+        bytes = new Uint8Array(await (await fetch(src)).arrayBuffer());
+      } else {
+        status.textContent = "no ?src= URL — rendering a synthetic 256-point demo at the Eiffel Tower.";
+        bytes = synthesizeDemoPly();
+      }
+      const decoded = ds.decode(bytes);
+      ds.placeDecoded(viewer.scene, decoded, { origin, scale: 50 });
+      await viewer.dataSources.add(ds);
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(
+          origin.longitude, origin.latitude, origin.height + 500,
+        ),
+      });
+      status.textContent = `loaded ${decoded.vertexCount} anchors`;
+    } catch (err) {
+      console.error(err);
+      status.textContent = `error: ${err.message}`;
+    }
+
+    function synthesizeDemoPly() {
+      const N = 256;
+      const header =
+        "ply\nformat binary_little_endian 1.0\n" +
+        "comment constant_field nx 0x0.0p+0\n" +
+        "comment constant_field ny 0x0.0p+0\n" +
+        "comment constant_field nz 0x0.0p+0\n" +
+        `element vertex ${N}\n` +
+        "property float x\nproperty float y\nproperty float z\n" +
+        "property float f_dc_0\nproperty float f_dc_1\nproperty float f_dc_2\n" +
+        "end_header\n";
+      const headerBytes = new TextEncoder().encode(header);
+      const rowStride = 24;
+      const body = new Uint8Array(rowStride * N);
+      const view = new DataView(body.buffer);
+      for (let i = 0; i < N; i++) {
+        const t = i / N;
+        const a = t * Math.PI * 4;
+        const r = 1.5 + 0.5 * Math.cos(a * 3);
+        view.setFloat32(i * rowStride + 0, r * Math.cos(a), true);
+        view.setFloat32(i * rowStride + 4, Math.sin(t * Math.PI * 2), true);
+        view.setFloat32(i * rowStride + 8, r * Math.sin(a), true);
+        view.setFloat32(i * rowStride + 12, Math.cos(a) * 1.5, true);
+        view.setFloat32(i * rowStride + 16, Math.sin(a * 1.7) * 1.5, true);
+        view.setFloat32(i * rowStride + 20, Math.sin(a * 0.5) * 1.5, true);
+      }
+      const out = new Uint8Array(headerBytes.byteLength + body.byteLength);
+      out.set(headerBytes, 0);
+      out.set(body, headerBytes.byteLength);
+      return out;
+    }
+  </script>
+</body>
+</html>
