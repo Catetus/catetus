@@ -606,12 +606,15 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
       setStatus("error", "navigator.gpu.requestAdapter() returned null — no compatible adapter");
       return null;
     }
-    // Cap the requested limits to what we actually need so older adapters
-    // don't reject the device request. Sweet Corals L5 = 3.2M splats × 64 B
-    // = 205 MB single buffer; we only need the storage-buffer max to be
-    // > 256 MB. maxBufferSize default is usually 256 MB on Macs.
-    const cap = Math.min(adapter.limits.maxStorageBufferBindingSize ?? 0, 1 * 1024 * 1024 * 1024);
-    const bufCap = Math.min(adapter.limits.maxBufferSize ?? 0, 1 * 1024 * 1024 * 1024);
+    // Stage 6 (sf-154): expose the adapter's full per-binding ceiling
+    // (typically 2 GiB by WebGPU spec on desktop adapters; ~256 MB on
+    // Mac default). The viewer's BufferPager handles per-buffer caps by
+    // splitting the decoded splat buffer into N pages, so we want the
+    // largest possible per-binding budget here. 4 GiB requested even
+    // though the spec caps maxStorageBufferBindingSize at 2 GiB-1 — the
+    // adapter clamps as needed.
+    const cap = adapter.limits.maxStorageBufferBindingSize ?? (256 * 1024 * 1024);
+    const bufCap = adapter.limits.maxBufferSize ?? (256 * 1024 * 1024);
     const device = await adapter.requestDevice({
       requiredLimits: {
         maxStorageBufferBindingSize: cap,
