@@ -1,0 +1,239 @@
+---
+// /bench/history — SplatBench v3 continuous-bench dashboard.
+//
+// Reads `continuousBench` block from splatbench-v0.json (synced into
+// apps/web/src/data/ by scripts/sync-data.mjs at build time). Each
+// row is one (preset, scene) cell; each column is a metric snapshot
+// from the most recent passing commit.
+//
+// Future iterations (multi-day project): hook lightweight-charts or
+// chart.js for per-cell time-series sparklines, regression detail
+// drilldown, link-out to PR description.
+import Base from "../../layouts/Base.astro";
+import raw from "../../data/splatbench-v0.json" with { type: "json" };
+
+interface CellRow {
+  commit: string;
+  timestamp: string;
+  preset: string;
+  scene: string;
+  ok?: boolean;
+  ply_save_pct: number | null;
+  delta_psnr_db: number | null;
+  delta_ssim: number | null;
+  delta_lpips: number | null;
+  wall_secs: number | null;
+  modal_cost_cents: number | null;
+  output_url: string | null;
+}
+
+interface ContinuousBench {
+  schema?: string;
+  description?: string;
+  latestCells?: Record<string, CellRow>;
+  lastCommit?: string;
+  lastCommitAt?: string;
+  commits?: Array<{
+    commit: string;
+    timestamp: string;
+    cellCount: number;
+    passCount: number;
+    rejectedCount?: number;
+  }>;
+  lastRejections?: Array<{ key: string; reason: string }>;
+}
+
+const cont: ContinuousBench = (raw as { continuousBench?: ContinuousBench }).continuousBench ?? {};
+const cells = Object.values(cont.latestCells ?? {});
+cells.sort((a, b) => (a.scene + a.preset).localeCompare(b.scene + b.preset));
+
+const presets = [...new Set(cells.map((c) => c.preset))].sort();
+const scenes = [...new Set(cells.map((c) => c.scene))].sort();
+
+function fmtPct(n: number | null): string {
+  if (n == null) return "—";
+  return `${(n * 100).toFixed(1)}%`;
+}
+function fmtDb(n: number | null): string {
+  if (n == null) return "—";
+  return `${n >= 0 ? "+" : ""}${n.toFixed(2)} dB`;
+}
+function fmtCents(n: number | null): string {
+  if (n == null) return "—";
+  return `$${(n / 100).toFixed(2)}`;
+}
+function fmtSec(n: number | null): string {
+  if (n == null) return "—";
+  if (n < 60) return `${n.toFixed(0)}s`;
+  return `${(n / 60).toFixed(1)}m`;
+}
+function shortSha(s?: string): string {
+  return s ? s.slice(0, 7) : "—";
+}
+
+const cellsByKey: Record<string, CellRow> = {};
+for (const c of cells) cellsByKey[`${c.preset}__${c.scene}`] = c;
+
+const title = "SplatBench v3 — continuous bench history";
+const description =
+  "Every codec preset × every scene on every commit to main. CI-driven, not hand-curated.";
+---
+
+<Base title={title} description={description}>
+  <header class="hero">
+    <p class="eyebrow">SplatBench v3 · continuous</p>
+    <h1>Continuous bench history</h1>
+    <p class="lede">
+      Every codec preset × every scene, run by GitHub Actions on every commit to public main.
+      CI-validated, not hand-curated. <a href="/bench/methodology">Methodology &rarr;</a>
+    </p>
+    <dl class="meta">
+      <div>
+        <dt>Last commit</dt>
+        <dd><code>{shortSha(cont.lastCommit)}</code></dd>
+      </div>
+      <div>
+        <dt>Last bench at</dt>
+        <dd>{cont.lastCommitAt ?? "—"}</dd>
+      </div>
+      <div>
+        <dt>Cells covered</dt>
+        <dd>{cells.length} / {presets.length * scenes.length}</dd>
+      </div>
+      <div>
+        <dt>Commits tracked</dt>
+        <dd>{cont.commits?.length ?? 0}</dd>
+      </div>
+    </dl>
+  </header>
+
+  {cells.length === 0 ? (
+    <section class="empty">
+      <h2>Awaiting first continuous-bench run</h2>
+      <p>
+        The workflow at <code>.github/workflows/splatbench-v3.yml</code> hasn't successfully
+        completed a full matrix yet. Once it does, every (preset × scene) cell shows up here
+        with a time-series sparkline and click-through to the per-commit details.
+      </p>
+      <p>
+        See <a href="/bench/methodology">/bench/methodology</a> for the run model + how to
+        add a new preset or scene.
+      </p>
+    </section>
+  ) : (
+    <section>
+      <h2>Latest passing cell per (preset × scene)</h2>
+      <p class="hint">
+        Sorted by scene, then preset. ΔPSNR, ΔSSIM, ΔLPIPS measured vs the scene's lossless-repack baseline.
+        PLY-save % shows the size reduction vs the source PLY. Output URL points to the codec result so
+        anyone can re-validate the numbers.
+      </p>
+      <div class="tbl-wrap">
+        <table class="cells">
+          <thead>
+            <tr>
+              <th>Scene</th>
+              <th>Preset</th>
+              <th>ΔPSNR</th>
+              <th>ΔSSIM</th>
+              <th>ΔLPIPS</th>
+              <th>PLY save</th>
+              <th>Wall</th>
+              <th>Cost</th>
+              <th>Artifact</th>
+            </tr>
+          </thead>
+          <tbody>
+            {scenes.flatMap((scene) =>
+              presets.map((preset) => {
+                const c = cellsByKey[`${preset}__${scene}`];
+                if (!c) {
+                  return (
+                    <tr class="pending" data-scene={scene} data-preset={preset}>
+                      <td>{scene}</td>
+                      <td><code>{preset}</code></td>
+                      <td colspan="6" class="pending-cell">awaiting first run</td>
+                      <td>—</td>
+                    </tr>
+                  );
+                }
+                const regressed =
+                  c.delta_psnr_db != null && c.delta_psnr_db < -0.3 ? "regressed" : "";
+                return (
+                  <tr class={regressed} data-scene={scene} data-preset={preset}>
+                    <td>{c.scene}</td>
+                    <td><code>{c.preset}</code></td>
+                    <td>{fmtDb(c.delta_psnr_db)}</td>
+                    <td>{c.delta_ssim == null ? "—" : c.delta_ssim.toFixed(4)}</td>
+                    <td>{c.delta_lpips == null ? "—" : c.delta_lpips.toFixed(4)}</td>
+                    <td>{fmtPct(c.ply_save_pct)}</td>
+                    <td>{fmtSec(c.wall_secs)}</td>
+                    <td>{fmtCents(c.modal_cost_cents)}</td>
+                    <td>{c.output_url ? <a href={c.output_url}>ply</a> : "—"}</td>
+                  </tr>
+                );
+              }),
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  {(cont.lastRejections ?? []).length > 0 && (
+    <section class="regressions">
+      <h2>Cells held back by the ≤0.3 dB drop rule</h2>
+      <p class="hint">
+        These cells were rejected during the most recent aggregator run because the new
+        ΔPSNR was &gt;0.3 dB worse than the previously-recorded value. The leaderboard
+        keeps the previous value; the per-commit time-series records the regression
+        for honesty.
+      </p>
+      <ul>
+        {cont.lastRejections!.map((r) => (
+          <li><code>{r.key}</code> — {r.reason}</li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  <section>
+    <h2>Recent commits</h2>
+    <table class="commits">
+      <thead>
+        <tr><th>Commit</th><th>When</th><th>Cells</th><th>Passing</th><th>Rejected</th></tr>
+      </thead>
+      <tbody>
+        {(cont.commits ?? []).slice().reverse().slice(0, 30).map((c) => (
+          <tr>
+            <td><code>{shortSha(c.commit)}</code></td>
+            <td>{c.timestamp}</td>
+            <td>{c.cellCount}</td>
+            <td>{c.passCount}</td>
+            <td>{c.rejectedCount ?? 0}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </section>
+
+  <style>
+    .hero { padding: 2rem 0; border-bottom: 1px solid #1a1d22; margin-bottom: 2rem; }
+    .eyebrow { color: #6a737d; text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.75rem; margin: 0; }
+    .hero h1 { font-size: 2rem; margin: 0.5rem 0 0.75rem; }
+    .lede { color: #cdd5e0; max-width: 60ch; }
+    .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+    .meta dt { color: #6a737d; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .meta dd { margin: 0.25rem 0 0; font-size: 1rem; }
+    .empty { padding: 3rem; border: 1px dashed #2a2f36; border-radius: 12px; text-align: center; }
+    .tbl-wrap { overflow-x: auto; }
+    table.cells, table.commits { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.875rem; }
+    table.cells th, table.cells td, table.commits th, table.commits td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #1a1d22; }
+    table.cells th { color: #6a737d; font-weight: 500; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+    tr.regressed td { background: rgba(255, 80, 80, 0.06); }
+    tr.pending .pending-cell { color: #6a737d; font-style: italic; }
+    .hint { color: #6a737d; font-size: 0.875rem; max-width: 70ch; }
+    .regressions { margin-top: 2rem; padding: 1rem; background: rgba(255, 80, 80, 0.04); border-left: 3px solid rgba(255, 80, 80, 0.5); border-radius: 6px; }
+    code { background: #14171c; padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.85em; }
+  </style>
+</Base>

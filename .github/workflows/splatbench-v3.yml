@@ -1,0 +1,171 @@
+name: splatbench-v3
+
+# Continuous-integration benchmark — runs every (preset, scene) cell from
+# benches/scenes/manifest.json on every push to main + on manual dispatch.
+#
+# - Job 1 (build): cheap GitHub-hosted runner, builds the dispatcher venv.
+# - Job 2 (matrix): for each (preset, scene), call the Modal endpoint and
+#   capture the cell JSON. Each matrix entry is ~10 min A100 wall + ~$1.
+# - Job 3 (aggregate): collate the per-cell JSON into a time-series row
+#   and refresh benches/reports/splatbench-v0.json's continuousBench block.
+#
+# Estimated wall time per run:
+#   7 presets × 14 scenes = 98 cells. Modal A100s run in parallel up to
+#   the workspace concurrency cap (~10). Matrix max-parallel set to 10
+#   so the full run is bounded by 10 sequential Modal slots × 10 min
+#   ≈ 100 min wall, plus ~5 min for job 1 + 3. Budget cap is enforced
+#   at the Modal app level ($50 workspace cap).
+#
+# Required repo secrets (set via `gh secret set NAME --body <value>`):
+#   MODAL_TOKEN_ID
+#   MODAL_TOKEN_SECRET
+# Until those are set, the workflow runs in SPLATBENCH_DRY_RUN=1 mode and
+# emits placeholder cells so the dashboard / aggregator pipeline stays
+# unblocked.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      preset_filter:
+        description: "Run only this preset (default: all)"
+        required: false
+        default: ""
+      scene_filter:
+        description: "Run only this scene id (default: all)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Emit placeholder cells without calling Modal"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # job 3 commits the time-series + report refresh
+  pull-requests: write  # regression-alert workflow (separate file) reuses
+
+jobs:
+  # ----- job 1: prep ---------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      dry_run: ${{ steps.gen.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Generate (preset, scene) matrix
+        id: gen
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          manifest = json.load(open("benches/scenes/manifest.json"))
+          preset_filter = "${{ github.event.inputs.preset_filter }}".strip()
+          scene_filter  = "${{ github.event.inputs.scene_filter }}".strip()
+          dry_in        = "${{ github.event.inputs.dry_run }}".strip().lower() == "true"
+
+          # If MODAL_TOKEN_* aren't set, force dry-run so the workflow
+          # still produces placeholder cells (no $$ spent, dashboard
+          # pipeline stays unblocked).
+          has_modal = bool("${{ secrets.MODAL_TOKEN_ID }}") and bool("${{ secrets.MODAL_TOKEN_SECRET }}")
+          dry_run = dry_in or not has_modal
+
+          cells = []
+          for preset in manifest["presets"]:
+              if preset_filter and preset != preset_filter: continue
+              for scene in manifest["scenes"]:
+                  if scene_filter and scene["id"] != scene_filter: continue
+                  allow = scene.get("presetAllowList")
+                  if allow and preset not in allow: continue
+                  cells.append({"preset": preset, "scene": scene["id"]})
+
+          mat = {"include": cells}
+          gh_out = os.environ["GITHUB_OUTPUT"]
+          with open(gh_out, "a") as f:
+              f.write(f"matrix={json.dumps(mat)}\n")
+              f.write(f"dry_run={'1' if dry_run else '0'}\n")
+          print(f"matrix size: {len(cells)} cells, dry_run={dry_run}")
+          PY
+
+  # ----- job 2: matrix dispatch ---------------------------------------------
+  bench:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.matrix != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      SPLATBENCH_DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+      SPLATBENCH_PRESET: ${{ matrix.preset }}
+      SPLATBENCH_SCENE: ${{ matrix.scene }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install Modal SDK
+        run: pip install --quiet "modal>=0.62" requests
+      - name: Run cell
+        run: python3 benches/splatbench-v3-dispatch.py
+      - name: Upload cell artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cell-${{ matrix.preset }}__${{ matrix.scene }}
+          path: benches/timeseries/${{ github.sha }}/${{ matrix.preset }}__${{ matrix.scene }}.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ----- job 3: aggregate + commit ------------------------------------------
+  aggregate:
+    needs: [prepare, bench]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need a token that can push to main; default GITHUB_TOKEN is fine
+          # because we already have contents:write.
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Pull cell artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cell-*
+          path: benches/timeseries/${{ github.sha }}-staging
+          merge-multiple: false
+      - name: Flatten cell artifacts into commit dir
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "benches/timeseries/${{ github.sha }}"
+          shopt -s globstar nullglob
+          for f in benches/timeseries/${{ github.sha }}-staging/**/*.json; do
+            cp -v "$f" "benches/timeseries/${{ github.sha }}/$(basename "$f")"
+          done
+          ls -la "benches/timeseries/${{ github.sha }}" || true
+      - name: Run aggregator
+        run: node benches/splatbench-v3-aggregate.mjs "${{ github.sha }}"
+      - name: Commit + push results
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "splatbench-bot"
+          git config user.email "bench@splatforge.com"
+          git add benches/timeseries/${{ github.sha }}.json benches/timeseries/${{ github.sha }}/ benches/reports/splatbench-v0.json || true
+          if git diff --cached --quiet; then
+            echo "no bench changes to commit"
+            exit 0
+          fi
+          git commit -m "bench: splatbench-v3 results for ${GITHUB_SHA::7}"
+          git push origin HEAD:main

@@ -1487,5 +1487,37 @@
       "psnrDeltaDbMax": 0.581,
       "psnrDeltaDbMean": 0.172
     }
+  },
+  "continuousBench": {
+    "schema": "splatforge.splatbench-v3.cont/0.1",
+    "description": "Continuous-bench rollup of every (preset, scene) cell. Updated by .github/workflows/splatbench-v3.yml on every commit to main. `latestCells` is the best-passing value per cell under the ≤0.3 dB PSNR drop rule; `commits` is the rolling list of commits that produced at least one cell. Full per-commit timeseries lives in benches/timeseries/<commit>.json.",
+    "latestCells": {
+      "splatforge-qat-3dgs__bonsai_mipnerf360_iter7k": {
+        "commit": "e7d554e",
+        "timestamp": "2026-05-16T15:20:00.000Z",
+        "preset": "splatforge-qat-3dgs",
+        "scene": "bonsai_mipnerf360_iter7k",
+        "ok": true,
+        "ply_save_pct": 0.0484,
+        "delta_psnr_db": 0,
+        "delta_ssim": 0,
+        "delta_lpips": 0,
+        "wall_secs": 12,
+        "modal_cost_cents": 4,
+        "output_url": "https://montabano1--splatforge-qat-3dgs.modal.run/artifact/bonsai_iter7k.qat3dgs.ply",
+        "error": null
+      }
+    },
+    "lastCommit": "e7d554e",
+    "lastCommitAt": "2026-05-16T15:17:10.704Z",
+    "commits": [
+      {
+        "commit": "e7d554e",
+        "timestamp": "2026-05-16T15:17:10.704Z",
+        "cellCount": 1,
+        "passCount": 1,
+        "rejectedCount": 0
+      }
+    ]
   }
 }

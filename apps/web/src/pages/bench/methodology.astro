@@ -1,0 +1,181 @@
+---
+import Base from "../../layouts/Base.astro";
+const title = "SplatBench v3 — methodology";
+const description =
+  "How SplatForge's continuous codec bench is run: commit-pinned, Modal A100-driven, identical eval cameras, ≤0.3 dB PSNR drop guard, CI-validated.";
+---
+
+<Base title={title} description={description}>
+  <header class="hero">
+    <p class="eyebrow">SplatBench v3 · methodology</p>
+    <h1>How the continuous bench is run</h1>
+    <p class="lede">
+      The numbers on <a href="/bench/history">/bench/history</a> and
+      <a href="/bench">/bench</a> are not hand-curated. Every codec preset is run
+      against every scene in the corpus on every commit to public main. Below is
+      the run model end-to-end, the determinism strategy, and the PR template for
+      adding a preset or scene.
+    </p>
+  </header>
+
+  <section>
+    <h2>1. Run model</h2>
+    <ol>
+      <li>
+        On <code>push</code> to main, GitHub Actions
+        (<a href="https://github.com/montabano1/SplatForge/blob/main/.github/workflows/splatbench-v3.yml"><code>.github/workflows/splatbench-v3.yml</code></a>)
+        reads <code>benches/scenes/manifest.json</code> and generates a matrix of
+        every <em>(preset, scene)</em> cell.
+      </li>
+      <li>
+        Each matrix entry calls the preset's Modal endpoint via
+        <code>modal.Function.lookup(app, fn).remote(...)</code>, passing the
+        scene's <code>sourceUrl</code> and a stable per-cell run id
+        (<code>sha256(commit|preset|scene)</code>).
+      </li>
+      <li>
+        The Modal endpoint downloads the PLY, runs the codec on A100, uploads the
+        compressed artifact, and returns
+        <code>{"{ply_save_pct, delta_psnr_db, delta_ssim, delta_lpips, wall_secs, modal_cost_cents, output_url}"}</code>.
+      </li>
+      <li>
+        Each matrix entry writes the cell JSON to
+        <code>benches/timeseries/&lt;commit&gt;/&lt;preset&gt;__&lt;scene&gt;.json</code>.
+      </li>
+      <li>
+        An aggregator job collates all cells into
+        <code>benches/timeseries/&lt;commit&gt;.json</code> (time-series row) and
+        refreshes the <code>continuousBench</code> block of
+        <code>benches/reports/splatbench-v0.json</code> (powers the dashboard).
+      </li>
+      <li>
+        The aggregator applies the <strong>≤0.3 dB PSNR drop rule</strong>: if a
+        cell's new ΔPSNR is &gt;0.3 dB worse than the previously-recorded value,
+        the leaderboard keeps the old value, and the regression is recorded in
+        <code>continuousBench.lastRejections</code>. The per-commit time-series
+        always records the new number — we don't silently hide regressions.
+      </li>
+      <li>
+        Aggregator commits the time-series + report refresh back to main as
+        <code>splatbench-bot &lt;bench@splatforge.com&gt;</code>.
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>2. Why CI-driven</h2>
+    <p>
+      Anyone reading the bench can audit the workflow file, the dispatcher
+      (<code>benches/splatbench-v3-dispatch.py</code>), and the aggregator
+      (<code>benches/splatbench-v3-aggregate.mjs</code>). The Modal endpoints
+      they call live in separate apps the worker forwards to — same code path
+      that customers hit at <code>/try-it</code>. There is no special "bench
+      build" of the codecs; you're measuring the production encoder.
+    </p>
+    <p>
+      The previous bench (SplatBench v0) was hand-curated: a human ran the
+      encoders locally, parsed the output, and pasted into a JSON. v3 removes
+      that step so credibility scales — adding a column doesn't cost a human
+      afternoon, and there's no temptation to skip a scene that didn't look good.
+    </p>
+  </section>
+
+  <section>
+    <h2>3. Determinism &amp; reproducibility</h2>
+    <p>The matrix is idempotent on the same commit within a small tolerance:</p>
+    <ul>
+      <li>
+        <strong>Scene hashes are pinned</strong> in <code>manifest.json</code>.
+        First successful workflow run computes the blake3 of the resolved PLY;
+        subsequent runs verify the hash matches before encoding.
+      </li>
+      <li>
+        <strong>Per-cell run id</strong> is deterministic:
+        <code>sha256(commit | preset | scene)[:16]</code>. Modal correlation
+        IDs and on-disk artifacts use this so re-running on the same commit
+        finds (and may reuse) prior work.
+      </li>
+      <li>
+        <strong>Encoder seeds</strong> are pinned at the preset level:
+        every trainer (Scaffold-GS, vanilla 3DGS, HAC++) uses
+        <code>seed=42</code> for the QAT retrain pass.
+      </li>
+      <li>
+        <strong>Stochastic tolerance</strong>: re-runs on the same commit
+        should reproduce numbers within ±0.01 dB. The aggregator's drop
+        guard fires at 0.3 dB so stochastic flapping never causes a false
+        positive.
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>4. Adding a preset</h2>
+    <ol>
+      <li>
+        Deploy the encoder as a Modal app. The entrypoint must accept
+        <code>(preset, blob_url, filename, run_id)</code> and return the cell
+        envelope.
+      </li>
+      <li>
+        Register the dispatch URL in
+        <code>apps/worker/worker.py:PRESET_DISPATCH_URLS</code> and the preset
+        value in <code>benches/scenes/manifest.json:presets</code>.
+      </li>
+      <li>
+        Add the (Modal-app, function) tuple to
+        <code>benches/splatbench-v3-dispatch.py:PRESET_TO_MODAL</code>.
+      </li>
+      <li>
+        Open a PR; the regression-alert workflow will post a comment showing
+        what cells the new preset will fill on merge.
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>5. Adding a scene</h2>
+    <p>Append an entry to <code>benches/scenes/manifest.json</code>:</p>
+    <pre><code>{`{
+  "id": "myscene_iter7k",
+  "splatCount": 0,
+  "bytesIn": 0,
+  "shDegree": 3,
+  "hash": "pending:first-bench-run",
+  "sourceUrl": "https://your-host/point_cloud.ply",
+  "license": "CC-BY-4.0 or compatible open license",
+  "class": "outdoor-scene",
+  "evalCameras": 24,
+  "dataset": "your-dataset",
+  "presetAllowList": null
+}`}</code></pre>
+    <p>
+      The first successful workflow run pins the hash + splat count + byte size.
+      Scenes with restrictive licenses go through <code>presetAllowList</code>
+      to skip presets that re-upload the PLY publicly.
+    </p>
+  </section>
+
+  <section>
+    <h2>6. Budget &amp; safety</h2>
+    <p>
+      Each full matrix run is bounded by the Modal workspace concurrency cap (~10 parallel A100 slots)
+      and the workspace <strong>$50</strong> cap. A typical full run (7 presets × 14 scenes = 98 cells)
+      with the current preset mix costs $30–$60 depending on which premium-tier QAT cells fire. The
+      workflow can be disabled at any time via <code>gh workflow disable splatbench-v3</code>.
+    </p>
+  </section>
+</Base>
+
+<style>
+  .hero { padding: 2rem 0; border-bottom: 1px solid #1a1d22; margin-bottom: 2rem; }
+  .eyebrow { color: #6a737d; text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.75rem; margin: 0; }
+  .hero h1 { font-size: 2rem; margin: 0.5rem 0 0.75rem; }
+  .lede { color: #cdd5e0; max-width: 65ch; }
+  section { margin: 2rem 0; }
+  section h2 { margin-bottom: 1rem; }
+  ol li, ul li { margin: 0.5rem 0; line-height: 1.5; }
+  pre { background: #14171c; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; }
+  code { background: #14171c; padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.85em; }
+  pre code { background: transparent; padding: 0; }
+</style>

@@ -1,0 +1,25 @@
+{
+  "schema": "splatforge.splatbench-v3.cell/0.1",
+  "commit": "e7d554e",
+  "ref": "main",
+  "preset": "splatforge-qat-3dgs",
+  "scene_id": "bonsai_mipnerf360_iter7k",
+  "scene_class": "indoor-real-estate",
+  "scene_dataset": "mipnerf360",
+  "run_id": "sbv3-smoke-e7d554e-qat3dgs-bonsai",
+  "timestamp": "2026-05-16T15:20:00.000Z",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "smoke_validation": true,
+    "source_commit": "e7d554e",
+    "source_note": "Numbers from the validated end-to-end Modal /qat-3dgs run that landed in commit e7d554e (qat-3dgs feature commit). 286.97 MB Inria PLY -> 273.09 MB packed; bit-exact round-trip; 0 dB delta by construction (lossless constant-strip codec).",
+    "ply_save_pct": 0.0484,
+    "delta_psnr_db": 0.0,
+    "delta_ssim": 0.0,
+    "delta_lpips": 0.0,
+    "wall_secs": 12,
+    "modal_cost_cents": 4,
+    "output_url": "https://montabano1--splatforge-qat-3dgs.modal.run/artifact/bonsai_iter7k.qat3dgs.ply"
+  }
+}
