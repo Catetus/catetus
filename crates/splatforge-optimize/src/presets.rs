@@ -19,6 +19,7 @@ pub const PRESETS: &[&str] = &[
     "quality-max",
     "size-min",
     "geospatial",
+    "hero",
 ];
 
 /// Build a `Pipeline` from a named preset.
@@ -107,6 +108,21 @@ pub fn preset(name: &str) -> Result<Pipeline> {
             .push(Box::new(BuildLOD {
                 levels: vec![0.25, 0.1],
             })),
+        // `hero`: marketing-hero / showcase preset. Optimized for visual
+        // quality on a single above-the-fold slow-orbit scene, not for raw
+        // byte size. No opacity prune, no aspect-ratio prune, no LOD chain,
+        // 16-bit scale quant (vs 8-bit elsewhere) so anisotropic detail
+        // splats render without spike artifacts. SH reduced to degree 0 only
+        // because the current viewer renders DC-only; bump target_degree
+        // back to 1+ once `packages/viewer` learns view-dependent shading.
+        "hero" => Pipeline::new()
+            .push(Box::new(RemoveInvalidSplats))
+            .push(Box::new(FloaterPrune::default()))
+            .push(Box::new(QuantizePosition { bits: 16 }))
+            .push(Box::new(QuantizeScale { bits: 16 }))
+            .push(Box::new(QuantizeRotation { bits: 16 }))
+            .push(Box::new(ReduceSHDegree { target_degree: 0 }))
+            .push(Box::new(MortonSort)),
         other => return Err(anyhow!("unknown preset '{other}'")),
     };
     Ok(pipe)

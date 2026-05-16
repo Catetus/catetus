@@ -1,6 +1,6 @@
 {
-  "splats_before": 150000,
-  "splats_after": 148772,
+  "splats_before": 1157141,
+  "splats_after": 1142762,
   "passes": [
     {
       "name": "RemoveInvalidSplats",
@@ -12,22 +12,13 @@
       }
     },
     {
-      "name": "OpacityPrune",
-      "stats": {
-        "removed": 206,
-        "modified": 0,
-        "duration_ms": 0,
-        "notes": []
-      }
-    },
-    {
       "name": "FloaterPrune",
       "stats": {
-        "removed": 1022,
+        "removed": 14379,
         "modified": 0,
         "duration_ms": 0,
         "notes": [
-          "knn_median=0.4021 mad=0.1547 threshold=1.2062 cells=13"
+          "knn_median=0.3233 mad=0.1639 threshold=0.9698 cells=26"
         ]
       }
     },
@@ -35,7 +26,7 @@
       "name": "QuantizePosition",
       "stats": {
         "removed": 0,
-        "modified": 445935,
+        "modified": 3425456,
         "duration_ms": 0,
         "notes": []
       }
@@ -44,7 +35,7 @@
       "name": "QuantizeScale",
       "stats": {
         "removed": 0,
-        "modified": 446264,
+        "modified": 3336591,
         "duration_ms": 0,
         "notes": []
       }
@@ -53,7 +44,7 @@
       "name": "QuantizeRotation",
       "stats": {
         "removed": 0,
-        "modified": 595073,
+        "modified": 4531214,
         "duration_ms": 0,
         "notes": []
       }
@@ -62,7 +53,7 @@
       "name": "ReduceSHDegree",
       "stats": {
         "removed": 0,
-        "modified": 148772,
+        "modified": 1142762,
         "duration_ms": 0,
         "notes": []
       }
@@ -71,22 +62,9 @@
       "name": "MortonSort",
       "stats": {
         "removed": 0,
-        "modified": 148772,
+        "modified": 1142762,
         "duration_ms": 0,
         "notes": []
-      }
-    },
-    {
-      "name": "BuildLOD",
-      "stats": {
-        "removed": 0,
-        "modified": 0,
-        "duration_ms": 0,
-        "notes": [
-          "LOD0 count=148772",
-          "LOD1 fraction=0.5 stride=2 count=74386",
-          "LOD2 fraction=0.25 stride=4 count=37193"
-        ]
       }
     }
   ]
