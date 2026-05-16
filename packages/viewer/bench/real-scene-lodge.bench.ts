@@ -237,6 +237,8 @@ export async function runLodgeBench(
 
   // Pick the level the on-camera heuristic would choose for the centre
   // camera. That's the "production" fps the LOD path actually delivers.
+  // If the heuristic picks a level that exceeded the capacity cap (no
+  // valid fps recorded), fall back to the next coarser level that fits.
   const ctrCam = cams[0]!.cam.position; // 'front' = camera at scene-center +radius
   let selectedLevel = 0;
   for (let l = 0; l < manifest.levels.length; l++) {
@@ -245,6 +247,13 @@ export async function runLodgeBench(
     const c = sceneBboxCenter(manifest);
     const d = Math.hypot(ctrCam[0] - c[0], ctrCam[1] - c[1], ctrCam[2] - c[2]);
     if (d >= lvl.depthThreshold) selectedLevel = l;
+  }
+  // If the heuristic-picked level OOM'd, walk up to the next finer level
+  // that actually has a measurement.
+  while (selectedLevel < manifest.levels.length) {
+    const entry = breakdown.find((b) => b.level === selectedLevel);
+    if (entry && Number.isFinite(entry.framesPerSecond) && entry.framesPerSecond > 0) break;
+    selectedLevel += 1;
   }
   const selectedEntry = breakdown.find((b) => b.level === selectedLevel);
   const selectedFps = selectedEntry?.framesPerSecond ?? Number.NaN;
@@ -324,7 +333,17 @@ export async function main(): Promise<void> {
     return;
   }
 
-  const capacityCap = Math.floor(want.maxBufferSize / BYTES_PER_DECODED_SPLAT) - 1;
+  // Dispatch cap: WebGPU 1.0 limits dispatchWorkgroups to 65535 per
+  // dimension. The decode + project + gather kernels all use workgroup-
+  // size 256, so the max splats they can dispatch over in a single call
+  // is 65535 * 256 = 16 776 960. Cap the per-level splat count at this
+  // (use 16 M as a round-friendly floor so the bench still completes if
+  // a future change to the workgroup size lifts the ceiling).
+  // The buffer cap is also enforced.
+  const dispatchCap = 65535 * 256; // 16 776 960
+  const bufferCap = Math.floor(want.maxBufferSize / BYTES_PER_DECODED_SPLAT) - 1;
+  const capacityCap = Math.min(dispatchCap, bufferCap);
+  log(`bench: capacityCap = ${capacityCap} splats (dispatchCap=${dispatchCap}, bufferCap=${bufferCap})`);
 
   const results: LodgeSceneResult[] = [];
   for (const name of scenes) {
