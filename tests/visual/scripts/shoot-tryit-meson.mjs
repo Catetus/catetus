@@ -1,0 +1,14 @@
+import { chromium } from 'playwright-core';
+const url = process.argv[2] || 'http://127.0.0.1:4321/';
+const out = process.argv[3] || 'apps/web/screenshots/tryit-meson-selected.png';
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const page = await ctx.newPage();
+await page.goto(url, { waitUntil: 'networkidle' });
+await page.locator('#try').scrollIntoViewIfNeeded();
+await page.selectOption('#tryit-preset-select', 'mgs-balanced');
+await page.waitForTimeout(200);
+const region = page.locator('.region-idle');
+await region.screenshot({ path: out });
+console.log('wrote', out);
+await browser.close();
