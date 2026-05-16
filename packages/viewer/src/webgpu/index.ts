@@ -295,6 +295,48 @@ function buildDecodeUniforms(
   return buf;
 }
 
+/**
+ * Per-sub-range variant of buildDecodeUniforms. Same layout, but with
+ * each SoA slice's byteOffset shifted by `srcSplatOffset` × the slice's
+ * per-splat stride so the kernel's chunk_offset = 0 reads the sub-range.
+ *
+ * Stage 6 (sf-154): used by uploadChunk when a chunk straddles a
+ * splats-page boundary; we split into per-page sub-dispatches and rebase
+ * the SoA reads here.
+ */
+function buildDecodeUniformsForRange(
+  device: GPUDevice,
+  layout: SoaAttributeLayout,
+  splatCount: number,
+  srcSplatOffset: number,
+): GPUBuffer {
+  // Per-slice stride: components × component-size.
+  // positions: 3 components, rotations: 4, scales: 3, opacities: 1, colorDC: 3.
+  // Component size: f32=4, u16=2, u8=1.
+  const compSize = (t: number | undefined): number => {
+    if (t === USHORT_CT) return 2;
+    if (t === UBYTE_CT) return 1;
+    return 4;
+  };
+  const componentsForSlice = (idx: number): number => {
+    // 0:pos(3) 1:rot(4) 2:scale(3) 3:opacity(1) 4:colorDC(3)
+    return [3, 4, 3, 1, 3][idx]!;
+  };
+  const rebased: SoaAttributeLayout = {
+    positions:  { ...layout.positions  },
+    rotations:  { ...layout.rotations  },
+    scales:     { ...layout.scales     },
+    opacities:  { ...layout.opacities  },
+    colorDC:    { ...layout.colorDC    },
+  };
+  const slices = [rebased.positions, rebased.rotations, rebased.scales, rebased.opacities, rebased.colorDC];
+  for (let i = 0; i < slices.length; i++) {
+    const stride = componentsForSlice(i) * compSize(slices[i].componentType);
+    slices[i].byteOffset = slices[i].byteOffset + srcSplatOffset * stride;
+  }
+  return buildDecodeUniforms(device, rebased, splatCount);
+}
+
 /* --------------------------------------------------------------------------- */
 /* Public compute-decode pipeline.                                             */
 /* --------------------------------------------------------------------------- */
@@ -797,14 +839,6 @@ export class ComputeDecodePipeline {
         offset: range.localStart * BYTES_PER_DECODED_SPLAT,
         size: range.localCount * BYTES_PER_DECODED_SPLAT,
       };
-      const subBindGroup = this.device.createBindGroup({
-        layout: this.pipes.decodeBgl,
-        entries: [
-          { binding: 0, resource: { buffer: bytesBuffer } },
-          { binding: 1, resource: dstView },
-          { binding: 2, resource: { buffer: decodeUniforms } },
-        ],
-      });
       // The decode kernel reads source bytes by index relative to splat 0
       // of the chunk and writes dst_splats[i]. Since we sliced dst with a
       // dynamic-offset binding, the write index `i` for THIS sub-range is
@@ -814,24 +848,31 @@ export class ComputeDecodePipeline {
       // SoA index AND the dst index. We patch by giving each sub-range a
       // freshly built decodeUniforms with splat_count = sub-range count
       // and SoA byteOffset rebased.
-      // Simpler approach: only one sub-range per chunk (single-page case).
-      // For multi-page scenes the chunker already targets ~256K splats
-      // per chunk, far smaller than splatsPerPage (~33M at 2 GiB cap),
-      // so straddling never happens in practice. Assert that here:
-      if (range.localCount !== descriptor.splatCount) {
-        throw new Error(
-          `compute-decode: chunk straddles splat-page boundary ` +
-          `(splatStart=${this.decodedSplats}, splatCount=${descriptor.splatCount}, ` +
-          `splatsPerPage=${this.pager.splatsPerPage}); chunk-page split not yet supported.`,
-        );
-      }
-      void srcSplatOffset; // reserved for future per-sub-range source rebase
+      // Chunk may straddle a splats-page boundary. For each sub-range we
+      // build a fresh decodeUniforms whose SoA byteOffsets are rebased by
+      // srcSplatOffset so the kernel reads the right source slice with
+      // chunk_offset = 0. The dst binding is already sliced via dynamic
+      // offset to the destination page's local range.
+      const subUniforms = buildDecodeUniformsForRange(
+        this.device,
+        descriptor.attributeLayout!,
+        range.localCount,
+        srcSplatOffset,
+      );
+      const subBindGroupSliced = this.device.createBindGroup({
+        layout: this.pipes.decodeBgl,
+        entries: [
+          { binding: 0, resource: { buffer: bytesBuffer } },
+          { binding: 1, resource: dstView },
+          { binding: 2, resource: { buffer: subUniforms } },
+        ],
+      });
       dispatchPerSplat(
         this.device,
         encoder,
         this.pipes.decode,
-        subBindGroup,
-        decodeUniforms,
+        subBindGroupSliced,
+        subUniforms,
         UNIFORM_CHUNK_OFFSET_BYTES.decode,
         range.localCount,
       );
@@ -1524,8 +1565,30 @@ export class ComputeDecodePipeline {
     // separately; templateSplatsAccess emits N page bindings for the named
     // binding and rebases the others.
     const dilSrc = applyDilationOverride(PROJECT_GATHER_WGSL, this.dilation);
-    const tplK = templateSplatsAccess(dilSrc, 'k_splats', numPages, splatsPerPage);
-    const tplG = templateSplatsAccess(dilSrc, 'g_splats', numPages, splatsPerPage);
+    // The WGSL file contains BOTH cs_keygen and cs_project_gather; each
+    // entry point declares its own binding-0 splats array. If we template
+    // the whole file for 'k_splats' (numPages > 1), the rebasing also
+    // shifts the g_splats bindings into the same slot as k_keys, causing
+    // a 'multiple variables use the same binding' WGSL error.
+    //
+    // Fix: split the source at the cs_project_gather marker so each
+    // templating pass only sees its own entry point's bindings. The
+    // common preamble (structs, helpers above cs_keygen) stays in the
+    // keygen half; we replicate it into the gather half so the gather
+    // module is self-contained.
+    const splitMarker = '// cs_project_gather — full projection';
+    const markerIdx = dilSrc.indexOf(splitMarker);
+    if (markerIdx < 0) {
+      throw new Error('cs_project_gather split marker not found in PROJECT_GATHER_WGSL');
+    }
+    // Common preamble = everything up to the structs section's end (before
+    // the first @group(0) binding).
+    const firstBindingIdx = dilSrc.indexOf('@group(0) @binding(0)');
+    const preamble = dilSrc.slice(0, firstBindingIdx);
+    const keygenSrc  = preamble + dilSrc.slice(firstBindingIdx, markerIdx);
+    const gatherSrc  = preamble + dilSrc.slice(markerIdx);
+    const tplK = templateSplatsAccess(keygenSrc, 'k_splats', numPages, splatsPerPage);
+    const tplG = templateSplatsAccess(gatherSrc, 'g_splats', numPages, splatsPerPage);
     const keygenMod = this.device.createShaderModule({ code: tplK.wgsl });
     const pgMod     = this.device.createShaderModule({ code: tplG.wgsl });
     // Keygen BGL: N page bindings (read-only-storage) + 3 downstream bindings
