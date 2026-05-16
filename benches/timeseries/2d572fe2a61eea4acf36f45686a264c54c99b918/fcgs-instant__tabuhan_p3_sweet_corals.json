@@ -1,0 +1,24 @@
+{
+  "schema": "splatforge.splatbench-v3.cell/0.1",
+  "commit": "2d572fe2a61eea4acf36f45686a264c54c99b918",
+  "ref": "main",
+  "preset": "fcgs-instant",
+  "scene_id": "tabuhan_p3_sweet_corals",
+  "scene_class": "underwater-coral",
+  "scene_dataset": "sweet-corals",
+  "run_id": "sbv3-a3e540ba119e9cdc",
+  "timestamp": "2026-05-16T19:45:05.148699+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "splatforge.splatbench-v3.cell/0.1",
+  "commit": "2d572fe2a61eea4acf36f45686a264c54c99b918",
+  "ref": "main",
+  "preset": "splatforge-qat-scaffold",
+  "scene_id": "kitchen_mipnerf360_iter7k",
+  "scene_class": "indoor-real-estate",
+  "scene_dataset": "mipnerf360",
+  "run_id": "sbv3-612d0c4b3c62924f",
+  "timestamp": "2026-05-16T19:46:10.784086+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}
