@@ -1,0 +1,5 @@
+build/
+build_cross_target/
+.gradle/
+.cxx/
+local.properties

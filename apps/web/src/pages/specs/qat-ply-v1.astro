@@ -347,12 +347,36 @@ output[row][c] = (float) signed_q * scale[row]</code></pre>
       <a href="https://github.com/splatforge/splatforge/blob/main/apps/codec/conformance/verify.py"><code>verify.py</code></a>.
       Useful for tooling and CI checks.
     </li>
+    <li>
+      <strong>WebAssembly (browser)</strong> &mdash;
+      <a href="https://github.com/splatforge/splatforge/tree/main/apps/codec/qat-ply-wasm"><code>apps/codec/qat-ply-wasm/</code></a>.
+      Emscripten build of the C decoder; ships as
+      <code>@splatforge/qat-ply-wasm</code> with the
+      <code>qat_ply_decode.{js,wasm}</code> pair.
+      Build: <code>brew install emscripten &amp;&amp; make build</code>.
+    </li>
+    <li>
+      <strong>iOS / macOS Metal</strong> &mdash;
+      <a href="https://github.com/splatforge/splatforge/tree/main/apps/ios/SplatForgeQATKernel"><code>apps/ios/SplatForgeQATKernel/</code></a>.
+      SwiftPM module with a Metal compute pipeline (one thread per
+      <code>(anchor &times; channel)</code>) and a pure-Swift header parser.
+      Build: <code>swift build &amp;&amp; swift test</code>.
+    </li>
+    <li>
+      <strong>Android Vulkan</strong> &mdash;
+      <a href="https://github.com/splatforge/splatforge/tree/main/apps/android/splatforge-qat-vulkan"><code>apps/android/splatforge-qat-vulkan/</code></a>.
+      Vulkan compute shader (SPIR-V) + JNI bridge + Kotlin facade.
+      Build: <code>./gradlew assembleDebug</code> (Android SDK / NDK 26+).
+    </li>
   </ul>
   <p>
-    Bindings for Rust, TypeScript, and JavaScript are tracked at
-    <a href="https://github.com/splatforge/splatforge/labels/qat-ply-v1"><code>label:qat-ply-v1</code></a>
-    and will land in subsequent releases; each will be conformance-
-    checked against the same fixture set.
+    All four runtime implementations (C / WASM / Metal / Vulkan) are
+    cross-checked against the Python reference and the same JSON
+    expectations under
+    <a href="https://github.com/splatforge/splatforge/tree/main/apps/codec/conformance/cross-target"><code>conformance/cross-target/</code></a>;
+    any deviation breaks CI. Bindings for additional languages and
+    runtimes are tracked at
+    <a href="https://github.com/splatforge/splatforge/labels/qat-ply-v1"><code>label:qat-ply-v1</code></a>.
   </p>
 
   <p>

@@ -1,0 +1,55 @@
+#version 450
+//
+// qat_dequant.comp — Vulkan compute shader for the QAT-PLY v1 wire
+// format. One workgroup of 16x16 threads; each invocation produces one
+// (row, channel) output. Specialization constant DTYPE picks int8 vs
+// int4-packed at pipeline-creation time so we ship a single SPIR-V
+// blob.
+//
+// SPDX-License-Identifier: MIT
+//
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+// 0 = int8 + per-channel scale, 1 = int4-packed + per-anchor scale.
+layout(constant_id = 0) const uint DTYPE = 0;
+
+// Push-constants: row count, channel count.
+layout(push_constant) uniform PC {
+    uint n_rows;
+    uint n_channels;
+} pc;
+
+// Input bytes are packed uints (4 bytes per uint). The host pads each
+// row up to the next multiple of 4 bytes when uploading the buffer.
+layout(std430, binding = 0) readonly buffer Q   { uint  q_words[]; };
+layout(std430, binding = 1) readonly buffer Sc  { float scale[];  };
+layout(std430, binding = 2)         buffer Out { float out_f[];  };
+
+void main() {
+    uint row = gl_GlobalInvocationID.x;
+    uint col = gl_GlobalInvocationID.y;
+    if (row >= pc.n_rows || col >= pc.n_channels) return;
+
+    if (DTYPE == 0u) {
+        // int8 + per-channel scale.
+        uint row_words = (pc.n_channels + 3u) >> 2u;   // bytes per row / 4
+        uint byte_idx  = row * (row_words << 2u) + col;
+        uint word      = q_words[byte_idx >> 2u];
+        uint sh        = (byte_idx & 3u) * 8u;
+        int  qb        = int((word >> sh) & 0xFFu);
+        if (qb >= 128) qb -= 256;                       // sign-extend int8
+        out_f[row * pc.n_channels + col] = float(qb) * scale[col];
+    } else {
+        // int4 packed (two nibbles per byte) + per-anchor scale.
+        uint B         = (pc.n_channels + 1u) >> 1u;
+        uint row_bytes = ((B + 3u) >> 2u) << 2u;        // padded to 4
+        uint byte_idx  = row * row_bytes + (col >> 1u);
+        uint word      = q_words[byte_idx >> 2u];
+        uint sh        = (byte_idx & 3u) * 8u;
+        uint b         = (word >> sh) & 0xFFu;
+        uint nibble    = ((col & 1u) == 0u) ? (b & 0x0Fu) : ((b >> 4u) & 0x0Fu);
+        int  signed_q  = int(nibble) - 8;
+        out_f[row * pc.n_channels + col] = float(signed_q) * scale[row];
+    }
+}

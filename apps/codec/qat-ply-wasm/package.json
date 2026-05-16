@@ -1,0 +1,27 @@
+{
+  "name": "@splatforge/qat-ply-wasm",
+  "version": "0.1.0",
+  "description": "WebAssembly build of the SplatForge QAT-PLY v1 reference C decoder. Browser fallback for renderers without WebGPU.",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "dist/qat_ply_decode.js",
+    "dist/qat_ply_decode.wasm",
+    "README.md"
+  ],
+  "main": "dist/qat_ply_decode.js",
+  "exports": {
+    ".": {
+      "import": "./dist/qat_ply_decode.js"
+    }
+  },
+  "scripts": {
+    "build": "make build",
+    "size": "make size",
+    "test": "vitest run",
+    "clean": "make clean"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}
