@@ -44,7 +44,20 @@
     const { buildViewProj } = mathMod;
 
     log('requesting WebGPU…');
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    log('querying adapter (try 1: default)…');
+    let adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      log('try 2: high-performance…');
+      adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    }
+    if (!adapter) {
+      log('try 3: low-power…');
+      adapter = await navigator.gpu.requestAdapter({ powerPreference: 'low-power' });
+    }
+    if (!adapter) {
+      log('try 4: force-fallback…');
+      adapter = await navigator.gpu.requestAdapter({ forceFallbackAdapter: true });
+    }
     if (!adapter) throw new Error('no_adapter');
     const lim = adapter.limits;
     const requiredLimits = {};
