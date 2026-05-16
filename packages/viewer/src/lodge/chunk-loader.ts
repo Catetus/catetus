@@ -233,6 +233,15 @@ export class LodgeChunkLoader {
       // opacities | colorDC, all f32).
       const desc = buildPipelineDescriptor(c, splatCount, bytes.byteLength);
       this.pipeline.uploadChunk(desc, bytes);
+      // WebGPU storage-buffer bind offsets must be 256-byte aligned.
+      // Each decoded splat is 64 bytes (BYTES_PER_DECODED_SPLAT), so the
+      // pipeline's `decodedSplats` cursor needs to land on a multiple of
+      // 4 splats before the NEXT chunk binds its destination view. The
+      // single-chunk real-scene bench is fine (decodedSplats starts at 0
+      // and binds once), but multi-chunk LODGE streaming hits arbitrary
+      // splat counts. Round up here so the next uploadChunk's
+      // `decodedSplats * 64` offset is 256-aligned.
+      alignDecodedSplats(this.pipeline);
     }
 
     this.currentLevel = level;
@@ -310,6 +319,28 @@ function resetPipeline(p: UploadablePipeline): void {
   }
   if (Array.isArray(target.chunks)) {
     target.chunks.length = 0;
+  }
+}
+
+/**
+ * Round the pipeline's `decodedSplats` cursor up to a multiple of 4 so the
+ * next chunk's GPU destination view starts on a 256-byte boundary. Each
+ * decoded splat is 64 bytes; WebGPU requires storage-buffer bind offsets
+ * to be 256-byte-aligned, so the cursor must be 4-aligned in splat units.
+ *
+ * The padding splats remain at zero in the destination buffer (the GPU
+ * `cs_decode` only writes the survivors), so they're invisible to the
+ * downstream cull/project/sort/gather flow which gates on `alpha >= tau`
+ * (the zero-alpha padding splats fail this predicate and never reach
+ * rasterization).
+ */
+function alignDecodedSplats(p: UploadablePipeline): void {
+  const target = p as unknown as { decodedSplats?: number };
+  if (typeof target.decodedSplats !== 'number') return;
+  const cur = target.decodedSplats;
+  const aligned = (cur + 3) & ~3;
+  if (aligned !== cur) {
+    target.decodedSplats = aligned;
   }
 }
 

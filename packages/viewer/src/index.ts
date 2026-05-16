@@ -70,6 +70,19 @@ export {
   LODGE_MANIFEST_VERSION,
   LodgeChunkLoader,
   decodePlyToSoa,
+  // Phase A.3 — runtime LOD selector + boundary blend.
+  LOD_SLOT_NEAR,
+  LOD_SLOT_FAR,
+  LOD_MAX_LEVELS,
+  boundaryBlendT,
+  selectChunkActivation,
+  selectAllActivations,
+  pickNearFarChunks,
+  LodgeLODPipeline,
+  CHUNK_RECORD_BYTES,
+  LEVEL_RECORD_BYTES,
+  ACTIVATION_BYTES,
+  LOD_UNIFORMS_BYTES,
 } from './lodge/index.js';
 export type {
   LodgeManifest,
@@ -81,4 +94,11 @@ export type {
   UploadablePipeline,
   LoadLevelResult,
   DecodedPlyChunk,
+  // Phase A.3.
+  ChunkActivation,
+  ChunkRecord,
+  LodSelectInputs,
+  LodgeLODPipelineOptions,
+  FrameDecision,
+  StreamFrameResult,
 } from './lodge/index.js';

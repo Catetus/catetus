@@ -44,6 +44,7 @@ if (tscRes.status !== 0) {
 // expects to fetch.
 const sceneDir = process.env.SF_BENCH_PLY_DIR ?? '';
 let sceneList = [];
+let lodgeList = [];
 if (sceneDir) {
   try {
     const entries = await readdir(sceneDir);
@@ -57,6 +58,25 @@ if (sceneDir) {
       }
     }
     console.error(`bench: found ${sceneList.length} real scene(s) in ${sceneDir}: ${sceneList.join(', ')}`);
+
+    // ALSO discover LODGE pyramids: each `${name}.lodge/` directory that
+    // contains a manifest.json. The base name (no `.lodge` suffix) is
+    // what real-scene-lodge.bench expects in /lodges/<name>/.
+    for (const e of entries) {
+      if (!e.endsWith('.lodge')) continue;
+      const base = e.slice(0, -'.lodge'.length);
+      const sub = join(sceneDir, e);
+      try {
+        const subStat = await stat(sub);
+        if (!subStat.isDirectory()) continue;
+        // Manifest must exist; we read it once at boot to verify shape.
+        await stat(join(sub, 'manifest.json'));
+        lodgeList.push(base);
+      } catch (err) {
+        console.error(`bench: skipping ${e} (missing manifest.json: ${err.message})`);
+      }
+    }
+    console.error(`bench: found ${lodgeList.length} .lodge pyramid(s) in ${sceneDir}: ${lodgeList.join(', ')}`);
   } catch (err) {
     console.error(`bench: SF_BENCH_PLY_DIR=${sceneDir} unreadable: ${err.message}`);
   }
@@ -69,6 +89,8 @@ const MIME = {
   '.mjs': 'application/javascript',
   '.json': 'application/json',
   '.wgsl': 'text/plain',
+  '.ply': 'application/octet-stream',
+  '.bin': 'application/octet-stream',
 };
 const server = createServer(async (req, res) => {
   try {
@@ -81,11 +103,28 @@ const server = createServer(async (req, res) => {
       res.end(data);
       return;
     }
+    if (p === '/lodges/index.json') {
+      const data = Buffer.from(JSON.stringify(lodgeList));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(data);
+      return;
+    }
     if (p.startsWith('/scenes/')) {
       if (!sceneDir) {
         res.writeHead(404); res.end('SF_BENCH_PLY_DIR not set'); return;
       }
       abs = join(sceneDir, p.slice('/scenes/'.length));
+    } else if (p.startsWith('/lodges/')) {
+      // /lodges/<name>/<file> → ${sceneDir}/<name>.lodge/<file>
+      if (!sceneDir) {
+        res.writeHead(404); res.end('SF_BENCH_PLY_DIR not set'); return;
+      }
+      const rest = p.slice('/lodges/'.length);
+      const slash = rest.indexOf('/');
+      if (slash < 0) { res.writeHead(404); res.end('lodge path malformed'); return; }
+      const name = rest.slice(0, slash);
+      const file = rest.slice(slash + 1);
+      abs = join(sceneDir, `${name}.lodge`, file);
     } else if (p.startsWith('/dist-bench/')) {
       abs = join(root, p);
     } else {
@@ -181,6 +220,21 @@ try {
     result.realScene = real;
   } else {
     console.error('bench: no real scenes — skipping real-scene bench');
+  }
+
+  const skipLodge = process.env.SF_SKIP_LODGE === '1';
+  if (lodgeList.length > 0 && !skipLodge) {
+    console.error(`bench: running LODGE real-scene bench on ${lodgeList.length} pyramid(s)…`);
+    const pageL = await ctx.newPage();
+    pageL.on('console', (msg) => process.stderr.write(`[page-lodge] ${msg.text()}\n`));
+    await pageL.goto(`http://127.0.0.1:${PORT}/real-scene-lodge.html`);
+    await pageL.waitForFunction(
+      () => /** @type {any} */ (globalThis).__benchRealSceneLodge && ((globalThis.__benchRealSceneLodge.results && globalThis.__benchRealSceneLodge.results.length > 0) || globalThis.__benchRealSceneLodge.error),
+      null,
+      { timeout: 3_600_000 },
+    );
+    const lodge = await pageL.evaluate(() => /** @type {any} */ (globalThis).__benchRealSceneLodge);
+    result.realSceneLodge = lodge;
   }
 
   if (sceneList.length > 0 && process.env.SF_DILATION_SWEEP === '1') {
