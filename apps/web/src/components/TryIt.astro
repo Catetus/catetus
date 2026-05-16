@@ -37,11 +37,15 @@ const presetOptions = [
     label: "HAC++ lzma",
     blurb: "Anchor entropy + lzma · ~11× · needs Scaffold-GS .tar bundle",
   },
-  {
-    value: "codec-gs-mixed",
-    label: "CodecGS-mixed",
-    blurb: "Feature-plane video codec · ~24× · highest ratio",
-  },
+  // codec-gs-mixed REMOVED 2026-05-15 — Principle 2 render-PSNR violation.
+  // task#156 disambiguation matrix (8 content-bearing cams, src-vs-src=100 dB baseline):
+  //   bonsai_iter7000 CRF=28 → 16.78 dB content-cam mean (14.58 dB min)
+  //   bicycle_iter7000 CRF=28 → 12.70 dB content-cam mean (10.68 dB min)
+  //   stump_iter7000   CRF=28 → 13.94 dB content-cam mean (11.80 dB min)
+  // MesonGS++ K=256 was killed for hitting 21 dB on the same regime. codec-gs-mixed
+  // is unambiguously worse. Picker removal follows the #141 precedent. Codec stays
+  // wired through pricing/worker/CLI so research can still drive it via API.
+  // See tasks/results/codec_gs_mixed_kill_summary.json.
   {
     value: "fcgs-instant",
     label: "FCGS-instant",

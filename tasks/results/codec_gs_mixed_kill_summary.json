@@ -1,0 +1,86 @@
+{
+  "task": "task#156 — codec-gs-mixed Principle 2 sanity check (fix-or-remove)",
+  "date": "2026-05-15",
+  "context": "task#151 flat-CRF sweep reported codec-gs-mixed at production CRF=28 hitting 16.26 / 14.49 / 11.16 dB valid-cam mean render-PSNR on bonsai / bicycle / stump. The agent caveat noted orbit-camera coverage was uneven (1-2 of 5 cams hit non-empty content). This task disambiguates whether (a) the harness was placing cameras in empty space or (b) codec-gs-mixed genuinely hit the same render-PSNR regime as the MesonGS++ K=256 that we already killed in task#141.",
+
+  "root_cause_harness_bug": {
+    "file": "/home/montabano1/sf-fidelity-tmp/v04-oracle/oracle_pipeline.py",
+    "function": "orbit_view_mats",
+    "bug": "Camera position computed as [cx + r*cos, cy + height, cz + r*sin] where caller passes `height = centroid[1] + 0.3*radius`. Net camera y = cy + (cy + 0.3*r) = 2*cy + 0.3*r — the centroid y-coordinate is added twice, lifting the orbit ring well above the scene. For scenes with non-zero centroid.y, most cameras fire into empty space (src_mean ≈ 0, PSNR pegged at 100 dB by the MSE clamp). This contaminated every prior render-PSNR gate that pulled orbit_view_mats from oracle_pipeline (including #141 MesonGS++ measurement and #151 codec-gs-mixed sweep).",
+    "note_141_was_largely_ok": "task#141 used a SECOND independent script (tasks/scripts/meson_attribute_isolation.py) with its OWN orbit_view_mats that does NOT have the double-cy bug. That's why #141 measured bonsai at 21.55 dB on 5 content-bearing cams. The bug only affected scripts that pulled orbit_view_mats from oracle_pipeline directly — which includes tasks/scripts/meson_render_psnr.py and the #151 codec-gs sweep harness.",
+    "fix": "Replaced the harness with tasks/scripts/codec-gs-sanity/psnr_v2.py — 8 cameras around the opacity-weighted centroid with pitch jitter, look-at toward centroid, plus a built-in src-vs-src baseline assertion. Bad-baseline + empty-cam flags are emitted alongside content-cam rows so future agents can't be fooled by the same artifact."
+  },
+
+  "harness_v2": {
+    "path": "tasks/scripts/codec-gs-sanity/psnr_v2.py",
+    "n_cams": 8,
+    "image_size": 512,
+    "camera_strategy": "8 cams around opacity-weighted centroid at radius = 1.5 * IQR-extent, pitches [-15°, 0°, +15°, 0°, -15°, 0°, +15°, 0°], all look_at(centroid).",
+    "baseline_check": "PSNR(src,src) rendered twice — must read >= 99 dB on every cam. Cams that fail are flagged BAD_BASELINE and excluded from the content-cam mean.",
+    "content_filter": "src_mean > 0.05 (threshold 2.5× higher than #151's 0.02). Cams below threshold are flagged EMPTY and excluded.",
+    "result_layout": "per_cam_flag + per_cam_src_mean + per_cam_det_baseline_db + per_cam_psnr_db + content_cams + content_mean_psnr_db + content_min_psnr_db"
+  },
+
+  "disambiguation_matrix": {
+    "note": "All cells have src-vs-src baseline = 100 dB on every cam (8/8) and src_mean >= 0.15 on every cam. New cameras are content-bearing across all 3 scenes.",
+    "codec-gs-mixed_crf28": {
+      "bonsai_iter7000": {
+        "content_mean_psnr_db": 16.783,
+        "content_min_psnr_db": 14.577,
+        "content_cams": 8,
+        "result_file": "sanity-out/bonsai_iter7000__codec-gs-mixed-crf28.json"
+      },
+      "bicycle_iter7000": {
+        "content_mean_psnr_db": 12.699,
+        "content_min_psnr_db": 10.684,
+        "content_cams": 8,
+        "result_file": "sanity-out/bicycle_iter7000__codec-gs-mixed-crf28.json"
+      },
+      "stump_iter7000": {
+        "content_mean_psnr_db": 13.945,
+        "content_min_psnr_db": 11.799,
+        "content_cams": 8,
+        "result_file": "sanity-out/stump_iter7000__codec-gs-mixed-crf28.json"
+      }
+    },
+    "mesonpp_k256_calibration_anchor": {
+      "bonsai_iter7000": {
+        "content_mean_psnr_db": 18.885,
+        "content_min_psnr_db": 9.859,
+        "v141_published_db": 21.55,
+        "note": "Same order of magnitude. v141 used a sibling script (meson_attribute_isolation.py) that doesn't have the orbit_view_mats bug. v2 harness hits stricter cameras and reads 2.7 dB lower; both numbers confirm MesonGS++ K=256 is in the ≤20 dB regime."
+      },
+      "bicycle_iter7000": {
+        "content_mean_psnr_db": 14.829,
+        "content_min_psnr_db": 11.599,
+        "note": "First independent measurement of MesonGS++ K=256 bicycle. Confirms MesonGS++ kill was justified."
+      }
+    }
+  },
+
+  "verdict": "REMOVE_FROM_PICKER",
+  "verdict_rationale": [
+    "All three scenes hit ≤20 dB content-cam mean at production CRF=28. Decision rule for ≤20 dB: real Principle 2 violation, remove from picker.",
+    "codec-gs-mixed is unambiguously worse than MesonGS++ K=256: 12.7 dB on bicycle vs MesonGS++'s 14.8 dB on the same scene + cam set. We already killed MesonGS++ — keeping codec-gs-mixed in the picker is inconsistent with the precedent.",
+    "All 8 cameras are content-bearing (src_mean 0.15-0.74) so the result is not an artifact of empty-space cameras. src-vs-src baseline = 100 dB on every cam proves the gsplat render is deterministic and the codec is the real error source.",
+    "Caveat: MesonGS++ on bonsai dropped from 21.55 dB (v141 cams) to 18.89 dB (v2 cams). v2 cams are harder. The decision rule (≤20 dB → remove) was set against v1-cam numbers; applying the same threshold to v2 cams is stricter than originally intended. However, even under the v3 'marginal' band (20-30 dB), codec-gs-mixed wouldn't qualify — bonsai 16.8 dB, bicycle 12.7 dB, stump 13.9 dB are all clearly below 20 dB."
+  ],
+
+  "actions_taken": [
+    "Added new render-PSNR harness tasks/scripts/codec-gs-sanity/psnr_v2.py with content-cam placement + baseline check; pinned as the canonical Principle 2 test set for future gates.",
+    "Removed `codec-gs-mixed` entry from apps/web/src/components/TryIt.astro presetOptions with an inline kill-comment citing this memo.",
+    "Left apps/api/src/pricing.rs entries for `codec-gs-mixed` / `codec-gs-mixed-k5` intact (same #141 pattern — research can still drive the codec via API).",
+    "Left apps/worker/worker.py + crates/splatforge-cli/src/main.rs dispatch routes intact (research-only access).",
+    "Documented the oracle_pipeline.orbit_view_mats double-cy bug in this memo so it's traceable; the harness used in #141 (meson_attribute_isolation.py) was independently correct, so MesonGS++ kill stands as-is."
+  ],
+
+  "picker_state_at_end": [
+    "web-mobile",
+    "hacpp-lzma",
+    "fcgs-instant",
+    "hosted-neural",
+    "size-min"
+  ],
+
+  "results_dir_on_4090": "/home/montabano1/sf-crf-sweep/sanity-out/"
+}
