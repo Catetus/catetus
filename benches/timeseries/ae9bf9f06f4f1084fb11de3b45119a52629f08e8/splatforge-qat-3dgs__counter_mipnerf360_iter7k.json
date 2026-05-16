@@ -1,0 +1,24 @@
+{
+  "schema": "splatforge.splatbench-v3.cell/0.1",
+  "commit": "ae9bf9f06f4f1084fb11de3b45119a52629f08e8",
+  "ref": "main",
+  "preset": "splatforge-qat-3dgs",
+  "scene_id": "counter_mipnerf360_iter7k",
+  "scene_class": "indoor-real-estate",
+  "scene_dataset": "mipnerf360",
+  "run_id": "sbv3-e007aa0c2f234e5a",
+  "timestamp": "2026-05-16T18:38:00.176762+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}
