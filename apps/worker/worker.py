@@ -88,6 +88,21 @@ PRESET_DISPATCH_URLS = {
     # bundle (point_cloud.ply + cameras.json + images/) or a registered
     # Mip-NeRF 360 scene name in `filename`. Same /enqueue contract.
     "hosted-neural": os.environ.get("SPLATFORGE_HOSTED_NEURAL_URL"),
+    # splatforge-qat-scaffold — post-training QAT codec for Scaffold-GS
+    # PLYs. Public bench numbers (benches/encoders/qat-scaffold-gs,
+    # c3387b3, 2026-05-16): aggregate 37.25% PLY-size save across 6
+    # Mip-NeRF 360 scenes (bonsai, bicycle, garden, stump, treehill,
+    # flowers); +PSNR on every scene (min +0.032 dB, max +0.581 dB,
+    # mean +0.172 dB) plus SSIM / LPIPS improvements measured on the
+    # same training-time eval cameras. The codec is lossless in the
+    # codec sense (deterministic dequant) and the output is a smaller
+    # Scaffold-GS PLY. Wall-clock dominated by the Modal GPU pass.
+    # Encoder lives in a private Modal app (`splatforge-qat-scaffold`);
+    # same /enqueue contract as the other forwarded presets — the
+    # private app downloads the input, runs the QAT pass, uploads the
+    # compressed PLY, and POSTs the terminal `{status, output_url}`
+    # back to `callback_url`.
+    "splatforge-qat-scaffold": os.environ.get("SPLATFORGE_QAT_SCAFFOLD_URL"),
 }
 
 image = (
@@ -114,7 +129,7 @@ image = (
 
 
 # Modal workspace caps web functions at 8 across all deployed apps. With
-# 5 splatforge presets (codec-gs-mixed + fcgs + hacpp-lzma + hosted-neural
+# 6 splatforge presets (codec-gs-mixed + fcgs + hacpp-lzma + hosted-neural + qat-scaffold
 # + this worker) and the personal linecall-machine app, separate
 # `enqueue` + `healthz` endpoints push us over. We collapse the worker's
 # two HTTP routes into a single ASGI app so both routes share one web
@@ -613,6 +628,7 @@ def _expected_env_var_for_preset(preset: str) -> str:
         "capture-and-compress": "SPLATFORGE_CAPTURE_URL",
         "hacpp-lzma": "SPLATFORGE_HACPP_LZMA_URL",
         "hosted-neural": "SPLATFORGE_HOSTED_NEURAL_URL",
+        "splatforge-qat-scaffold": "SPLATFORGE_QAT_SCAFFOLD_URL",
     }
     return mapping.get(preset, "SPLATFORGE_<PRESET>_URL")
 
@@ -703,6 +719,7 @@ def healthz() -> dict:
                 "SPLATFORGE_FCGS_URL",
                 "SPLATFORGE_HACPP_LZMA_URL",
                 "SPLATFORGE_HOSTED_NEURAL_URL",
+                "SPLATFORGE_QAT_SCAFFOLD_URL",
             ],
         )
     ],

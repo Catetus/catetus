@@ -68,6 +68,21 @@ const presetOptions = [
     label: "Size-min",
     blurb: "Aggressive quantize + LOD · ~10× · web-friendly",
   },
+  // QAT-Scaffold — post-training Quant-Aware codec for Scaffold-GS PLYs.
+  // Public numbers come from benches/encoders/qat-scaffold-gs (committed
+  // 2026-05-16 in c3387b3): aggregate 37.25% PLY-size save across 6
+  // Mip-NeRF 360 scenes (bonsai, bicycle, garden, stump, treehill,
+  // flowers), with a positive PSNR delta on every scene (min +0.032 dB,
+  // max +0.581 dB, mean +0.172 dB). Output is a smaller Scaffold-GS PLY
+  // that strictly improves PSNR / SSIM / LPIPS on the training-time
+  // eval cameras — lossless in the codec sense (deterministic dequant).
+  // Routed through splatforge-worker → splatforge-qat-scaffold Modal
+  // app. /docs/api/qat-scaffold has the full contract.
+  {
+    value: "splatforge-qat-scaffold",
+    label: "QAT-Scaffold (Scaffold-GS PLY)",
+    blurb: "Scaffold-GS PLY → 37% smaller, +0.17 dB mean PSNR gain on 6/6 scenes (lossless codec).",
+  },
 ];
 ---
 

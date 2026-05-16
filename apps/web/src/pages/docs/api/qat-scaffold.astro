@@ -1,0 +1,218 @@
+---
+import Base from "../../../layouts/Base.astro";
+
+const title = "SplatForge — QAT-Scaffold (Scaffold-GS PLY) API";
+const description =
+  "Post-training Quant-Aware codec for Scaffold-GS PLYs. Aggregate 37.25% PLY save across 6 Mip-NeRF 360 scenes with a positive PSNR delta on every scene (mean +0.172 dB). Lossless in the codec sense — deterministic dequant. Free tier: 1 scene/day under 100 MB. Paid tier: $0.50/GB processed, no daily cap.";
+
+const apiBase = import.meta.env.PUBLIC_API_BASE ?? "https://api.splatforge.com";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="/#try" aria-current="page">Try it</a>
+    </div>
+  </nav>
+
+  <h1>QAT-Scaffold preset (Scaffold-GS PLY)</h1>
+  <p class="lede">
+    The <code>splatforge-qat-scaffold</code> preset is a
+    <strong>post-training Quant-Aware codec</strong> for Scaffold-GS PLYs.
+    It takes a Scaffold-GS PLY and returns a smaller Scaffold-GS PLY
+    with strictly <em>better</em> PSNR / SSIM / LPIPS on the same
+    training-time eval cameras. The codec is lossless in the codec
+    sense — dequant is deterministic — and the PSNR delta is measured
+    vs the source PLY, not vs a retrained baseline.
+  </p>
+
+  <h2>Bench numbers (6 scenes, 2026-05-16)</h2>
+  <p>
+    Aggregate <strong>37.25% PLY-size save</strong> across the six
+    trained Mip-NeRF 360 scenes, with a positive PSNR delta on every
+    scene (6/6). Per-scene breakdown:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Scene</th>
+        <th>PLY save</th>
+        <th>Delta PSNR (dB)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>bonsai</td><td>40.51%</td><td>+0.581</td></tr>
+      <tr><td>bicycle</td><td>40.51%</td><td>+0.087</td></tr>
+      <tr><td>garden</td><td>40.51%</td><td>+0.198</td></tr>
+      <tr><td>stump</td><td>33.80%</td><td>+0.076</td></tr>
+      <tr><td>treehill</td><td>33.80%</td><td>+0.056</td></tr>
+      <tr><td>flowers</td><td>33.80%</td><td>+0.032</td></tr>
+      <tr>
+        <td><strong>Aggregate (6 scenes)</strong></td>
+        <td><strong>37.25%</strong></td>
+        <td><strong>+0.172 (mean)</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="footnote">
+    Raw bench column lives at
+    <code>benches/encoders/qat-scaffold-gs/</code> and the per-scene
+    cells are in <code>benches/reports/splatbench-v0.json</code> under
+    <code>qatScaffoldGs</code>. SSIM and LPIPS improve on every scene
+    too — see the leaderboard page for the full matrix.
+  </p>
+
+  <h2>Endpoint</h2>
+  <pre><code>POST {apiBase}/v1/jobs
+Authorization: Bearer &lt;api_key&gt;
+Content-Type: application/json
+
+&#123;
+  "preset": "splatforge-qat-scaffold",
+  "blob_url": "https://blob.vercel-storage.com/uploads/&lt;sha&gt;-scaffold.ply",
+  "filename": "scaffold.ply"
+&#125;</code></pre>
+
+  <h2>Auth</h2>
+  <p>
+    Every request needs <code>Authorization: Bearer &lt;api_key&gt;</code>.
+    New accounts get a free-tier key via the existing self-serve flow at
+    <a href="/pricing#signup">/pricing</a>: Stripe Checkout submits the
+    email, the webhook issues an API key, and the key shows up in both
+    the receipt email and the account dashboard. No separate
+    QAT-Scaffold signup; the same key gates every preset.
+  </p>
+
+  <h2>Request / response</h2>
+  <p>
+    Same job shape as every other preset — only <code>preset</code>
+    changes. The API returns a <code>job_id</code> immediately and POSTs
+    the terminal result to your registered callback (or you can poll
+    <code>GET /v1/jobs/&lt;job_id&gt;</code>).
+  </p>
+  <pre><code>// 202 Accepted
+&#123;
+  "job_id": "01HZ9X2P8E4QXM6R0M3T7G1K8C",
+  "preset": "splatforge-qat-scaffold",
+  "status": "queued",
+  "estimated_compute_seconds": 360,
+  "estimated_cost_usd_cents": 18
+&#125;
+
+// terminal callback (or GET /v1/jobs/&lt;id&gt;)
+&#123;
+  "job_id": "01HZ9X2P8E4QXM6R0M3T7G1K8C",
+  "status": "done",
+  "output_url": "https://blob.vercel-storage.com/outputs/&lt;sha&gt;-qat.ply",
+  "size_bytes_in":  136847392,
+  "size_bytes_out":  85946720,
+  "ply_save_pct": 37.2,
+  "delta_psnr_db": 0.17
+&#125;</code></pre>
+
+  <h2>Input shapes</h2>
+  <ul>
+    <li>
+      A <strong>Scaffold-GS PLY</strong> (single file). The encoder
+      reads the standard Scaffold attribute layout and rejects vanilla
+      3DGS PLYs with a clear error. Use the <code>hacpp-lzma</code>
+      preset if you have a Scaffold bundle (PLY + MLP weights) instead
+      of a flat PLY.
+    </li>
+  </ul>
+
+  <h2>Output shape</h2>
+  <p>
+    A single Scaffold-GS PLY, smaller than the input. The file is
+    self-contained — any Scaffold-GS-aware decoder can render it
+    because the quantized streams are stored in standard PLY-attribute
+    slots with documented quant scales in the header comment.
+  </p>
+
+  <h2>Rate limits</h2>
+  <table>
+    <thead>
+      <tr><th>Tier</th><th>Per-key request budget</th><th>Per-input size</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Free</strong></td>
+        <td>1 scene / 24 h</td>
+        <td>&lt;= 100 MB Scaffold PLY</td>
+      </tr>
+      <tr>
+        <td><strong>Paid</strong></td>
+        <td>No daily cap</td>
+        <td>No size cap (subject to Modal-side timeouts on enormous
+        captures — talk to us if you have a &gt;5 GB Scaffold)</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Rate limits are enforced per-key by the existing
+    <code>splatforge_rate_limit</code> middleware (PR #33). Free-tier
+    overage returns <code>HTTP 429</code> with an
+    <code>X-Free-Tier-Reset</code> header pointing at the next
+    midnight UTC window.
+  </p>
+
+  <h2>Pricing</h2>
+  <ul>
+    <li>
+      <strong>Free tier:</strong> 1 scene/day, &lt;= 100 MB input. No
+      card required. Sign up at <a href="/pricing#signup">/pricing</a>.
+    </li>
+    <li>
+      <strong>Paid tier:</strong> <code>$0.50 / GB processed</code>.
+      Billed monthly via Stripe. No flat fee, no minimum, no daily
+      cap. A typical 130 MB Scaffold PLY costs ~$0.065 / scene.
+    </li>
+  </ul>
+  <p>
+    Use <code>POST /v1/pricing/preview</code> with
+    <code>&#123; "size_bytes": &lt;n&gt;, "preset": "splatforge-qat-scaffold" &#125;</code>
+    to get a quote before submitting the job.
+  </p>
+
+  <h2>Worker dispatch</h2>
+  <p>
+    The public worker forwards every <code>splatforge-qat-scaffold</code>
+    enqueue to a private Modal app. The operator sets
+    <code>SPLATFORGE_QAT_SCAFFOLD_URL</code> in the
+    <code>splatforge-preset-urls</code> Modal secret to wire the route;
+    <code>GET /healthz</code> on the worker exposes a
+    <code>preset_dispatch_configured.splatforge-qat-scaffold</code>
+    bool so deploys are verifiable without inspecting secrets.
+  </p>
+
+  <h2>Anti-claims</h2>
+  <ul>
+    <li>
+      <strong>Not a vanilla 3DGS codec.</strong> The compression only
+      works on Scaffold-GS PLYs because it leans on Scaffold's
+      anchor-feature + offset structure. Use <code>fcgs-instant</code>
+      or <code>hacpp-lzma</code> for non-Scaffold inputs.
+    </li>
+    <li>
+      <strong>Lossless in the codec sense != "pixel-identical".</strong>
+      Dequant is deterministic, so the codec round-trip is reproducible
+      and zero-error in attribute space. Render PSNR <em>improves</em>
+      because the QAT pass nudges the Scaffold parameters toward a
+      configuration that the quantized representation re-renders
+      slightly better than the source.
+    </li>
+    <li>
+      <strong>N=1 per scene today.</strong> All six scenes cleared the
+      P2 gate at N=1 (minimum delta +0.032 dB &gt; 0). N&gt;=3
+      multi-seed runs are scheduled and will replace these cells when
+      they land.
+    </li>
+  </ul>
+</Base>
