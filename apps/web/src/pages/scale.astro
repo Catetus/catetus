@@ -799,8 +799,16 @@ const githubUrl = "https://github.com/montabano1/SplatForge";
       });
       pass.setPipeline(state.renderPipeline);
       pass.setBindGroup(0, state.bindGroup);
-      pass.setVertexBuffer(0, state.pipeline.instanceBuffer);
-      pass.draw(4, state.pipeline.splatCount, 0, 0);
+      // Stage 7 (sf-154): multi-draw across instance pages so L0/L1
+      // (multi-page instance buffer) render correctly. When numPages == 1
+      // this collapses to a single draw identical to the pre-Stage-7 path.
+      const totalSplats = state.pipeline.splatCount;
+      for (const page of state.pipeline.instancePages) {
+        const pageCount = Math.min(page.splatCount, totalSplats - page.splatStart);
+        if (pageCount <= 0) break;
+        pass.setVertexBuffer(0, page.buffer);
+        pass.draw(4, pageCount, 0, 0);
+      }
       pass.end();
       state.device.queue.submit([enc.finish()]);
     }
