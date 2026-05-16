@@ -50,7 +50,8 @@ struct WSRUniforms {
   viewport:    vec2<f32>,
   focal:       vec2<f32>,
   splat_count: u32,
-  _pad0:       u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
   // Per-frame WSR parameters. PR1 uses a single scene-wide σ derived host-
   // side from `2 × scene_mean_depth`; PR3 replaces this with a learned σ
   // baked into the manifest. v_i is treated as 0 in PR1 (no per-splat
@@ -117,7 +118,7 @@ fn atomic_add_f32(slot: ptr<storage, atomic<u32>, read_write>, value: f32) {
 
 @compute @workgroup_size(256)
 fn cs_wsr_accumulate(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   let s = splats[i];

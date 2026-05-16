@@ -44,7 +44,37 @@ import { createRadixSortPipelines, RadixSort, type RadixSortPipelines } from './
 import { createCullPipelines, CullPipeline } from './cull.js';
 import { WSRPipeline, WSR_DEFAULT_BG_WEIGHT } from './wsr.js';
 import { WSRTilePipeline } from './wsr_tile.js';
+import { dispatchPerSplat } from './multi-dispatch.js';
 import type { ChunkDescriptor, SoaAttributeLayout } from '../manifest.js';
+
+/**
+ * Byte offset of `chunk_offset: u32` inside each kernel's uniform struct.
+ * Multi-dispatch wrappers rewrite only this slot between chunks.
+ *
+ * Keep in lock-step with the WGSL struct layouts. WebGPU std140-ish rules
+ * apply: the offset is `<previous fields aligned to vec4 boundaries>`.
+ */
+export const UNIFORM_CHUNK_OFFSET_BYTES = {
+  /** decode.wgsl::DecodeUniforms — chunk_offset at slot 1 (after splat_count). */
+  decode: 4,
+  /** decode.wgsl::ProjectUniforms (cs_project) and cs_project_gather.wgsl::ProjectUniforms.
+   *  2×mat4(64) + viewport(8) + focal(8) + splat_count(4) = 148. */
+  project: 148,
+  /** Inline GATHER_WGSL::Uniforms — chunk_offset at slot 1 (after count). */
+  gather: 4,
+  /** cs_cull.wgsl::CullUniforms — 2×mat4 + viewport + focal + splat_count + tau = 152. */
+  cull: 152,
+  /** cs_cull.wgsl::CompactUniforms — chunk_offset at slot 1 (after splat_count). */
+  compact: 4,
+  /** cs_lod_blend.wgsl::LodBlendUniforms — chunk_offset at slot 3
+   *  (after splat_count, chunk_count, force_passthrough). */
+  lodBlend: 12,
+  /** cs_lod_blend.wgsl::ResetUniforms — chunk_offset at slot 1 (after splat_count). */
+  lodReset: 4,
+  /** cs_tile_bin.wgsl::TileBinUniforms — 2×mat4(128) + viewport(8) + focal(8)
+   *  + splat_count(4) + tile_size(4) + tiles_x(4) + tiles_y(4) + max_per_tile(4) = 164. */
+  tileBin: 164,
+} as const;
 
 /** Floats per per-instance render record. Mirrors `FLOATS_PER_INSTANCE` in webgpu.ts. */
 export const FLOATS_PER_INSTANCE = 12;
@@ -67,14 +97,14 @@ struct Instance {
   cov:      vec4<f32>,
   color:    vec4<f32>,
 };
-struct Uniforms { count: u32, _pad: vec3<u32> };
+struct Uniforms { count: u32, chunk_offset: u32, _pad: vec2<u32> };
 @group(0) @binding(0) var<storage, read>       src    : array<Instance>;
 @group(0) @binding(1) var<storage, read>       order  : array<u32>;
 @group(0) @binding(2) var<storage, read_write> dst    : array<Instance>;
 @group(0) @binding(3) var<uniform>             u      : Uniforms;
 @compute @workgroup_size(256)
 fn cs_gather(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.count) { return; }
   dst[i] = src[order[i]];
 }
@@ -627,13 +657,19 @@ export class ComputeDecodePipeline {
     });
 
     // Dispatch decode immediately. Subsequent project passes will see the
-    // decoded splats.
+    // decoded splats. Multi-dispatch carves the per-splat work into
+    // <= 65535-workgroup chunks so > 16.7 M-splat scenes (LODGE L1/L0)
+    // don't trip the WebGPU 1.0 dispatch limit.
     const encoder = this.device.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(this.pipes.decode);
-    pass.setBindGroup(0, decodeBindGroup);
-    pass.dispatchWorkgroups(Math.ceil(descriptor.splatCount / 256));
-    pass.end();
+    dispatchPerSplat(
+      this.device,
+      encoder,
+      this.pipes.decode,
+      decodeBindGroup,
+      decodeUniforms,
+      UNIFORM_CHUNK_OFFSET_BYTES.decode,
+      descriptor.splatCount,
+    );
     this.device.queue.submit([encoder.finish()]);
 
     this.chunks.push({
@@ -708,43 +744,60 @@ export class ComputeDecodePipeline {
       //   3. cs_project_gather — re-projects in sorted order, writes
       //                          instanceBuffer[i] directly. No 640 MB
       //                          unsorted-scratch buffer touched.
-      {
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(this.pipes.keygen!);
-        pass.setBindGroup(0, this.keygenBindGroup!);
-        pass.dispatchWorkgroups(wgs);
-        pass.end();
-      }
+      // Multi-dispatch unblocks > 16.7 M-splat scenes (LODGE L1/L0).
+      // NOTE: `this.sorter.encode` is NOT chunked yet (Stage 5 followup —
+      // see tasks/scripts/wgpu-multidispatch-followup.md). Until that
+      // lands, scenes whose splat count exceeds the radix-sort dispatch
+      // cap will still fail at the sort, even though keygen + gather
+      // tolerate the size. The bench-side `dispatchCap` reflects this.
+      void wgs;
+      dispatchPerSplat(
+        this.device,
+        encoder,
+        this.pipes.keygen!,
+        this.keygenBindGroup!,
+        this.projectUniforms,
+        UNIFORM_CHUNK_OFFSET_BYTES.project,
+        count,
+      );
       this.sorter.encode(encoder, count);
-      {
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(this.pipes.projectGather!);
-        pass.setBindGroup(0, this.projectGatherBindGroup!);
-        pass.dispatchWorkgroups(wgs);
-        pass.end();
-      }
+      dispatchPerSplat(
+        this.device,
+        encoder,
+        this.pipes.projectGather!,
+        this.projectGatherBindGroup!,
+        this.projectUniforms,
+        UNIFORM_CHUNK_OFFSET_BYTES.project,
+        count,
+      );
       return;
     }
 
     // Non-fused (legacy) path: cs_project → radix sort → cs_gather.
     // Kept as a fallback / parity reference.
-    {
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.pipes.project);
-      pass.setBindGroup(0, this.projectBindGroup!);
-      pass.dispatchWorkgroups(wgs);
-      pass.end();
-    }
+    dispatchPerSplat(
+      this.device,
+      encoder,
+      this.pipes.project,
+      this.projectBindGroup!,
+      this.projectUniforms,
+      UNIFORM_CHUNK_OFFSET_BYTES.project,
+      count,
+    );
     this.sorter.encode(encoder, count);
     {
       const u = new Uint32Array(8); // 32 bytes
       u[0] = count;
       this.device.queue.writeBuffer(this.gatherUniforms!, 0, u.buffer);
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.pipes.gather);
-      pass.setBindGroup(0, this.gatherBindGroup!);
-      pass.dispatchWorkgroups(wgs);
-      pass.end();
+      dispatchPerSplat(
+        this.device,
+        encoder,
+        this.pipes.gather,
+        this.gatherBindGroup!,
+        this.gatherUniforms!,
+        UNIFORM_CHUNK_OFFSET_BYTES.gather,
+        count,
+      );
     }
   }
 
@@ -880,11 +933,15 @@ export class ComputeDecodePipeline {
       const u = new Uint32Array(8);
       u[0] = survivors;
       this.device.queue.writeBuffer(this.gatherUniforms!, 0, u.buffer);
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.pipes.gather);
-      pass.setBindGroup(0, this.gatherBindGroup!);
-      pass.dispatchWorkgroups(Math.ceil(survivors / 256));
-      pass.end();
+      dispatchPerSplat(
+        this.device,
+        encoder,
+        this.pipes.gather,
+        this.gatherBindGroup!,
+        this.gatherUniforms!,
+        UNIFORM_CHUNK_OFFSET_BYTES.gather,
+        survivors,
+      );
     }
   }
 

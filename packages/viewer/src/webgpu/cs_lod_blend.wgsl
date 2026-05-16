@@ -56,7 +56,8 @@ struct LodBlendUniforms {
   // When `force_passthrough == 1`, this kernel becomes a no-op (used by
   // the test harness to bypass the blend without re-creating buffers).
   force_passthrough: u32,
-  _pad: u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
 };
 
 @group(0) @binding(0) var<storage, read_write> lb_splats     : array<DecodedSplat>;
@@ -66,7 +67,7 @@ struct LodBlendUniforms {
 
 @compute @workgroup_size(256)
 fn cs_lod_blend(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + lb_u.chunk_offset;
   if (i >= lb_u.splat_count) { return; }
   if (lb_u.force_passthrough == 1u) { return; }
 
@@ -110,8 +111,9 @@ fn cs_lod_blend(@builtin(global_invocation_id) gid: vec3<u32>) {
 //   2 (uniform)    : { splat_count, _pad×3 }
 // =============================================================================
 struct ResetUniforms {
-  splat_count: u32,
-  _pad: vec3<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad:         vec2<u32>,
 };
 
 @group(0) @binding(0) var<storage, read_write> lr_splats : array<DecodedSplat>;
@@ -120,7 +122,7 @@ struct ResetUniforms {
 
 @compute @workgroup_size(256)
 fn cs_lod_alpha_reset(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + lr_u.chunk_offset;
   if (i >= lr_u.splat_count) { return; }
   lr_splats[i].pos.w = lr_alpha[i];
 }

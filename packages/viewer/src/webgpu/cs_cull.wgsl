@@ -60,7 +60,11 @@ struct CullUniforms {
   focal:       vec2<f32>,
   splat_count: u32,
   tau:         f32,
-  _pad:        vec2<u32>,
+  // chunk_offset: first splat index covered by this dispatch. Multi-dispatch
+  // wrappers update only this slot between chunks (see multi-dispatch.ts).
+  // Single-dispatch callers leave it 0.
+  chunk_offset: u32,
+  _pad:         u32,
 };
 
 // =============================================================================
@@ -108,7 +112,7 @@ fn cov3d_cull(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_cull(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + cu_u.chunk_offset;
   if (i >= cu_u.splat_count) { return; }
 
   let s = cu_splats[i];
@@ -179,8 +183,9 @@ fn cs_cull(@builtin(global_invocation_id) gid : vec3<u32>) {
 //   3 (uniform)     : { splat_count, _pad, _pad, _pad }
 // =============================================================================
 struct CompactUniforms {
-  splat_count: u32,
-  _pad: vec3<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad:         vec2<u32>,
 };
 @group(0) @binding(0) var<storage, read>       co_flag    : array<u32>;
 @group(0) @binding(1) var<storage, read>       co_prefix  : array<u32>;
@@ -189,7 +194,7 @@ struct CompactUniforms {
 
 @compute @workgroup_size(256)
 fn cs_compact(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + co_u.chunk_offset;
   if (i >= co_u.splat_count) { return; }
   if (co_flag[i] == 1u) {
     co_compact[co_prefix[i]] = i;
@@ -212,9 +217,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 @group(0) @binding(0) var<storage, read>       pc_splats   : array<DecodedSplat>;
 @group(0) @binding(1) var<storage, read_write> pc_inst     : array<Instance>;
@@ -255,7 +260,7 @@ fn cov3d_pc(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project_cmpct(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + pc_u.chunk_offset;
   if (i >= pc_u.splat_count) { return; }   // splat_count here = survivors
 
   let si = pc_compact[i];

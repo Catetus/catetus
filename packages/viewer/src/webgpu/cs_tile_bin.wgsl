@@ -45,7 +45,8 @@ struct TileBinUniforms {
   tiles_x:     u32,          // ceil(W / tile_size)
   tiles_y:     u32,          // ceil(H / tile_size)
   max_per_tile: u32,         // hard cap on per-tile list length
-  _pad0:        u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
   sigma:        f32,
   v_default:    f32,
 };
@@ -88,7 +89,7 @@ fn cov3d_w(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_tile_bin(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   let s = splats[i];

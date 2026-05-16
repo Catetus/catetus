@@ -46,12 +46,17 @@
  */
 
 import { WSR_CLEAR_WGSL, WSR_ACCUMULATE_WGSL, WSR_RESOLVE_WGSL } from './shaders.generated.js';
+import { dispatchPerSplat } from './multi-dispatch.js';
 
 /** Workgroup size for the per-pixel kernels (16 × 16). */
 export const WSR_TILE = 16;
 
 /** Workgroup size for the per-splat accumulate kernel. */
 export const WSR_WG = 256;
+
+/** Byte offset of `chunk_offset: u32` inside `cs_wsr_accumulate.wgsl::WSRUniforms`.
+ *  Layout: 2×mat4(128) + viewport(8) + focal(8) + splat_count(4) = 148. */
+const WSR_ACCUMULATE_UNIFORM_CHUNK_OFFSET_BYTES = 148;
 
 /** Bytes per pixel of the numerator buffer (4 × u32, vec4-aligned). */
 const NUMERATOR_BYTES_PER_PX = 16;
@@ -337,12 +342,22 @@ export class WSRPipeline {
     }
 
     // ---- cs_wsr_accumulate ----
+    // Multi-dispatch over splat_count so > 16.7M splats clear the WebGPU
+    // dispatchWorkgroups cap. The chunk_offset slot lives at byte 148 in
+    // the WSR accumulate uniform (2×mat4=128 + viewport=8 + focal=8 +
+    // splat_count=4 = 148).
     if (splatCount > 0) {
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.pipes.accumulate);
-      pass.setBindGroup(0, this.accumulateBindGroup);
-      pass.dispatchWorkgroups(splatWgs);
-      pass.end();
+      void splatWgs;
+      dispatchPerSplat(
+        this.device,
+        encoder,
+        this.pipes.accumulate,
+        this.accumulateBindGroup,
+        this.accumulateUniforms,
+        WSR_ACCUMULATE_UNIFORM_CHUNK_OFFSET_BYTES,
+        splatCount,
+        WSR_WG,
+      );
     }
 
     // ---- cs_wsr_resolve ----

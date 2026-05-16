@@ -53,9 +53,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 
 // ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ struct ProjectUniforms {
 
 @compute @workgroup_size(256)
 fn cs_keygen(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + ku.chunk_offset;
   if (i >= ku.splat_count) { return; }
   let s = k_splats[i];
   let pos = s.pos.xyz;
@@ -130,7 +130,7 @@ fn cov3d_fg(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project_gather(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + gu.chunk_offset;
   if (i >= gu.splat_count) { return; }
 
   // Indirection: thread `i` writes the i-th sorted slot; we read the splat

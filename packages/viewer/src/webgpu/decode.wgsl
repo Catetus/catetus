@@ -48,15 +48,17 @@ struct AttributeSlice {
 };
 
 struct DecodeUniforms {
-  splat_count: u32,
-  _pad0: u32,
-  _pad1: u32,
-  _pad2: u32,
-  positions: AttributeSlice,
-  rotations: AttributeSlice,
-  scales:    AttributeSlice,
-  opacities: AttributeSlice,
-  color_dc:  AttributeSlice,
+  splat_count:  u32,
+  // chunk_offset: first splat index covered by this dispatch. Multi-dispatch
+  // wrappers update only this slot between chunks (see multi-dispatch.ts).
+  chunk_offset: u32,
+  _pad1:        u32,
+  _pad2:        u32,
+  positions:    AttributeSlice,
+  rotations:    AttributeSlice,
+  scales:       AttributeSlice,
+  opacities:    AttributeSlice,
+  color_dc:     AttributeSlice,
 };
 
 @group(0) @binding(0) var<storage, read>       src_bytes : array<u32>;
@@ -122,7 +124,7 @@ fn comp_stride(slice: AttributeSlice) -> u32 {
 
 @compute @workgroup_size(256)
 fn cs_decode(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   // POSITION (vec3)
@@ -176,9 +178,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 
 // Per-instance vertex-buffer record (must match FLOATS_PER_INSTANCE=12).
@@ -230,7 +232,7 @@ fn cov3d(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + pu.chunk_offset;
   if (i >= pu.splat_count) { return; }
 
   let s = p_splats[i];

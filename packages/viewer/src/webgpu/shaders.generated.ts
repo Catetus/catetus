@@ -51,15 +51,17 @@ struct AttributeSlice {
 };
 
 struct DecodeUniforms {
-  splat_count: u32,
-  _pad0: u32,
-  _pad1: u32,
-  _pad2: u32,
-  positions: AttributeSlice,
-  rotations: AttributeSlice,
-  scales:    AttributeSlice,
-  opacities: AttributeSlice,
-  color_dc:  AttributeSlice,
+  splat_count:  u32,
+  // chunk_offset: first splat index covered by this dispatch. Multi-dispatch
+  // wrappers update only this slot between chunks (see multi-dispatch.ts).
+  chunk_offset: u32,
+  _pad1:        u32,
+  _pad2:        u32,
+  positions:    AttributeSlice,
+  rotations:    AttributeSlice,
+  scales:       AttributeSlice,
+  opacities:    AttributeSlice,
+  color_dc:     AttributeSlice,
 };
 
 @group(0) @binding(0) var<storage, read>       src_bytes : array<u32>;
@@ -125,7 +127,7 @@ fn comp_stride(slice: AttributeSlice) -> u32 {
 
 @compute @workgroup_size(256)
 fn cs_decode(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   // POSITION (vec3)
@@ -179,9 +181,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 
 // Per-instance vertex-buffer record (must match FLOATS_PER_INSTANCE=12).
@@ -233,7 +235,7 @@ fn cov3d(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + pu.chunk_offset;
   if (i >= pu.splat_count) { return; }
 
   let s = p_splats[i];
@@ -581,9 +583,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 
 // ---------------------------------------------------------------------------
@@ -597,7 +599,7 @@ struct ProjectUniforms {
 
 @compute @workgroup_size(256)
 fn cs_keygen(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + ku.chunk_offset;
   if (i >= ku.splat_count) { return; }
   let s = k_splats[i];
   let pos = s.pos.xyz;
@@ -658,7 +660,7 @@ fn cov3d_fg(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project_gather(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + gu.chunk_offset;
   if (i >= gu.splat_count) { return; }
 
   // Indirection: thread \`i\` writes the i-th sorted slot; we read the splat
@@ -1053,7 +1055,11 @@ struct CullUniforms {
   focal:       vec2<f32>,
   splat_count: u32,
   tau:         f32,
-  _pad:        vec2<u32>,
+  // chunk_offset: first splat index covered by this dispatch. Multi-dispatch
+  // wrappers update only this slot between chunks (see multi-dispatch.ts).
+  // Single-dispatch callers leave it 0.
+  chunk_offset: u32,
+  _pad:         u32,
 };
 
 // =============================================================================
@@ -1101,7 +1107,7 @@ fn cov3d_cull(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_cull(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + cu_u.chunk_offset;
   if (i >= cu_u.splat_count) { return; }
 
   let s = cu_splats[i];
@@ -1172,8 +1178,9 @@ fn cs_cull(@builtin(global_invocation_id) gid : vec3<u32>) {
 //   3 (uniform)     : { splat_count, _pad, _pad, _pad }
 // =============================================================================
 struct CompactUniforms {
-  splat_count: u32,
-  _pad: vec3<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad:         vec2<u32>,
 };
 @group(0) @binding(0) var<storage, read>       co_flag    : array<u32>;
 @group(0) @binding(1) var<storage, read>       co_prefix  : array<u32>;
@@ -1182,7 +1189,7 @@ struct CompactUniforms {
 
 @compute @workgroup_size(256)
 fn cs_compact(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + co_u.chunk_offset;
   if (i >= co_u.splat_count) { return; }
   if (co_flag[i] == 1u) {
     co_compact[co_prefix[i]] = i;
@@ -1205,9 +1212,9 @@ struct ProjectUniforms {
   view_proj: mat4x4<f32>,
   viewport: vec2<f32>,
   focal:    vec2<f32>,
-  splat_count: u32,
-  _pad: u32,
-  _pad2: vec2<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad2:        vec2<u32>,
 };
 @group(0) @binding(0) var<storage, read>       pc_splats   : array<DecodedSplat>;
 @group(0) @binding(1) var<storage, read_write> pc_inst     : array<Instance>;
@@ -1248,7 +1255,7 @@ fn cov3d_pc(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_project_cmpct(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + pc_u.chunk_offset;
   if (i >= pc_u.splat_count) { return; }   // splat_count here = survivors
 
   let si = pc_compact[i];
@@ -1411,7 +1418,8 @@ struct WSRUniforms {
   viewport:    vec2<f32>,
   focal:       vec2<f32>,
   splat_count: u32,
-  _pad0:       u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
   // Per-frame WSR parameters. PR1 uses a single scene-wide σ derived host-
   // side from \`2 × scene_mean_depth\`; PR3 replaces this with a learned σ
   // baked into the manifest. v_i is treated as 0 in PR1 (no per-splat
@@ -1478,7 +1486,7 @@ fn atomic_add_f32(slot: ptr<storage, atomic<u32>, read_write>, value: f32) {
 
 @compute @workgroup_size(256)
 fn cs_wsr_accumulate(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   let s = splats[i];
@@ -1695,7 +1703,8 @@ struct TileBinUniforms {
   tiles_x:     u32,          // ceil(W / tile_size)
   tiles_y:     u32,          // ceil(H / tile_size)
   max_per_tile: u32,         // hard cap on per-tile list length
-  _pad0:        u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
   sigma:        f32,
   v_default:    f32,
 };
@@ -1738,7 +1747,7 @@ fn cov3d_w(scale: vec3<f32>, q: vec4<f32>) -> array<f32, 6> {
 
 @compute @workgroup_size(256)
 fn cs_tile_bin(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + u.chunk_offset;
   if (i >= u.splat_count) { return; }
 
   let s = splats[i];
@@ -2337,7 +2346,8 @@ struct LodBlendUniforms {
   // When \`force_passthrough == 1\`, this kernel becomes a no-op (used by
   // the test harness to bypass the blend without re-creating buffers).
   force_passthrough: u32,
-  _pad: u32,
+  // chunk_offset (multi-dispatch). Splat-index base for the current dispatch.
+  chunk_offset: u32,
 };
 
 @group(0) @binding(0) var<storage, read_write> lb_splats     : array<DecodedSplat>;
@@ -2347,7 +2357,7 @@ struct LodBlendUniforms {
 
 @compute @workgroup_size(256)
 fn cs_lod_blend(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + lb_u.chunk_offset;
   if (i >= lb_u.splat_count) { return; }
   if (lb_u.force_passthrough == 1u) { return; }
 
@@ -2391,8 +2401,9 @@ fn cs_lod_blend(@builtin(global_invocation_id) gid: vec3<u32>) {
 //   2 (uniform)    : { splat_count, _pad×3 }
 // =============================================================================
 struct ResetUniforms {
-  splat_count: u32,
-  _pad: vec3<u32>,
+  splat_count:  u32,
+  chunk_offset: u32,
+  _pad:         vec2<u32>,
 };
 
 @group(0) @binding(0) var<storage, read_write> lr_splats : array<DecodedSplat>;
@@ -2401,7 +2412,7 @@ struct ResetUniforms {
 
 @compute @workgroup_size(256)
 fn cs_lod_alpha_reset(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let i = gid.x;
+  let i = gid.x + lr_u.chunk_offset;
   if (i >= lr_u.splat_count) { return; }
   lr_splats[i].pos.w = lr_alpha[i];
 }
