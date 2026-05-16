@@ -1,0 +1,19 @@
+{
+  "url": "http://127.0.0.1:4321/scale/",
+  "l5": {
+    "state": "loading",
+    "detail": "chunk 6/33 · 144.4 MB · L5",
+    "splats": "582.2k",
+    "fps": "59.9",
+    "bytes": "144.4 MB",
+    "canvasW": 682,
+    "canvasH": 426
+  },
+  "l4": {
+    "state": "loading",
+    "detail": "chunk 5/74 · 122.7 MB · L4",
+    "splats": "494.9k",
+    "fps": "60.0",
+    "bytes": "122.7 MB"
+  }
+}

@@ -17,6 +17,10 @@ import { bboxCenter, orbitFrames, orbitPose } from './camera.js';
 import { StatsOverlay } from './stats.js';
 import { isWebGPUAvailable, WebGPURenderer } from './renderer/webgpu.js';
 import { WebGL2Renderer } from './renderer/webgl2.js';
+import { fetchProgressive } from './progressive/fetcher.js';
+import { ProgressiveUploader } from './progressive/uploader.js';
+import { StreamingTileset, } from './streaming/index.js';
+import { manifestFromGlb } from './streaming/glb.js';
 /**
  * Main viewer class. Construct, subscribe, then call {@link load}.
  */
@@ -47,6 +51,7 @@ export class SplatForgeViewer {
             autoRotateSpeed: options.autoRotateSpeed ?? 10,
             autoRotateFraming: options.autoRotateFraming ?? 1.0,
             cameraBbox: options.cameraBbox,
+            useComputeDecode: options.useComputeDecode ?? false,
         };
     }
     /**
@@ -112,17 +117,329 @@ export class SplatForgeViewer {
             throw new Error(code);
         }
     }
+    /**
+     * Stream a `.mgs2` progressive bitstream from `url` and render it
+     * coarse-to-fine while bytes arrive.
+     *
+     * Each progressive batch becomes a synthetic SoA chunk (see
+     * `progressive/uploader.ts`) and is fed to the renderer's `uploadChunk`.
+     * The first batch lands well before the byte budget is exhausted, so a
+     * watchable preview appears at ~5 % of the bitstream and refines
+     * monotonically as additional bytes arrive.
+     *
+     * Camera path semantics differ from {@link load}: `loadProgressive`
+     * renders a single frame after every batch arrives (so observers see the
+     * scene grow), then optionally drives the configured `cameraPath` once
+     * the full bitstream has been received.
+     *
+     * @param url URL of the `.mgs2` bitstream.
+     * @param opts Optional batch-size override + AbortSignal forwarding to
+     *   {@link fetchProgressive}.
+     */
+    async loadProgressive(url, opts = {}) {
+        this.emitter.emit('loadStart', { type: 'loadStart' });
+        try {
+            const renderer = await this.pickRenderer();
+            this.renderer = renderer;
+            await renderer.init({ canvas: this.opts.canvas });
+            if (this.opts.stats) {
+                const parent = this.opts.canvas.parentElement;
+                if (parent) {
+                    if (getComputedStyle(parent).position === 'static') {
+                        parent.style.position = 'relative';
+                    }
+                    this.stats = new StatsOverlay({ anchor: parent });
+                }
+            }
+            let uploader;
+            let totalBatches = 0;
+            let manifest;
+            const aspect = this.opts.canvas.width > 0
+                ? this.opts.canvas.width / Math.max(this.opts.canvas.height, 1)
+                : 16 / 9;
+            for await (const ev of fetchProgressive(url, opts)) {
+                if (ev.kind === 'header') {
+                    // Synthesize a manifest-like record now — the bbox is unknown
+                    // until the first batch lands; default to a unit cube and update
+                    // as batches arrive.
+                    manifest = {
+                        splatCount: ev.nSplats,
+                        bbox: { min: [-1, -1, -1], max: [1, 1, 1] },
+                        chunks: [],
+                        shDegree: 0,
+                    };
+                    this.cachedManifest = manifest;
+                    this.emitter.emit('manifestLoaded', {
+                        type: 'manifestLoaded',
+                        chunkCount: 0, // unknown — batches are emitted as they arrive
+                    });
+                    uploader = new ProgressiveUploader({
+                        renderer,
+                        fieldOffsets: ev.fieldOffsets,
+                        onBatchUploaded: (batchIndex, totalSplats) => {
+                            this.emitter.emit('chunkLoaded', {
+                                type: 'chunkLoaded',
+                                chunkIndex: batchIndex,
+                                byteLength: totalSplats, // proxy: cumulative splat count
+                            });
+                        },
+                    });
+                }
+                else if (ev.kind === 'chunk') {
+                    if (!uploader)
+                        throw new Error('progressive_protocol: chunk before header');
+                    uploader.addBatch(ev.bytes, ev.splatsAdded);
+                    totalBatches += 1;
+                    // Update the cached manifest's bbox to the cumulative union so
+                    // any consumer using `cachedManifest.bbox` for framing sees the
+                    // scene grow in screen-space rather than zooming on the origin.
+                    if (manifest) {
+                        manifest.bbox = uploader.currentBbox;
+                    }
+                    // Render a frame after every batch so the canvas reflects the
+                    // growing scene.
+                    const camera = orbitPose(this.cameraBboxFor(manifest), 0, aspect);
+                    await renderer.renderFrame(camera);
+                    if (!this.firstRenderFired) {
+                        this.firstRenderFired = true;
+                        this.emitter.emit('firstRender', { type: 'firstRender' });
+                    }
+                }
+                // 'done' event needs no action.
+            }
+            if (!uploader)
+                throw new Error('progressive_protocol: stream ended before header');
+            // Run the configured camera path once the full bitstream is in.
+            if (manifest)
+                await this.runCameraPath(manifest);
+            this.emitter.emit('complete', { type: 'complete' });
+            void totalBatches;
+            if (this.opts.autoRotate && !this.opts.deterministic) {
+                this.startAutoRotate();
+            }
+        }
+        catch (err) {
+            const { code, message } = normalizeError(err);
+            this.emitter.emit('error', { type: 'error', code, message });
+            throw new Error(code);
+        }
+    }
     /** Release GPU resources and drop all listeners. Idempotent. */
     dispose() {
         if (this.disposed)
             return;
         this.disposed = true;
         this.stopAutoRotate();
+        this.streaming?.dispose();
+        this.streaming = undefined;
         this.renderer?.destroy();
         this.renderer = undefined;
         this.stats?.destroy();
         this.stats = undefined;
         this.emitter.removeAll();
+    }
+    /* --------------------------------------------------------------- */
+    /* Streaming tileset (queue #51)                                   */
+    /* --------------------------------------------------------------- */
+    streaming;
+    /** Tile id → list of (descriptor, bytes) ready to upload. Cached so we
+     *  don't re-parse the GLB every frame. */
+    tileChunks = new Map();
+    /** Set of tile ids currently uploaded to the renderer. */
+    uploadedTiles = new Set();
+    /**
+     * Load a Cesium 3D Tiles 1.1 tileset and render it through the streaming
+     * adapter. Each frame the adapter:
+     *
+     *   1. Selects visible tiles at the appropriate LOD (Cesium SSE).
+     *   2. Requests missing tiles via the LRU-bounded streamer.
+     *   3. Uploads any newly-arrived tiles into the renderer.
+     *   4. Renders the resident set with the existing WebGPU pipeline.
+     *
+     * Returns once the `cameraPath` has finished. Subsequent frames (e.g.
+     * `autoRotate`) continue to drive the streamer on every `renderFrame`.
+     *
+     * WebGPU-only. On WebGL2 the viewer falls back to rendering the tileset's
+     * root tile at a single LOD — the streaming-path determinism budget
+     * doesn't admit the per-frame upload churn on WebGL2.
+     */
+    async loadTileset(url, opts = {}) {
+        this.emitter.emit('loadStart', { type: 'loadStart' });
+        try {
+            const renderer = await this.pickRenderer();
+            this.renderer = renderer;
+            await renderer.init({ canvas: this.opts.canvas });
+            if (this.opts.stats) {
+                const parent = this.opts.canvas.parentElement;
+                if (parent) {
+                    if (getComputedStyle(parent).position === 'static') {
+                        parent.style.position = 'relative';
+                    }
+                    this.stats = new StatsOverlay({ anchor: parent });
+                }
+            }
+            const streaming = await StreamingTileset.create(url, opts);
+            this.streaming = streaming;
+            // Use the root tile's AABB as a synthetic manifest bbox for camera math.
+            const rootAabb = streaming.tileset.root.aabb;
+            const manifestLike = {
+                splatCount: 0,
+                bbox: { min: rootAabb.min, max: rootAabb.max },
+                chunks: [],
+                shDegree: 0,
+            };
+            this.cachedManifest = manifestLike;
+            this.emitter.emit('manifestLoaded', {
+                type: 'manifestLoaded',
+                chunkCount: streaming.tileset.tiles.length,
+            });
+            // First, wait for the root tile to land so we always have something
+            // resident, then drive the deterministic camera path.
+            await streaming.drainPending();
+            // WebGL2 fallback: only render the root tile.
+            if (renderer.kind !== 'webgpu') {
+                const root = streaming.tileset.root;
+                const payload = streaming.streamer.get(root);
+                if (payload) {
+                    this.uploadTileToRenderer(renderer, root, payload.json, payload.bin);
+                }
+            }
+            await this.runStreamingCameraPath(streaming, manifestLike);
+            this.emitter.emit('complete', { type: 'complete' });
+        }
+        catch (err) {
+            const { code, message } = normalizeError(err);
+            this.emitter.emit('error', { type: 'error', code, message });
+            throw new Error(code);
+        }
+    }
+    /**
+     * Streaming variant of {@link runCameraPath}. Per frame:
+     *   1. Ask the StreamingTileset which tiles to render + fetch.
+     *   2. Drain pending fetches (deterministic mode only).
+     *   3. Make sure every render-tile is uploaded to the renderer.
+     *   4. Render.
+     */
+    async runStreamingCameraPath(streaming, manifest) {
+        const renderer = this.renderer;
+        if (!renderer)
+            return;
+        const path = this.opts.cameraPath;
+        if (path === 'static')
+            return;
+        const canvas = this.opts.canvas;
+        const aspect = canvas.width > 0 ? canvas.width / Math.max(canvas.height, 1) : 16 / 9;
+        const camBbox = this.cameraBboxFor(manifest);
+        let yaws;
+        if (typeof path === 'object' && path && path.type === 'custom') {
+            const center = [
+                (camBbox.min[0] + camBbox.max[0]) * 0.5,
+                (camBbox.min[1] + camBbox.max[1]) * 0.5,
+                (camBbox.min[2] + camBbox.max[2]) * 0.5,
+            ];
+            yaws = path.positions.map((p) => Math.atan2(p[0] - center[0], p[2] - center[2]));
+        }
+        else {
+            const count = path === 'orbit-8' ? 8 : 8;
+            yaws = orbitFrames(count);
+        }
+        for (let i = 0; i < yaws.length; i++) {
+            const pose = orbitPose(camBbox, yaws[i], aspect);
+            const report = streaming.frame(pose, canvas.width, canvas.height);
+            // Deterministic mode: wait for the fetches we just queued so this
+            // frame's render-set matches across runs.
+            if (this.opts.deterministic) {
+                await streaming.drainPending();
+            }
+            // Re-run selection with the now-resident set so we use any newly-
+            // arrived tiles (otherwise the first frame is always low-LOD).
+            const report2 = streaming.frame(pose, canvas.width, canvas.height);
+            this.ensureTilesUploaded(renderer, streaming, report2.render);
+            await renderer.renderFrame(pose);
+            this.emitter.emit('frameRendered', {
+                type: 'frameRendered',
+                index: i,
+                total: yaws.length,
+            });
+            // Unused-variable pacifier — the first report is reserved for tests
+            // that want to inspect the as-yet-unfilled render set.
+            void report;
+            // Yield so the host can sample the canvas backing store.
+            await new Promise((resolve) => {
+                const raf = globalThis
+                    .requestAnimationFrame;
+                if (typeof raf === 'function')
+                    raf(() => resolve());
+                else
+                    resolve();
+            });
+        }
+    }
+    /**
+     * Make sure every tile in `render` has had its chunks uploaded to the
+     * renderer. We never re-upload a tile — the underlying renderer is
+     * append-only, and the LRU is at the *streamer* level (not the GPU). For
+     * the v0.1 streaming-adapter the streamer's bytes cache absorbs the
+     * eviction load; the GPU keeps decoded splats for tiles that were
+     * uploaded earlier. This is a deliberate trade: simpler GPU state at the
+     * cost of per-tile capacity headroom.
+     *
+     * The first tile encountered triggers an instance of the renderer's
+     * compute-decode pipeline (when `useComputeDecode` is on), so we honor
+     * the caller's `useComputeDecode` setting transparently.
+     */
+    ensureTilesUploaded(renderer, streaming, render) {
+        for (const tile of render) {
+            if (this.uploadedTiles.has(tile.id))
+                continue;
+            const payload = streaming.streamer.get(tile);
+            if (!payload)
+                continue;
+            this.uploadTileToRenderer(renderer, tile, payload.json, payload.bin);
+            this.uploadedTiles.add(tile.id);
+        }
+    }
+    /**
+     * Parse a single tile's GLB and feed each of its chunks into the
+     * renderer's `uploadChunk` path. The renderer treats each chunk like any
+     * other streaming chunk — the compute-decode pipeline appends to its
+     * canonical splat buffer, the rasterizer picks the result up on the next
+     * draw.
+     */
+    uploadTileToRenderer(renderer, tile, json, bin) {
+        // GLBs from the Cesium tileset emitter carry an inline BIN chunk —
+        // their JSON declares `buffers[0].uri = null`. The viewer's generic
+        // `parseManifest` rejects that path (it expects an external buffer
+        // URI). The streaming layer instead uses `manifestFromGlb` to
+        // synthesize a single chunk that points at the GLB's BIN slice.
+        const { manifest, bin: binSlice } = manifestFromGlb({ json, bin });
+        const tileChunks = [];
+        for (const chunk of manifest.chunks) {
+            // For a one-chunk GLB the slice is the entire BIN payload.
+            const slice = binSlice.subarray(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+            renderer.uploadChunk(chunk, slice);
+            tileChunks.push({ descriptor: chunk, bytes: slice });
+        }
+        this.tileChunks.set(tile.id, tileChunks);
+    }
+    /** Diagnostic accessor for tests + bench. */
+    get streamingTileset() {
+        return this.streaming;
+    }
+    /** Single-frame render helper for the bench harness — drives the streaming
+     *  loop once at `camera` and returns the report. */
+    async streamingRenderFrame(camera) {
+        if (!this.streaming || !this.renderer)
+            return undefined;
+        const canvas = this.opts.canvas;
+        this.streaming.frame(camera, canvas.width, canvas.height);
+        if (this.opts.deterministic) {
+            await this.streaming.drainPending();
+        }
+        const report = this.streaming.frame(camera, canvas.width, canvas.height);
+        this.ensureTilesUploaded(this.renderer, this.streaming, report.render);
+        await this.renderer.renderFrame(camera);
+        return report;
     }
     /**
      * Drive a continuous yaw orbit via `requestAnimationFrame`. Idempotent —
@@ -186,14 +503,15 @@ export class SplatForgeViewer {
             if (!(await isWebGPUAvailable())) {
                 throw new Error('renderer_unavailable: WebGPU requested but missing');
             }
-            return new WebGPURenderer();
+            return new WebGPURenderer({ useComputeDecode: this.opts.useComputeDecode });
         }
         if (kind === 'webgl2') {
             return new WebGL2Renderer();
         }
         // auto
-        if (await isWebGPUAvailable())
-            return new WebGPURenderer();
+        if (await isWebGPUAvailable()) {
+            return new WebGPURenderer({ useComputeDecode: this.opts.useComputeDecode });
+        }
         return new WebGL2Renderer();
     }
     async fetchManifest() {

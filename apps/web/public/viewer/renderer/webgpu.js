@@ -1,5 +1,6 @@
 import { decodeChunkBytes, sortBackToFront, } from './base.js';
 import { buildViewProj, computeCovariance3D, projectCovariance2D, projectPoint, } from './math.js';
+import { ComputeDecodePipeline } from '../webgpu/index.js';
 /** WGSL source kept inline so we ship as a single ESM bundle. */
 const WGSL = /* wgsl */ `
 struct Instance {
@@ -99,11 +100,18 @@ export class WebGPURenderer {
     bindGroup;
     instanceBuffer;
     instanceCapacity = 0;
+    /** Compute-decode pipeline (null when CPU path is in use). */
+    compute;
+    options;
+    rawChunks = [];
     /**
      * Number of `draw` calls the renderer has recorded. Exposed for tests so
      * they can assert a frame actually produced GPU work.
      */
     drawCallCount = 0;
+    constructor(options = {}) {
+        this.options = options;
+    }
     async init(opts) {
         const gpu = navigator.gpu;
         if (!gpu)
@@ -169,6 +177,19 @@ export class WebGPURenderer {
     uploadChunk(descriptor, bytes) {
         if (!this.device)
             throw new Error('renderer_init_failed: not initialized');
+        if (this.options.useComputeDecode && descriptor.attributeLayout) {
+            // Lazy-allocate the compute pipeline on first chunk. Estimate capacity
+            // from this chunk + a generous 8× growth headroom for streaming chunks.
+            if (!this.compute) {
+                const cap = this.options.computeCapacity ?? Math.max(descriptor.splatCount * 8, 1 << 20);
+                this.compute = new ComputeDecodePipeline({ device: this.device, capacity: cap });
+            }
+            this.compute.uploadChunk(descriptor, bytes);
+            // Keep the descriptor so we can compute the total splat count for draws.
+            this.rawChunks.push({ descriptor, bytes });
+            return;
+        }
+        // CPU path (default).
         const splats = decodeChunkBytes(bytes, descriptor);
         this.chunks.push({ descriptor, splats });
     }
@@ -185,6 +206,38 @@ export class WebGPURenderer {
         const { view, viewProj } = buildViewProj(camera, aspect);
         const focalY = height / (2 * Math.tan(camera.fovY * 0.5));
         const focalX = focalY; // square pixels — aspect handled by projection
+        // Compute-decode path: skip the entire CPU decode/sort/upload block.
+        if (this.compute && this.options.useComputeDecode) {
+            const count = this.compute.splatCount;
+            // Uniform: viewport size.
+            const u = new Float32Array(4);
+            u[0] = width;
+            u[1] = height;
+            this.device.queue.writeBuffer(this.uniformBuffer, 0, u.buffer, u.byteOffset, u.byteLength);
+            const encoder = this.device.createCommandEncoder();
+            this.compute.encode(encoder, view, viewProj, [focalX, focalY], [width, height]);
+            const texture = this.context.getCurrentTexture();
+            const pass = encoder.beginRenderPass({
+                colorAttachments: [
+                    {
+                        view: texture.createView(),
+                        clearValue: { r: this.clear[0], g: this.clear[1], b: this.clear[2], a: this.clear[3] },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    },
+                ],
+            });
+            pass.setPipeline(this.pipeline);
+            pass.setBindGroup(0, this.bindGroup);
+            if (count > 0) {
+                pass.setVertexBuffer(0, this.compute.instanceBuffer);
+                pass.draw(VERTICES_PER_QUAD, count, 0, 0);
+                this.drawCallCount++;
+            }
+            pass.end();
+            this.device.queue.submit([encoder.finish()]);
+            return;
+        }
         const all = this.flattenSplats();
         const count = all.length;
         const indices = new Uint32Array(count);
@@ -280,6 +333,9 @@ export class WebGPURenderer {
     }
     destroy() {
         this.chunks = [];
+        this.rawChunks = [];
+        this.compute?.destroy();
+        this.compute = undefined;
         this.instanceBuffer?.destroy();
         this.instanceBuffer = undefined;
         this.instanceCapacity = 0;

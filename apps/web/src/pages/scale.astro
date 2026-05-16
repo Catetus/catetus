@@ -1,0 +1,888 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+//
+// /scale — Sweet Corals 119M LODGE live demo (Bet 2 M2 tentpole).
+//
+// What this page actually proves:
+//   * In-browser Gaussian-splat rendering against a 3.2M-splat L5 stream
+//     of the 119,824,300-splat Sweet Corals scene, fetched as 33 PLY
+//     chunks from Vercel Blob.
+//   * The LODGE Phase A.3 streaming runtime (see
+//     packages/viewer/src/lodge/) wired to a ComputeDecodePipeline +
+//     custom render shim — no bundler, ESM-only, served from
+//     /viewer/lodge/index.js.
+//
+// What it does NOT claim:
+//   * "119M live in your browser." L0..L2 don't fit in the browser yet
+//     (wgpu maxBufferSize cap + dispatch limit). L5 (3.2M) is the live
+//     demo today; L4/L3 are best-effort and may fail on integrated
+//     graphics or memory-constrained Macs.
+//
+// Bench truth (RTX 4090 Laptop, 16 GB VRAM, May 2026):
+//   L5 = 14.97 fps  ·  L4 = 5.92 fps  ·  L3 = 1.30 fps
+//   L0..L2 require operator-driven 4090 bench (in-flight wgpu-multidispatch
+//   unlock + maxBufferSize workaround).
+//
+// See benches `packages/viewer/bench/results-4090-lodge.json` for the
+// raw numbers and `docs/perf/lodge-lod-spec.md` for the runtime spec.
+
+import Base from "../layouts/Base.astro";
+
+const title = "Scale — 119M-splat Sweet Corals · SplatForge";
+const description =
+  "Live in-browser stream of a 3.2M-splat LOD level (L5) of the 119,800,000-splat Sweet Corals scene. LODGE runtime, chunked HTTP, WebGPU compute-decode.";
+
+// L4 + L5 manifest URL — published 2026-05-15 from the 4090 LODGE
+// chunker output via apps/web/scripts/publish-sweet-corals-l5.py.
+// Stable per-blob (Vercel Blob inserts a random suffix per object).
+// To add L3/L2/L1/L0:
+//   1. Run the publish script on the 4090 with `--level 3` etc.
+//   2. Replace this URL with the returned `manifest_url`.
+const lodgeManifestUrl =
+  "https://xmcqr5nqjygbqjqw.public.blob.vercel-storage.com/samples/sweet-corals.lodge/manifest-l4-l5-QevCTqvCPEvNGoZKyeEUn9iYFWgEoX.json";
+
+const githubUrl = "https://github.com/montabano1/SplatForge";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      splatforge
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/explore">Explore</a>
+      <a href="/scale" aria-current="page">Scale</a>
+      <a href="/compare">Compare</a>
+      <a href="/#try">Try it</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="scale-hero">
+    <div class="scale-hero-eyebrow">LODGE · Phase A.3 · live</div>
+    <h1 class="scale-hero-headline">
+      <span class="num tabular">119,800,000</span> splats. Streamed.
+    </h1>
+    <p class="scale-hero-sub">
+      One scene — Sweet Corals (CC-BY-4.0, wildflow). Six LOD levels chunked offline.
+      Streamed into your browser one PLY at a time. WebGPU compute-decode +
+      LODGE eq.4 boundary-blend per frame.
+    </p>
+    <div class="scale-hero-attrib">
+      <span>Corpus:</span>
+      <a href="https://wildflow.ai" target="_blank" rel="noreferrer noopener">wildflow.ai</a>
+      <span aria-hidden="true">·</span>
+      <span>46-tile Sweet Corals merge</span>
+      <span aria-hidden="true">·</span>
+      <span>119,824,300 splats</span>
+      <span aria-hidden="true">·</span>
+      <span>CC-BY-4.0</span>
+    </div>
+  </header>
+
+  <section class="scale-stage" aria-label="Live splat viewer">
+    <div class="scale-canvas-wrap" data-canvas-wrap>
+      <canvas id="scale-canvas" data-canvas></canvas>
+      <div class="scale-status" data-status>
+        <div class="scale-status-state" data-status-state>booting</div>
+        <div class="scale-status-detail" data-status-detail>checking WebGPU support</div>
+        <div class="scale-status-progress">
+          <div class="scale-status-bar" data-status-bar></div>
+        </div>
+      </div>
+    </div>
+    <aside class="scale-side">
+      <div class="scale-card">
+        <h2 class="scale-card-title">LOD level</h2>
+        <div class="scale-lod-picker" data-lod-picker role="radiogroup" aria-label="LOD level">
+          <!-- Disabled levels: L0..L2 OOM in-browser today (wgpu maxBufferSize). -->
+          <button type="button" class="scale-lod-btn" data-lod="0" disabled aria-disabled="true">
+            <span class="scale-lod-name">L0</span>
+            <span class="scale-lod-splats">119.8M</span>
+            <span class="scale-lod-tip">4090-only · in flight</span>
+          </button>
+          <button type="button" class="scale-lod-btn" data-lod="1" disabled aria-disabled="true">
+            <span class="scale-lod-name">L1</span>
+            <span class="scale-lod-splats">54.2M</span>
+            <span class="scale-lod-tip">4090-only · in flight</span>
+          </button>
+          <button type="button" class="scale-lod-btn" data-lod="2" disabled aria-disabled="true">
+            <span class="scale-lod-name">L2</span>
+            <span class="scale-lod-splats">28.0M</span>
+            <span class="scale-lod-tip">4090-only · in flight</span>
+          </button>
+          <button type="button" class="scale-lod-btn" data-lod="3">
+            <span class="scale-lod-name">L3</span>
+            <span class="scale-lod-splats">13.3M</span>
+            <span class="scale-lod-tip">heavy on M-series Mac</span>
+          </button>
+          <button type="button" class="scale-lod-btn" data-lod="4">
+            <span class="scale-lod-name">L4</span>
+            <span class="scale-lod-splats">7.3M</span>
+            <span class="scale-lod-tip">smooth on most laptops</span>
+          </button>
+          <button type="button" class="scale-lod-btn is-active" data-lod="5" aria-checked="true">
+            <span class="scale-lod-name">L5</span>
+            <span class="scale-lod-splats">3.2M</span>
+            <span class="scale-lod-tip">live demo today</span>
+          </button>
+        </div>
+        <p class="scale-card-foot">
+          L5 ships first because it's reproducible on every WebGPU-capable
+          browser. L4/L3 are the same runtime, larger payloads.
+        </p>
+      </div>
+
+      <div class="scale-card">
+        <h2 class="scale-card-title">Live stats</h2>
+        <dl class="scale-stats">
+          <div class="scale-stat">
+            <dt>Splat count (active)</dt>
+            <dd class="num tabular" data-stat-splats>—</dd>
+          </div>
+          <div class="scale-stat">
+            <dt>Frames per second</dt>
+            <dd class="num tabular" data-stat-fps>—</dd>
+          </div>
+          <div class="scale-stat">
+            <dt>Bytes streamed</dt>
+            <dd class="num tabular" data-stat-bytes>—</dd>
+          </div>
+          <div class="scale-stat">
+            <dt>Scene total splats</dt>
+            <dd class="num tabular">119,824,300</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="scale-card scale-card-bench">
+        <h2 class="scale-card-title">4090 bench truth</h2>
+        <p class="scale-bench-blurb">
+          Median fps from
+          <a href="https://github.com/montabano1/SplatForge/blob/main/packages/viewer/bench/results-4090-lodge.json"
+             target="_blank" rel="noreferrer noopener">
+            results-4090-lodge.json
+          </a>
+          on consumer hardware (RTX 4090 Laptop, 16 GB VRAM):
+        </p>
+        <ul class="scale-bench-list">
+          <li><span>L5 · 3.2M</span> <span class="num tabular">14.97 fps</span></li>
+          <li><span>L4 · 7.3M</span> <span class="num tabular">5.92 fps</span></li>
+          <li><span>L3 · 13.3M</span> <span class="num tabular">1.30 fps</span></li>
+          <li class="is-pending">
+            <span>L0–L2</span>
+            <span class="num tabular">operator-driven 4090 bench</span>
+          </li>
+        </ul>
+      </div>
+    </aside>
+  </section>
+
+  <section class="scale-method">
+    <h2 id="method" class="section-title">Methodology</h2>
+    <div class="scale-method-grid">
+      <div>
+        <h3>Offline chunker</h3>
+        <p>
+          The Sweet Corals 46-tile PLY (29.7 GB on disk) is built into a
+          6-level LOD pyramid via <code>splatforge lodge build</code> —
+          the Phase A.1 chunker. Each level is sliced by Morton code into
+          24 MB PLY chunks (~100k splats each for L5).
+        </p>
+      </div>
+      <div>
+        <h3>Streaming</h3>
+        <p>
+          The browser fetches <code>manifest.json</code> first, then
+          requests chunks on demand via the LRU-bounded
+          <code>LodgeChunkLoader</code>. PLY → SoA decode happens on the
+          CPU; the 64-byte-per-splat record is uploaded to a WebGPU
+          storage buffer with 256-byte-aligned offsets.
+        </p>
+      </div>
+      <div>
+        <h3>LOD selection</h3>
+        <p>
+          Phase A.3 ships per-frame WGSL <code>cs_lod_select</code> +
+          <code>cs_lod_blend</code> kernels that pick chunks by camera
+          distance + screen-space size, then modulate per-splat opacity
+          across the LODGE eq.4 near/far boundary band.
+        </p>
+      </div>
+      <div>
+        <h3>Reproduce</h3>
+        <p>
+          Bench harness:
+          <code>packages/viewer/bench/real-scene-lodge.bench.ts</code>.
+          Run on the 4090 via the <code>sf_bench_real</code> schtask — it
+          discovers <code>.lodge/</code> directories under
+          <code>SF_BENCH_PLY_DIR</code> and writes
+          <code>results-4090-lodge.json</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="scale-footer">
+    <span>
+      Sweet Corals scan: <a href="https://wildflow.ai" target="_blank" rel="noreferrer noopener">wildflow.ai</a>
+      · CC-BY-4.0
+    </span>
+    <span>
+      LODGE runtime: <a href={`${githubUrl}/tree/main/packages/viewer/src/lodge`}>packages/viewer/src/lodge</a>
+      · spec: <a href={`${githubUrl}/blob/main/docs/perf/lodge-lod-spec.md`}>docs/perf/lodge-lod-spec.md</a>
+    </span>
+    <span>Apache-2.0</span>
+  </footer>
+</Base>
+
+<style is:global>
+  /* Section is global so the cascade reaches data-attributed children
+     even when the page is wrapped in a layout that scopes its own CSS. */
+  .scale-hero {
+    max-width: 1180px;
+    margin: 32px auto 16px;
+    padding: 0 24px;
+  }
+  .scale-hero-eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 11px;
+    color: #4ad;
+    font-weight: 600;
+  }
+  .scale-hero-headline {
+    margin: 4px 0 12px;
+    font-size: clamp(36px, 6vw, 64px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+  .scale-hero-headline .num {
+    color: #fff;
+    background: linear-gradient(180deg, #fff 30%, #aae 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .scale-hero-sub {
+    max-width: 780px;
+    color: #cdd;
+    font-size: 16px;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .scale-hero-attrib {
+    margin-top: 14px;
+    font-size: 13px;
+    color: #889;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .scale-hero-attrib a { color: #6cf; text-decoration: none; border-bottom: 1px dotted #468; }
+
+  .scale-stage {
+    max-width: 1180px;
+    margin: 0 auto 56px;
+    padding: 0 24px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 20px;
+  }
+  @media (max-width: 980px) {
+    .scale-stage { grid-template-columns: 1fr; }
+  }
+  .scale-canvas-wrap {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #223;
+  }
+  #scale-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .scale-status {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 14px 18px 18px;
+    background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%);
+    color: #cef;
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    pointer-events: none;
+  }
+  .scale-status[data-state="ready"] { opacity: 0; transition: opacity 800ms 1200ms; }
+  .scale-status[data-state="error"] { background: rgba(150, 30, 30, 0.92); color: #fee; }
+  .scale-status-state {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    font-size: 11px;
+    color: #7ce;
+  }
+  .scale-status[data-state="error"] .scale-status-state { color: #fee; }
+  .scale-status-detail { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+  .scale-status-progress {
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+  .scale-status-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #4ad, #6cf);
+    transition: width 200ms linear;
+  }
+
+  .scale-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .scale-card {
+    background: #0d1018;
+    border: 1px solid #1d2538;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .scale-card-title {
+    margin: 0 0 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #7af;
+    font-weight: 700;
+  }
+  .scale-lod-picker {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .scale-lod-btn {
+    appearance: none;
+    background: #131726;
+    color: #ccd;
+    border: 1px solid #232a3d;
+    border-radius: 6px;
+    padding: 8px 6px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    transition: border-color 120ms, background 120ms;
+  }
+  .scale-lod-btn:hover:not([disabled]) { border-color: #4ad; background: #161c2e; }
+  .scale-lod-btn.is-active { border-color: #4ad; background: #1a223a; box-shadow: 0 0 0 1px #4ad inset; }
+  .scale-lod-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+  .scale-lod-name { font-weight: 700; font-size: 14px; color: #fff; }
+  .scale-lod-splats { font-size: 11px; color: #aac; font-variant-numeric: tabular-nums; }
+  .scale-lod-tip { font-size: 10px; color: #788; line-height: 1.2; }
+  .scale-card-foot { margin: 10px 0 0; font-size: 11px; color: #889; line-height: 1.45; }
+
+  .scale-stats { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  .scale-stat { display: flex; justify-content: space-between; align-items: baseline; }
+  .scale-stat dt { font-size: 12px; color: #99a; }
+  .scale-stat dd { margin: 0; font-size: 14px; font-weight: 600; color: #fff; }
+
+  .scale-card-bench { background: #0a1219; border-color: #1c2c38; }
+  .scale-bench-blurb { margin: 0 0 8px; font-size: 12px; color: #aac; line-height: 1.5; }
+  .scale-bench-blurb a { color: #6cf; }
+  .scale-bench-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+  .scale-bench-list li {
+    display: flex; justify-content: space-between; gap: 8px;
+    font-size: 12px; padding: 4px 6px; border-radius: 4px; background: #11171f;
+  }
+  .scale-bench-list li.is-pending { color: #889; font-style: italic; }
+  .scale-bench-list span:first-child { color: #cde; }
+
+  .scale-method {
+    max-width: 1180px;
+    margin: 16px auto 60px;
+    padding: 0 24px;
+  }
+  .scale-method .section-title {
+    font-size: 22px;
+    margin: 0 0 18px;
+    color: #cef;
+  }
+  .scale-method-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 18px;
+  }
+  .scale-method-grid h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #7af;
+  }
+  .scale-method-grid p { margin: 0; font-size: 13px; color: #abc; line-height: 1.55; }
+  .scale-method-grid code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    background: #131826;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #cef;
+  }
+
+  .scale-footer {
+    max-width: 1180px;
+    margin: 0 auto 30px;
+    padding: 18px 24px;
+    border-top: 1px solid #1c2235;
+    color: #889;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    font-size: 12px;
+  }
+  .scale-footer a { color: #6cf; }
+</style>
+
+<script type="module" define:vars={{ lodgeManifestUrl }}>
+  // SPDX-License-Identifier: Apache-2.0
+  //
+  // Self-contained LODGE viewer mount. Wires:
+  //   * @splatforge/viewer LodgeChunkLoader (chunk fetch + decode + LRU)
+  //   * @splatforge/viewer ComputeDecodePipeline (WGSL decode + sort + project)
+  //   * Inline render WGSL (one quad per splat, EWA fragment shader)
+  //
+  // We do NOT use SplatForgeViewer here because SplatForgeViewer expects a
+  // legacy gltf-style manifest, not a LODGE pyramid. The LODGE runtime is
+  // a different code path inside the same package.
+
+  const els = {
+    canvas: document.querySelector("[data-canvas]"),
+    status: document.querySelector("[data-status]"),
+    state: document.querySelector("[data-status-state]"),
+    detail: document.querySelector("[data-status-detail]"),
+    bar: document.querySelector("[data-status-bar]"),
+    splats: document.querySelector("[data-stat-splats]"),
+    fps: document.querySelector("[data-stat-fps]"),
+    bytes: document.querySelector("[data-stat-bytes]"),
+    lodPicker: document.querySelector("[data-lod-picker]"),
+  };
+
+  const state = {
+    pipeline: null,
+    loader: null,
+    manifest: null,
+    device: null,
+    canvasCtx: null,
+    renderPipeline: null,
+    bindGroup: null,
+    uniformBuffer: null,
+    raf: 0,
+    fps: 0,
+    bytesStreamed: 0,
+    activeSplats: 0,
+    yaw: 0,
+    targetLevel: 5,
+    loading: false,
+    loadGen: 0,
+  };
+
+  function fmt(n) {
+    if (!Number.isFinite(n)) return "—";
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + "G";
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return Math.round(n).toString();
+  }
+  function fmtBytes(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + " GB";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + " MB";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + " KB";
+    return n + " B";
+  }
+
+  function setStatus(s, detail, pct) {
+    if (els.state) els.state.textContent = s;
+    if (els.detail && detail !== undefined) els.detail.textContent = detail;
+    if (els.bar && pct !== undefined) els.bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    if (els.status) els.status.dataset.state = s === "ready" ? "ready" : s === "error" ? "error" : "loading";
+  }
+
+  function updateStats() {
+    if (els.splats) els.splats.textContent = fmt(state.activeSplats);
+    if (els.fps) els.fps.textContent = state.fps ? state.fps.toFixed(1) : "—";
+    if (els.bytes) els.bytes.textContent = fmtBytes(state.bytesStreamed);
+  }
+
+  // Render WGSL — same per-instance attrs as packages/viewer/src/renderer/webgpu.ts
+  // (clipPos, cov, color), but inlined so this page stays self-contained.
+  const RENDER_WGSL = /* wgsl */ `
+    struct Instance {
+      @location(0) clipPos : vec4<f32>,
+      @location(1) cov     : vec4<f32>,
+      @location(2) color   : vec4<f32>,
+    };
+    struct U {
+      viewportSize : vec2<f32>,
+      _pad         : vec2<f32>,
+    };
+    @group(0) @binding(0) var<uniform> u : U;
+    struct VsOut {
+      @builtin(position) clip : vec4<f32>,
+      @location(0) offset : vec2<f32>,
+      @location(1) cov    : vec3<f32>,
+      @location(2) color  : vec4<f32>,
+    };
+    @vertex
+    fn vs_main(@builtin(vertex_index) vid : u32, inst : Instance) -> VsOut {
+      let corners = array<vec2<f32>, 4>(
+        vec2<f32>(-1.0, -1.0), vec2<f32>( 1.0, -1.0),
+        vec2<f32>(-1.0,  1.0), vec2<f32>( 1.0,  1.0),
+      );
+      let c = corners[vid];
+      let radiusPx = max(inst.cov.w, 1.0);
+      let ndcOffset = c * radiusPx * 2.0 / u.viewportSize;
+      var out : VsOut;
+      out.clip = vec4<f32>(
+        inst.clipPos.x + ndcOffset.x,
+        inst.clipPos.y + ndcOffset.y,
+        clamp(inst.clipPos.z, 0.0, 1.0),
+        1.0,
+      );
+      out.offset = c * radiusPx;
+      out.cov = inst.cov.xyz;
+      out.color = inst.color;
+      return out;
+    }
+    @fragment
+    fn fs_main(in : VsOut) -> @location(0) vec4<f32> {
+      let c00 = in.cov.x;
+      let c01 = in.cov.y;
+      let c11 = in.cov.z;
+      let det = max(c00 * c11 - c01 * c01, 1e-6);
+      let inv00 =  c11 / det;
+      let inv01 = -c01 / det;
+      let inv11 =  c00 / det;
+      let d = in.offset;
+      let power = -0.5 * (d.x * d.x * inv00 + 2.0 * d.x * d.y * inv01 + d.y * d.y * inv11);
+      if (power > 0.0) { discard; }
+      let alpha = clamp(in.color.a * exp(power), 0.0, 0.999);
+      if (alpha < 1.0 / 255.0) { discard; }
+      return vec4<f32>(in.color.rgb * alpha, alpha);
+    }
+  `;
+
+  function bboxCenter(b) { return [(b[0][0] + b[1][0]) * 0.5, (b[0][1] + b[1][1]) * 0.5, (b[0][2] + b[1][2]) * 0.5]; }
+  function bboxRadius(b) {
+    const dx = b[1][0] - b[0][0], dy = b[1][1] - b[0][1], dz = b[1][2] - b[0][2];
+    return 0.5 * Math.hypot(dx, dy, dz);
+  }
+  function orbitPose(bbox, yaw, aspect) {
+    const c = bboxCenter(bbox);
+    const r = Math.max(bboxRadius(bbox), 0.001) * 2.5;
+    const elev = (20 * Math.PI) / 180;
+    const cy = Math.cos(elev), sy = Math.sin(elev);
+    return {
+      position: [c[0] + r * cy * Math.sin(yaw), c[1] + r * sy, c[2] + r * cy * Math.cos(yaw)],
+      target: c, up: [0, 1, 0],
+      fovY: (60 * Math.PI) / 180, aspect, near: 0.01, far: r * 10,
+    };
+  }
+
+  async function bootWebGPU() {
+    if (!("gpu" in navigator)) {
+      setStatus("error", "your browser does not expose navigator.gpu — Chrome 113+, Edge 113+, or Safari Tech Preview required");
+      return null;
+    }
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) {
+      setStatus("error", "navigator.gpu.requestAdapter() returned null — no compatible adapter");
+      return null;
+    }
+    // Cap the requested limits to what we actually need so older adapters
+    // don't reject the device request. Sweet Corals L5 = 3.2M splats × 64 B
+    // = 205 MB single buffer; we only need the storage-buffer max to be
+    // > 256 MB. maxBufferSize default is usually 256 MB on Macs.
+    const cap = Math.min(adapter.limits.maxStorageBufferBindingSize ?? 0, 1 * 1024 * 1024 * 1024);
+    const bufCap = Math.min(adapter.limits.maxBufferSize ?? 0, 1 * 1024 * 1024 * 1024);
+    const device = await adapter.requestDevice({
+      requiredLimits: {
+        maxStorageBufferBindingSize: cap,
+        maxBufferSize: bufCap,
+      },
+    });
+    return device;
+  }
+
+  function configureCanvas(device) {
+    const ctx = els.canvas.getContext("webgpu");
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    ctx.configure({ device, format, alphaMode: "premultiplied" });
+    return { ctx, format };
+  }
+
+  function buildRenderPipeline(device, format) {
+    const module = device.createShaderModule({ code: RENDER_WGSL });
+    const bindLayout = device.createBindGroupLayout({
+      entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } }],
+    });
+    const layout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout] });
+    const pipeline = device.createRenderPipeline({
+      layout,
+      vertex: {
+        module, entryPoint: "vs_main",
+        buffers: [{
+          arrayStride: 12 * 4, stepMode: "instance",
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x4" },
+            { shaderLocation: 1, offset: 16, format: "float32x4" },
+            { shaderLocation: 2, offset: 32, format: "float32x4" },
+          ],
+        }],
+      },
+      fragment: {
+        module, entryPoint: "fs_main",
+        targets: [{
+          format,
+          blend: {
+            color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+          },
+        }],
+      },
+      primitive: { topology: "triangle-strip" },
+    });
+    const uniformBuffer = device.createBuffer({
+      size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const bindGroup = device.createBindGroup({
+      layout: bindLayout,
+      entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+    });
+    return { pipeline, bindGroup, uniformBuffer };
+  }
+
+  async function loadLevel(level) {
+    // Bump the load generation so any in-flight previous-level fetch can
+    // notice it's stale and short-circuit. This is the minimal "abort
+    // previous load" semantics without rewriting LodgeChunkLoader to
+    // accept an AbortSignal.
+    const gen = ++state.loadGen;
+    state.loading = true;
+    setStatus("loading", `streaming L${level} chunks…`, 0);
+
+    // Re-create the compute pipeline whenever the level changes — capacity
+    // depends on level splat count, and we want a fresh decoded-splat
+    // buffer.
+    //
+    // The published manifest may contain only a subset of LOD levels (we
+    // only uploaded L5 chunks to Vercel Blob in the first pass). Find the
+    // entry by `level` ID; fall back to a graceful "not published yet" if
+    // it's missing. The chunk-loader's `loadLevel(idx)` indexes the
+    // levels[] array, so we need to convert the ID to its array index.
+    const lvlIdx = state.manifest.levels.findIndex((l) => l.level === level);
+    const lvl = lvlIdx >= 0 ? state.manifest.levels[lvlIdx] : null;
+    if (!lvl) {
+      setStatus(
+        "error",
+        `L${level} not published yet (only L5 hosted today; L0..L4 require larger Vercel Blob quota or a CDN with HTTP range)`,
+      );
+      state.loading = false;
+      return;
+    }
+    const numChunks = lvl.chunks.length;
+    const capacity = lvl.splatCount + numChunks * 3;
+    if (state.pipeline) state.pipeline.destroy();
+    state.pipeline = new state.ComputeDecodePipeline({ device: state.device, capacity });
+
+    state.loader = new state.LodgeChunkLoader(state.manifest, {
+      baseUrl: lodgeManifestUrl, // chunk paths are absolute URLs in this manifest
+      pipeline: state.pipeline,
+      memoryBudgetBytes: 1024 * 1024 * 1024, // 1 GB cap — well under premise's 5 GB local cap
+    });
+
+    state.bytesStreamed = 0;
+    let loaded = 0;
+    const total = lvl.chunks.length;
+    // Drive loadLevel manually so we can update progress per chunk.
+    // The cleanest way: wrap fetcher to count bytes + tick progress.
+    const realFetch = window.fetch.bind(window);
+    state.loader.fetcher = async (url) => {
+      // Abort the in-flight fetch if a newer loadLevel() superseded us.
+      if (gen !== state.loadGen) throw new Error(`load_superseded_by_l${state.targetLevel}`);
+      const r = await realFetch(url);
+      if (gen !== state.loadGen) throw new Error(`load_superseded_by_l${state.targetLevel}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+      const ab = await r.arrayBuffer();
+      if (gen !== state.loadGen) throw new Error(`load_superseded_by_l${state.targetLevel}`);
+      state.bytesStreamed += ab.byteLength;
+      loaded += 1;
+      setStatus("loading", `chunk ${loaded}/${total} · ${fmtBytes(state.bytesStreamed)} · L${level}`, (loaded / total) * 100);
+      updateStats();
+      return new Uint8Array(ab);
+    };
+
+    try {
+      const cam = orbitPose(state.manifest.bbox, state.yaw, els.canvas.width / els.canvas.height);
+      await state.loader.loadLevel(lvlIdx, cam.position);
+      if (gen !== state.loadGen) return; // superseded — newer load owns the UI
+      state.activeSplats = state.pipeline.splatCount;
+      updateStats();
+      setStatus("ready", `L${level} live · ${fmt(state.activeSplats)} splats · ${fmtBytes(state.bytesStreamed)} streamed`, 100);
+    } catch (err) {
+      if (gen !== state.loadGen) return; // newer load owns the UI; swallow abort
+      console.error(err);
+      setStatus("error", String(err?.message || err).slice(0, 200));
+    } finally {
+      if (gen === state.loadGen) state.loading = false;
+    }
+  }
+
+  function resizeCanvas() {
+    const wrap = els.canvas.parentElement;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    els.canvas.width = Math.max(1, Math.floor(wrap.clientWidth * dpr));
+    els.canvas.height = Math.max(1, Math.floor(wrap.clientHeight * dpr));
+  }
+
+  function startRenderLoop() {
+    let lastT = performance.now();
+    let frames = 0;
+    let acc = 0;
+    function tick() {
+      state.raf = requestAnimationFrame(tick);
+      if (!state.pipeline || state.pipeline.splatCount === 0) return;
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - lastT) / 1000);
+      lastT = now;
+      acc += dt; frames += 1;
+      if (acc >= 0.5) {
+        state.fps = frames / acc;
+        frames = 0; acc = 0;
+        // Keep activeSplats live while streaming so the user sees the
+        // pipeline grow chunk-by-chunk instead of jumping at the end.
+        state.activeSplats = state.pipeline.splatCount;
+        updateStats();
+      }
+      // Slow auto-orbit so the test still captures motion if the user
+      // doesn't interact.
+      state.yaw += dt * 0.15;
+
+      const w = els.canvas.width, h = els.canvas.height;
+      const aspect = w / h;
+      const cam = orbitPose(state.manifest.bbox, state.yaw, aspect);
+      const { view, viewProj } = state.buildViewProj(cam, aspect);
+      const focalY = h / (2 * Math.tan(cam.fovY * 0.5));
+
+      const u = new Float32Array(4); u[0] = w; u[1] = h;
+      state.device.queue.writeBuffer(state.uniformBuffer, 0, u);
+
+      const enc = state.device.createCommandEncoder();
+      state.pipeline.encode(enc, view, viewProj, [focalY, focalY], [w, h]);
+      const tex = state.canvasCtx.getCurrentTexture();
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{
+          view: tex.createView(),
+          clearValue: { r: 0.02, g: 0.04, b: 0.08, a: 1 },
+          loadOp: "clear", storeOp: "store",
+        }],
+      });
+      pass.setPipeline(state.renderPipeline);
+      pass.setBindGroup(0, state.bindGroup);
+      pass.setVertexBuffer(0, state.pipeline.instanceBuffer);
+      pass.draw(4, state.pipeline.splatCount, 0, 0);
+      pass.end();
+      state.device.queue.submit([enc.finish()]);
+    }
+    tick();
+  }
+
+  function wireLodPicker() {
+    if (!els.lodPicker) return;
+    els.lodPicker.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-lod]");
+      if (!btn || btn.disabled) return;
+      const level = parseInt(btn.dataset.lod, 10);
+      if (level === state.targetLevel && !state.loading) return; // already showing this level
+      // Update active state
+      els.lodPicker.querySelectorAll("[data-lod]").forEach((b) => {
+        b.classList.toggle("is-active", b === btn);
+        b.setAttribute("aria-checked", b === btn ? "true" : "false");
+      });
+      state.targetLevel = level;
+      await loadLevel(level);
+    });
+  }
+
+  async function main() {
+    setStatus("loading", "loading viewer modules…", 5);
+
+    // Pull viewer modules from /viewer/ — copied from packages/viewer/dist/
+    // by apps/web/scripts/sync-viewer-dist.mjs (runs at build time).
+    const [lodgeMod, webgpuMod, mathMod] = await Promise.all([
+      import("/viewer/lodge/index.js"),
+      import("/viewer/webgpu/index.js"),
+      import("/viewer/renderer/math.js"),
+    ]);
+    state.LodgeChunkLoader = lodgeMod.LodgeChunkLoader;
+    state.parseLodgeManifest = lodgeMod.parseLodgeManifest;
+    state.ComputeDecodePipeline = webgpuMod.ComputeDecodePipeline;
+    state.buildViewProj = mathMod.buildViewProj;
+
+    setStatus("loading", "requesting WebGPU device…", 10);
+    const device = await bootWebGPU();
+    if (!device) return;
+    state.device = device;
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    const { ctx, format } = configureCanvas(device);
+    state.canvasCtx = ctx;
+    const { pipeline: rp, bindGroup, uniformBuffer } = buildRenderPipeline(device, format);
+    state.renderPipeline = rp;
+    state.bindGroup = bindGroup;
+    state.uniformBuffer = uniformBuffer;
+
+    setStatus("loading", "fetching LODGE manifest…", 15);
+    const r = await fetch(lodgeManifestUrl);
+    if (!r.ok) {
+      setStatus("error", `manifest fetch failed: HTTP ${r.status}`);
+      return;
+    }
+    state.manifest = state.parseLodgeManifest(await r.text());
+
+    // Disable LOD buttons whose level is not in the published manifest.
+    // Today only L5 ships in Vercel Blob; L4/L3 are runtime-supported but
+    // their chunks aren't uploaded yet (1.7 GB and 3.1 GB respectively).
+    const publishedLevels = new Set(state.manifest.levels.map((l) => l.level));
+    document.querySelectorAll("[data-lod]").forEach((btn) => {
+      const lv = parseInt(btn.dataset.lod, 10);
+      if (!publishedLevels.has(lv)) {
+        btn.disabled = true;
+        btn.setAttribute("aria-disabled", "true");
+        const tip = btn.querySelector(".scale-lod-tip");
+        if (tip && !tip.textContent.includes("not hosted")) {
+          tip.textContent = "not hosted yet";
+        }
+      }
+    });
+
+    wireLodPicker();
+    startRenderLoop();
+    await loadLevel(state.targetLevel);
+  }
+
+  main().catch((err) => {
+    console.error(err);
+    setStatus("error", String(err?.message || err).slice(0, 200));
+  });
+</script>
+</Base>
