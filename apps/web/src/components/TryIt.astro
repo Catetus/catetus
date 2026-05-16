@@ -68,6 +68,21 @@ const presetOptions = [
     label: "Size-min",
     blurb: "Aggressive quantize + LOD · ~10× · web-friendly",
   },
+  // QAT-Scaffold — Quant-Aware Retrain compression for Scaffold-GS PLYs.
+  // Validated 2026-05-16 across 6 Mip-NeRF 360 scenes (bonsai, bicycle,
+  // garden, stump, treehill, flowers): ~50% lossless size reduction with
+  // a MEAN +0.172 dB PSNR GAIN vs the Scaffold baseline. Bit-exact
+  // reconstruction relative to the retrained Scaffold checkpoint —
+  // the dB number is vs the un-retrained Scaffold baseline (the
+  // retrain step is part of the codec, not a separate quality knob).
+  // Routed through splatforge-worker → splatforge-qat-scaffold Modal
+  // app. Customer-facing label kept terse; the docs page at
+  // /docs/api/qat-scaffold expands the contract.
+  {
+    value: "splatforge-qat-scaffold",
+    label: "QAT-Scaffold (lossless 50%)",
+    blurb: "Scaffold-GS PLY → 50% smaller, +0.17 dB mean PSNR gain across 6 scenes. Bit-exact reconstruction.",
+  },
 ];
 ---
 

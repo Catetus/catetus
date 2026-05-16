@@ -123,6 +123,7 @@ class WorkerDispatchTests(unittest.TestCase):
             "SPLATFORGE_CAPTURE_URL",
             "SPLATFORGE_HACPP_LZMA_URL",
             "SPLATFORGE_HOSTED_NEURAL_URL",
+            "SPLATFORGE_QAT_SCAFFOLD_URL",
         ):
             os.environ.pop(key, None)
         # Drop cached module so module-level `PRESET_DISPATCH_URLS`
@@ -498,6 +499,12 @@ class WorkerDispatchTests(unittest.TestCase):
         # productization). Per-scene A100 fit at request time; same flag
         # contract as the other presets.
         self.assertTrue(flags["hosted-neural"])
+        # splatforge-qat-scaffold joined 2026-05-16 — same configured-gap
+        # contract. False here because SPLATFORGE_QAT_SCAFFOLD_URL is not
+        # set in this test fixture; ensures the preset surfaces as
+        # unconfigured rather than silently missing from the healthz
+        # report.
+        self.assertFalse(flags["splatforge-qat-scaffold"])
 
     def test_hosted_neural_without_url_returns_clear_error(self) -> None:
         """`hosted-neural` is the per-scene A100 codec from Bet 1 / M3.
@@ -555,6 +562,65 @@ class WorkerDispatchTests(unittest.TestCase):
         self.assertEqual(body["filename"], "bicycle-bundle.tar")
         self.assertEqual(
             body["callback_url"], "https://api.example/v1/jobs/n/result"
+        )
+
+
+    def test_qat_scaffold_without_url_returns_clear_error(self) -> None:
+        """`splatforge-qat-scaffold` is the Scaffold-GS QAT codec (2026-05-16).
+        Until SPLATFORGE_QAT_SCAFFOLD_URL is set, the worker MUST surface
+        a synchronous error naming the env var — same configured-gap
+        contract as the other forwarded presets."""
+        worker = self._import_worker()
+        ack = worker.enqueue(
+            {
+                "job_id": "00000000-0000-0000-0000-00000000000q",
+                "preset": "splatforge-qat-scaffold",
+                "blob_url": "https://blob.example/bonsai-scaffold.ply",
+                "callback_url": "https://api.example/v1/jobs/q/result",
+                "filename": "bonsai-scaffold.ply",
+            }
+        )
+        self.assertFalse(ack["queued"])
+        self.assertIsNotNone(ack["error"])
+        self.assertIn("splatforge-qat-scaffold", ack["error"])
+        self.assertIn("SPLATFORGE_QAT_SCAFFOLD_URL", ack["error"])
+
+    def test_qat_scaffold_forwards_to_configured_url(self) -> None:
+        """Happy path for the qat-scaffold dispatch: the Scaffold PLY URL
+        + callback are forwarded verbatim. The encoder app downloads the
+        PLY, runs the quant-aware retrain on an A100, packs the
+        quantized streams into a compressed .ply, uploads it, and POSTs
+        the terminal result directly to the API."""
+        os.environ["SPLATFORGE_QAT_SCAFFOLD_URL"] = (
+            "https://example--splatforge-qat-scaffold-enqueue.modal.run"
+        )
+        worker = self._import_worker()
+
+        fake_response = mock.MagicMock()
+        fake_response.status_code = 200
+        fake_response.json.return_value = {"queued": True, "error": None}
+        with mock.patch("requests.post", return_value=fake_response) as post:
+            ack = worker.enqueue(
+                {
+                    "job_id": "00000000-0000-0000-0000-00000000000q",
+                    "preset": "splatforge-qat-scaffold",
+                    "blob_url": "https://blob.example/bonsai-scaffold.ply",
+                    "callback_url": "https://api.example/v1/jobs/q/result",
+                    "filename": "bonsai-scaffold.ply",
+                }
+            )
+        self.assertTrue(ack["queued"])
+        self.assertIsNone(ack["error"])
+        post.assert_called_once()
+        self.assertEqual(
+            post.call_args.args[0],
+            "https://example--splatforge-qat-scaffold-enqueue.modal.run",
+        )
+        body = post.call_args.kwargs["json"]
+        self.assertEqual(body["preset"], "splatforge-qat-scaffold")
+        self.assertEqual(body["filename"], "bonsai-scaffold.ply")
+        self.assertEqual(
+            body["callback_url"], "https://api.example/v1/jobs/q/result"
         )
 
 
