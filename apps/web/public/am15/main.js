@@ -759,7 +759,11 @@ async function main() {
 
     const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
     const reader = req.body.getReader();
-    let splatData = new Uint8Array(req.headers.get("content-length"));
+    const _clRaw = req.headers.get("content-length");
+    const _cl = _clRaw ? parseInt(_clRaw, 10) : 0;
+    // Vercel HTTP/2 chunked responses don't always send content-length.
+    // Pre-allocate generously (200 MB) so the streaming writer has room.
+    let splatData = new Uint8Array(Number.isFinite(_cl) && _cl > 0 ? _cl : 200 * 1024 * 1024);
 
     const downsample =
         splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
