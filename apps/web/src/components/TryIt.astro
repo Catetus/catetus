@@ -326,13 +326,19 @@ const presetOptions = [
   }
 
   /* Result region */
+  .region-result {
+    align-items: center;
+  }
   .result-canvas {
     width: 100%;
-    aspect-ratio: 16 / 10;
+    max-width: 640px;
+    aspect-ratio: 4 / 3;
+    max-height: 480px;
     background: #0a0a0a;
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     display: block;
+    margin: 0 auto;
   }
   /* Interactive control class is added by the viewer once pointer handlers
      are wired up; gives the user a visible cue that drag will work. */
