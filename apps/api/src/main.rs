@@ -1105,6 +1105,7 @@ async fn build_job(
             upload_size_bytes: None,
             output_url: None,
             preview_url: None,
+            splat_url: None,
             phase: None,
             percent: None,
             webhook_url: req.webhook_url,
@@ -1143,6 +1144,7 @@ async fn build_job(
             upload_size_bytes: None,
             output_url: None,
             preview_url: None,
+            splat_url: None,
             phase: None,
             percent: None,
             webhook_url: req.webhook_url,
@@ -1521,6 +1523,7 @@ pub struct ResultPayload {
     pub output_url: Option<String>,
     #[serde(default)]
     pub preview_url: Option<String>,
+    pub splat_url: Option<String>,
     /// Optional phase string ("fetching" | "optimizing" | "packaging") sent
     /// during `status=running` so the UI can show what step is happening.
     #[serde(default)]
@@ -1562,6 +1565,9 @@ async fn job_result(
             job.output_url = Some(url);
             if let Some(preview) = body.preview_url {
                 job.preview_url = Some(preview);
+            }
+            if let Some(splat) = body.splat_url {
+                job.splat_url = Some(splat);
             }
             job.error = None;
             terminal = true;
@@ -2002,6 +2008,7 @@ async fn do_import(
         upload_size_bytes: None,
         output_url: None,
         preview_url: None,
+            splat_url: None,
         phase: None,
         percent: None,
         webhook_url: None,

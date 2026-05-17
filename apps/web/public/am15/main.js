@@ -747,7 +747,7 @@ async function main() {
         // "nike.splat",
         // location.href,
         params.get("url") || "train.splat",
-        params.get("local") === "1" ? location.origin + "/" : "https://huggingface.co/cakewalk/splat-data/resolve/main/",
+        (params.get("local") === "1" ? location.origin + "/" : (params.get("local") === "0" ? location.origin + "/" : "https://huggingface.co/cakewalk/splat-data/resolve/main/")),
     );
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin

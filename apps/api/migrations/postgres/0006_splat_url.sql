@@ -1,0 +1,1 @@
+ALTER TABLE jobs ADD COLUMN splat_url TEXT NULL;

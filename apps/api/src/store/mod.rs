@@ -140,6 +140,7 @@ pub struct Job {
     pub output_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_url: Option<String>,
+    pub splat_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

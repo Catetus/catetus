@@ -316,6 +316,21 @@ def run_optimize(
                 "model/gltf-binary",
             )
             preview_url = _upload_gltf_with_absolute_buffers(job_id, gltf_path)
+            # Splat sidecar (antimatter15 32-byte format) — used by the
+            # homepage TryIt result viewer via the vendored /am15/ viewer.
+            # The CLI now emits this alongside the .gltf; upload if present.
+            splat_url = None
+            splat_path = gltf_path.with_suffix(".splat")
+            if splat_path.exists():
+                try:
+                    splat_url = _upload_blob(
+                        f"jobs/{job_id}/optimized.splat",
+                        splat_path,
+                        "application/octet-stream",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Non-fatal: result viewer falls back to the SDK preview.
+                    print(f"warning: splat sidecar upload failed: {exc}", flush=True)
         except Exception as exc:  # noqa: BLE001
             return _callback(
                 callback_url,
@@ -323,14 +338,14 @@ def run_optimize(
             )
 
         volume.commit()
-        return _callback(
-            callback_url,
-            {
-                "status": "done",
-                "output_url": output_url,
-                "preview_url": preview_url,
-            },
-        )
+        payload = {
+            "status": "done",
+            "output_url": output_url,
+            "preview_url": preview_url,
+        }
+        if splat_url:
+            payload["splat_url"] = splat_url
+        return _callback(callback_url, payload)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

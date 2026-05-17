@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
-use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, Splat, SplatScene};
+use splatforge_core::{format_from_extension, format_from_magic, AnalyzeReport, Color, Splat, SplatScene};
 use splatforge_gltf::{inspect_gltf, read_glb, read_gltf, write_glb, write_gltf, WriteOpts};
 use splatforge_optimize::{preset, write_tileset, TilesetOpts};
 use splatforge_ply::{
@@ -982,6 +982,59 @@ fn emit_progress(frac: f32, stage: &str) {
     let _ = std::io::stdout().flush();
 }
 
+/// Write antimatter15's `.splat` format (32 bytes per splat: pos f32x3,
+/// scale f32x3 linear, color RGBA u8, rotation u8x4). Sorted by descending
+/// screen-coverage importance so prefix-truncating a `.splat` keeps the
+/// most-visible splats. Format defined at https://github.com/antimatter15/splat
+fn write_splat(scene: &SplatScene, path: &Path) -> Result<()> {
+    use std::io::Write;
+    const SH_C0: f32 = 0.28209479177387814;
+    let n = scene.splats.len();
+    // Sort by importance — antimatter15 uses
+    //   exp(scale_0 + scale_1 + scale_2) / (1 + exp(-opacity))
+    // We already have linear scale + [0,1] opacity, so the equivalent is
+    //   scale_0 * scale_1 * scale_2 * opacity
+    let mut idx: Vec<u32> = (0..n as u32).collect();
+    idx.sort_unstable_by(|&a, &b| {
+        let sa = &scene.splats[a as usize];
+        let sb = &scene.splats[b as usize];
+        let ka = sa.scale[0].abs() * sa.scale[1].abs() * sa.scale[2].abs() * sa.opacity;
+        let kb = sb.scale[0].abs() * sb.scale[1].abs() * sb.scale[2].abs() * sb.opacity;
+        kb.partial_cmp(&ka).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut buf: Vec<u8> = Vec::with_capacity(n * 32);
+    for &i in &idx {
+        let s = &scene.splats[i as usize];
+        // pos f32x3
+        for v in s.position { buf.extend_from_slice(&v.to_le_bytes()); }
+        // scale f32x3 (linear)
+        for v in s.scale { buf.extend_from_slice(&v.to_le_bytes()); }
+        // color RGB from either baked RGB or SH DC
+        let rgb = match &s.color {
+            Color::Rgb(c) => *c,
+            Color::Sh { coeffs, .. } => [
+                (0.5 + SH_C0 * coeffs[0]).clamp(0.0, 1.0),
+                (0.5 + SH_C0 * coeffs[1]).clamp(0.0, 1.0),
+                (0.5 + SH_C0 * coeffs[2]).clamp(0.0, 1.0),
+            ],
+        };
+        buf.push((rgb[0] * 255.0).clamp(0.0, 255.0) as u8);
+        buf.push((rgb[1] * 255.0).clamp(0.0, 255.0) as u8);
+        buf.push((rgb[2] * 255.0).clamp(0.0, 255.0) as u8);
+        buf.push((s.opacity * 255.0).clamp(0.0, 255.0) as u8);
+        // rotation u8x4 — normalize then * 128 + 128
+        let r = s.rotation;
+        let mag = (r[0]*r[0] + r[1]*r[1] + r[2]*r[2] + r[3]*r[3]).sqrt().max(1e-9);
+        for v in r {
+            let q = v / mag * 128.0 + 128.0;
+            buf.push(q.clamp(0.0, 255.0) as u8);
+        }
+    }
+    let mut f = std::fs::File::create(path)?;
+    f.write_all(&buf)?;
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cmd_optimize(
     input: &Path,
@@ -1182,6 +1235,14 @@ fn cmd_optimize(
         write_glb(&scene, &out, &opts)?;
     } else {
         write_gltf(&scene, &out, &opts)?;
+    }
+    // Also emit a sidecar .splat (antimatter15 32-byte format) for the
+    // marketing-grade /am15/ viewer. Doesn't replace the .glb — gives the
+    // homepage TryIt result viewer a path that doesn't depend on our
+    // custom WebGL2 SDK.
+    let splat_path = out.with_extension("splat");
+    if let Err(e) = write_splat(&scene, &splat_path) {
+        eprintln!("warning: failed to write .splat sidecar: {e}");
     }
     if progress {
         emit_progress(0.98, "writing-report");

@@ -213,7 +213,8 @@ const presetOptions = [
     </div>
 
     <div class="region region-result">
-      <canvas data-result-canvas class="result-canvas"></canvas>
+      <canvas data-result-canvas class="result-canvas" hidden></canvas>
+      <iframe data-result-iframe class="result-iframe" title="optimized splat preview" hidden></iframe>
       <div class="result-meta" data-result-meta>auto-rotating preview</div>
       <div class="result-stats" data-result-stats hidden>
         <span class="result-stat">
@@ -326,6 +327,17 @@ const presetOptions = [
   }
 
   /* Result region */
+  .result-iframe {
+    width: 100%;
+    max-width: 640px;
+    aspect-ratio: 4 / 3;
+    max-height: 480px;
+    background: #0a0a0a;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: block;
+    margin: 0 auto;
+  }
   .region-result {
     align-items: center;
   }
@@ -728,6 +740,22 @@ const presetOptions = [
           renderStats(job._inputBytes, out);
         });
       }
+      // If the worker produced a .splat sidecar (antimatter15 format),
+      // mount the vendored /am15/ viewer in an iframe — same code path as
+      // the marketing hero, renders crisply. Falls back to our custom SDK
+      // viewer below if splat_url is absent (older jobs / formats without
+      // the sidecar).
+      const resultIframe = document.querySelector("[data-result-iframe]");
+      if (job.splat_url && resultIframe instanceof HTMLIFrameElement) {
+        if (resultCanvas) resultCanvas.hidden = true;
+        resultIframe.hidden = false;
+        resultIframe.src = "/am15/hero-embed.html?url=" + encodeURIComponent(job.splat_url) + "&local=0";
+        if (resultMeta) resultMeta.textContent = "live · auto-orbit · antimatter15 viewer";
+        return;
+      }
+      // Fallback path — custom SDK viewer for jobs without a .splat sidecar.
+      if (resultIframe) resultIframe.hidden = true;
+      if (resultCanvas) resultCanvas.hidden = false;
       if (!(resultCanvas instanceof HTMLCanvasElement)) return;
 
       // Size the canvas backing store to its rendered CSS size.

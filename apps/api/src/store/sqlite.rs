@@ -90,7 +90,7 @@ impl JobStoreApi for SqliteJobStore {
             INSERT INTO jobs (
                 id, preset, filename, size_bytes, label, status,
                 blob_key, blob_url, source_url, upload_size_bytes,
-                output_url, preview_url, phase, percent, webhook_url,
+                output_url, preview_url, splat_url, phase, percent, webhook_url,
                 batch_id, tier, customer_id, created_at, updated_at, error
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
                       ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
@@ -108,6 +108,7 @@ impl JobStoreApi for SqliteJobStore {
         .bind(job.upload_size_bytes.map(|v| v as i64))
         .bind(&job.output_url)
         .bind(&job.preview_url)
+        .bind(&job.splat_url)
         .bind(&job.phase)
         .bind(job.percent)
         .bind(&job.webhook_url)
@@ -128,11 +129,11 @@ impl JobStoreApi for SqliteJobStore {
             UPDATE jobs SET
                 preset = ?2, filename = ?3, size_bytes = ?4, label = ?5,
                 status = ?6, blob_key = ?7, blob_url = ?8, source_url = ?9,
-                upload_size_bytes = ?10, output_url = ?11, preview_url = ?12,
-                phase = ?13, percent = ?14, webhook_url = ?15,
-                batch_id = ?16, tier = ?17, customer_id = ?18,
-                updated_at = ?19, error = ?20
-            WHERE id = ?1
+                upload_size_bytes = ?10, output_url = ?11, preview_url = ?12, splat_url = ?13,
+                phase = ?14, percent = ?15, webhook_url = ?16,
+                batch_id = ?17, tier = ?18, customer_id = ?19,
+                updated_at = ?20, error = ?21
+            WHERE id = ?2
             "#,
         )
         .bind(job.id.to_string())
@@ -147,6 +148,7 @@ impl JobStoreApi for SqliteJobStore {
         .bind(job.upload_size_bytes.map(|v| v as i64))
         .bind(&job.output_url)
         .bind(&job.preview_url)
+        .bind(&job.splat_url)
         .bind(&job.phase)
         .bind(job.percent)
         .bind(&job.webhook_url)
@@ -502,6 +504,7 @@ fn row_to_job(row: sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {
         upload_size_bytes: upload_size_bytes.map(|v| v as u64),
         output_url: row.try_get("output_url")?,
         preview_url: row.try_get("preview_url")?,
+        splat_url: row.try_get("splat_url")?,
         phase: row.try_get("phase")?,
         percent: row.try_get("percent")?,
         webhook_url: row.try_get("webhook_url")?,
@@ -531,6 +534,7 @@ mod tests {
             upload_size_bytes: None,
             output_url: None,
             preview_url: None,
+            splat_url: None,
             phase: None,
             percent: None,
             webhook_url: None,
