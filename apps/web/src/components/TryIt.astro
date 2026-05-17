@@ -27,6 +27,24 @@ const bundlePresets = ["hacpp-lzma", "splatforge-qat-bundle", "splatforge-qat-3d
 // bonsai (273.7 MB Inria PLY) end-to-end Modal validation; real-world
 // ratios vary by scene density and SH degree.
 const presetOptions = [
+  // quality-max: zero-loss repack + Morton sort. The honest "what does my
+  // splat actually look like" answer — no quantization, no prunes. Sits
+  // at the top of the picker so the customer's first instinct (preview
+  // the input) is one click away.
+  {
+    value: "quality-max",
+    label: "Quality-max (no quantization)",
+    blurb: "Lossless repack + Morton sort · zero loss · best for previewing your raw splat",
+  },
+  // hero: 16-bit quants, no prunes. The "marketing capture" tier — keeps
+  // every splat the trainer produced but still ships ~2× smaller than
+  // raw fp32. No FloaterPrune means object-centric scenes (bonsai, busts)
+  // survive intact.
+  {
+    value: "hero",
+    label: "Hero (showcase)",
+    blurb: "16-bit quants, no prunes · best for marketing-grade single scene",
+  },
   {
     value: "web-mobile",
     label: "Web-mobile (default)",
@@ -170,11 +188,11 @@ const presetOptions = [
       <div class="preset-picker" data-tryit-preset-picker aria-label="Compression preset">
         <label for="tryit-preset-select" class="preset-label">Preset</label>
         <select id="tryit-preset-select" data-tryit-preset-select class="preset-select">
-          {presetOptions.map((p, i) => (
-            <option value={p.value} selected={i === 0}>{p.label}</option>
+          {presetOptions.map((p) => (
+            <option value={p.value} selected={p.value === "web-mobile"}>{p.label}</option>
           ))}
         </select>
-        <span class="preset-blurb" data-tryit-preset-blurb>{presetOptions[0].blurb}</span>
+        <span class="preset-blurb" data-tryit-preset-blurb>{(presetOptions.find((p) => p.value === "web-mobile") ?? presetOptions[0]).blurb}</span>
         <a
           class="preset-help"
           data-tryit-bundle-help
@@ -203,6 +221,34 @@ const presetOptions = [
       </div>
     </div>
 
+    {/* Staged-file region: drop sets the file but doesn't upload. User
+       confirms preset + clicks Process. Auto-detected format/preset render
+       here so the customer sees what we sniffed before committing. */}
+    <div class="region region-ready">
+      <div class="staged-headline">Ready to optimize</div>
+      <div class="staged-file">
+        <span class="staged-filename" data-staged-filename>—</span>
+        <span class="staged-size" data-staged-size>—</span>
+      </div>
+      <div class="staged-detect" data-staged-detect>detecting format…</div>
+      <div class="staged-picker">
+        <label for="tryit-preset-select-staged" class="preset-label">Preset</label>
+        <select id="tryit-preset-select-staged" data-tryit-preset-select-staged class="preset-select">
+          {presetOptions.map((p) => (
+            <option value={p.value} selected={p.value === "web-mobile"}>{p.label}</option>
+          ))}
+        </select>
+        <span class="staged-auto-note" data-staged-auto-note hidden>auto-detected — change to override</span>
+      </div>
+      <div class="staged-blurb" data-staged-blurb></div>
+      <div class="staged-actions">
+        <button type="button" class="btn btn-primary" data-staged-process>
+          <span aria-hidden="true">▶</span>&nbsp;Process
+        </button>
+        <button type="button" class="btn btn-secondary" data-staged-cancel>Cancel</button>
+      </div>
+    </div>
+
     <div class="region region-progress">
       <div class="progress-headline" data-progress-headline>Uploading</div>
       <div class="progress-sub" data-progress-sub>preparing</div>
@@ -213,8 +259,7 @@ const presetOptions = [
     </div>
 
     <div class="region region-result">
-      <canvas data-result-canvas class="result-canvas" hidden></canvas>
-      <iframe data-result-iframe class="result-iframe" title="optimized splat preview" hidden></iframe>
+      <canvas data-result-canvas class="result-canvas"></canvas>
       <div class="result-meta" data-result-meta>auto-rotating preview</div>
       <div class="result-stats" data-result-stats hidden>
         <span class="result-stat">
@@ -280,10 +325,67 @@ const presetOptions = [
     width: 100%;
   }
   .dropzone[data-state="idle"] .region-idle { display: block; }
+  .dropzone[data-state="ready-to-submit"] .region-ready { display: flex; flex-direction: column; gap: 0.7rem; align-items: center; }
   .dropzone[data-state="uploading"] .region-progress,
   .dropzone[data-state="processing"] .region-progress { display: block; }
   .dropzone[data-state="done"] .region-result { display: flex; flex-direction: column; gap: 0.85rem; }
   .dropzone[data-state="error"] .region-error { display: block; }
+
+  /* Staged region — between drop and upload. Mirrors the dark/monospace
+     idiom of the progress region. Filename + detected format are the two
+     load-bearing pieces of info; the Process button is the primary CTA. */
+  .staged-headline {
+    font-weight: 600;
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .staged-file {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.88rem;
+  }
+  .staged-filename { color: var(--fg); word-break: break-all; }
+  .staged-size { opacity: 0.55; }
+  .staged-detect {
+    font-size: 0.82rem;
+    opacity: 0.72;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-align: center;
+    padding: 0.4rem 0.7rem;
+    border-radius: 0.5rem;
+    background: rgba(139, 92, 246, 0.08);
+    border: 1px solid rgba(139, 92, 246, 0.18);
+  }
+  .staged-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .staged-auto-note {
+    font-size: 0.72rem;
+    opacity: 0.6;
+    font-style: italic;
+  }
+  .staged-blurb {
+    font-size: 0.78rem;
+    opacity: 0.55;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-align: center;
+  }
+  .staged-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 0.3rem;
+  }
 
   /* Progress region */
   .progress-headline {
@@ -327,30 +429,13 @@ const presetOptions = [
   }
 
   /* Result region */
-  .result-iframe {
-    width: 100%;
-    max-width: 640px;
-    aspect-ratio: 4 / 3;
-    max-height: 480px;
-    background: #0a0a0a;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    display: block;
-    margin: 0 auto;
-  }
-  .region-result {
-    align-items: center;
-  }
   .result-canvas {
     width: 100%;
-    max-width: 640px;
-    aspect-ratio: 4 / 3;
-    max-height: 480px;
+    aspect-ratio: 16 / 10;
     background: #0a0a0a;
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     display: block;
-    margin: 0 auto;
   }
   /* Interactive control class is added by the viewer once pointer handlers
      are wired up; gives the user a visible cue that drag will work. */
@@ -515,6 +600,15 @@ const presetOptions = [
     const presetBlurb = document.querySelector("[data-tryit-preset-blurb]");
     const bundleHelp = document.querySelector("[data-tryit-bundle-help]");
     const formatChipsWrap = document.querySelector("[data-tryit-format-chips]");
+    // Staged-region (drop -> confirm -> process) handles
+    const stagedFilename = document.querySelector("[data-staged-filename]");
+    const stagedSize = document.querySelector("[data-staged-size]");
+    const stagedDetect = document.querySelector("[data-staged-detect]");
+    const stagedPresetSelect = document.querySelector("[data-tryit-preset-select-staged]");
+    const stagedAutoNote = document.querySelector("[data-staged-auto-note]");
+    const stagedBlurb = document.querySelector("[data-staged-blurb]");
+    const stagedProcess = document.querySelector("[data-staged-process]");
+    const stagedCancel = document.querySelector("[data-staged-cancel]");
     if (!(zone instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
 
     function selectedPreset() {
@@ -620,6 +714,8 @@ const presetOptions = [
       disposeViewer();
       setState("idle");
       input.value = ""; // allow re-picking the same file
+      staged = null;
+      userOverrode = false;
     }
 
     const hot = function (e) { e.preventDefault(); zone.classList.add("drag-hover"); };
@@ -740,22 +836,6 @@ const presetOptions = [
           renderStats(job._inputBytes, out);
         });
       }
-      // If the worker produced a .splat sidecar (antimatter15 format),
-      // mount the vendored /am15/ viewer in an iframe — same code path as
-      // the marketing hero, renders crisply. Falls back to our custom SDK
-      // viewer below if splat_url is absent (older jobs / formats without
-      // the sidecar).
-      const resultIframe = document.querySelector("[data-result-iframe]");
-      if (job.splat_url && resultIframe instanceof HTMLIFrameElement) {
-        if (resultCanvas) resultCanvas.hidden = true;
-        resultIframe.hidden = false;
-        resultIframe.src = "/am15/hero-embed.html?url=" + encodeURIComponent(job.splat_url) + "&local=0";
-        if (resultMeta) resultMeta.textContent = "live · auto-orbit · antimatter15 viewer";
-        return;
-      }
-      // Fallback path — custom SDK viewer for jobs without a .splat sidecar.
-      if (resultIframe) resultIframe.hidden = true;
-      if (resultCanvas) resultCanvas.hidden = false;
       if (!(resultCanvas instanceof HTMLCanvasElement)) return;
 
       // Size the canvas backing store to its rendered CSS size.
@@ -984,11 +1064,238 @@ const presetOptions = [
       });
     }
 
+    // ---- PLY header sniff -------------------------------------------------
+    // Reads the first ~8 KB of the file and parses the ASCII PLY header to
+    // pick a sensible default preset for the customer. Advisory only — if
+    // anything throws, fall back to "web-mobile". Recognized formats:
+    //   - scaffold-gs  → splatforge-qat-scaffold (has f_anchor_feat_*)
+    //   - inria-3dgs-full → splatforge-qat-3dgs (45 × f_rest_*)
+    //   - inria-3dgs-minimal → quality-max (no f_rest, just dc/scale/rot/op)
+    //   - ply-unknown → web-mobile
+    function extOf(name) {
+      const lower = (name || "").toLowerCase();
+      // Match longest first so .tar.gz wins over .gz.
+      const exts = [".tar.gz", ".tgz", ".tar", ".ply", ".spz", ".gltf", ".glb", ".splat"];
+      for (let i = 0; i < exts.length; i++) {
+        if (lower.endsWith(exts[i])) return exts[i];
+      }
+      const idx = lower.lastIndexOf(".");
+      return idx >= 0 ? lower.slice(idx) : "";
+    }
+    function downgradeBundleForPly(preset) {
+      // Auto-detect can land on a Scaffold-GS PLY but the user dropped a
+      // raw .ply, not a .tar bundle. Drop the recommendation to the
+      // single-PLY tier of the same family so it actually accepts the file.
+      if (preset === "splatforge-qat-bundle") return "splatforge-qat-scaffold";
+      if (preset === "splatforge-qat-3dgs-bundle") return "splatforge-qat-3dgs";
+      if (preset === "hacpp-lzma") return "splatforge-qat-scaffold";
+      return preset;
+    }
+    async function sniffPlyFormat(file) {
+      const ext = extOf(file.name);
+      // Non-PLY inputs: just report the extension. The caller decides what
+      // to recommend (keep current preset for those).
+      if (ext !== ".ply") {
+        return { format: ext.replace(/^\./, "") || "unknown", recommendedPreset: null, headerSummary: "" };
+      }
+      try {
+        const slice = file.slice(0, 8192);
+        const buf = await slice.arrayBuffer();
+        const text = new TextDecoder("utf-8", { fatal: false }).decode(buf);
+        if (!text.startsWith("ply")) {
+          return { format: "ply-unknown", recommendedPreset: "web-mobile", headerSummary: "PLY header not recognized" };
+        }
+        const headerEnd = text.indexOf("end_header");
+        // Header should fit in 8 KB for any realistic splat PLY. If it
+        // doesn't, treat as unknown rather than misclassify.
+        if (headerEnd < 0) {
+          return { format: "ply-unknown", recommendedPreset: "web-mobile", headerSummary: "PLY header > 8 KB" };
+        }
+        const header = text.slice(0, headerEnd);
+        const lines = header.split(/\r?\n/);
+        // Walk elements: capture vertex count, then collect properties
+        // belonging to that element until the next `element` line.
+        let vertexCount = 0;
+        const props = [];
+        let inVertex = false;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          if (line.startsWith("element ")) {
+            const parts = line.split(/\s+/);
+            inVertex = parts[1] === "vertex";
+            if (inVertex) vertexCount = parseInt(parts[2] || "0", 10) || 0;
+            continue;
+          }
+          if (inVertex && line.startsWith("property ")) {
+            const parts = line.split(/\s+/);
+            // `property <type> <name>` or `property list <itype> <vtype> <name>`
+            const name = parts[parts.length - 1];
+            if (name) props.push(name);
+          }
+        }
+        const propSet = new Set(props);
+        const fRestCount = props.filter(function (n) { return n.indexOf("f_rest_") === 0; }).length;
+        const fAnchorCount = props.filter(function (n) { return n.indexOf("f_anchor_feat_") === 0; }).length;
+        const hasInriaMinimum =
+          propSet.has("f_dc_0") && propSet.has("f_dc_1") && propSet.has("f_dc_2") &&
+          propSet.has("scale_0") && propSet.has("rot_0") && propSet.has("opacity");
+
+        const vCountStr = vertexCount.toLocaleString();
+        if (fAnchorCount > 0) {
+          return {
+            format: "scaffold-gs",
+            recommendedPreset: "splatforge-qat-scaffold",
+            headerSummary: "Scaffold-GS · " + vCountStr + " anchors · " + fAnchorCount + " anchor-feat channels",
+          };
+        }
+        if (hasInriaMinimum && fRestCount >= 45) {
+          // 45 == 3 × 15 SH coefficients beyond DC (degree 3).
+          return {
+            format: "inria-3dgs-full",
+            recommendedPreset: "splatforge-qat-3dgs",
+            headerSummary: "Inria 3DGS · " + vCountStr + " vertices · " + (3 + fRestCount) + "-channel SH",
+          };
+        }
+        if (hasInriaMinimum) {
+          return {
+            format: "inria-3dgs-minimal",
+            recommendedPreset: "quality-max",
+            headerSummary: "Inria 3DGS (minimal) · " + vCountStr + " vertices · DC-only SH",
+          };
+        }
+        return {
+          format: "ply-unknown",
+          recommendedPreset: "web-mobile",
+          headerSummary: "PLY · " + vCountStr + " vertices · no splat fields detected",
+        };
+      } catch (_) {
+        // Sniff is advisory — never block the UX.
+        return { format: "ply-unknown", recommendedPreset: "web-mobile", headerSummary: "" };
+      }
+    }
+
+    // ---- Staged-file state ----------------------------------------------
+    // The drop -> confirm -> process flow. `staged` holds the file and the
+    // sniff result between drop and Process click. `userOverrode` tracks
+    // whether the user has manually changed the staged preset, so we don't
+    // clobber their selection if we re-render.
+    let staged = null;
+    let userOverrode = false;
+
+    function syncStagedBlurb() {
+      if (!(stagedPresetSelect instanceof HTMLSelectElement) || !(stagedBlurb instanceof HTMLElement)) return;
+      const opt = presetOptions.find(function (p) { return p.value === stagedPresetSelect.value; });
+      stagedBlurb.textContent = opt ? opt.blurb : "";
+    }
+
+    if (stagedPresetSelect instanceof HTMLSelectElement) {
+      stagedPresetSelect.addEventListener("change", function () {
+        userOverrode = true;
+        if (stagedAutoNote instanceof HTMLElement) stagedAutoNote.setAttribute("hidden", "");
+        syncStagedBlurb();
+      });
+    }
+    if (stagedCancel instanceof HTMLButtonElement) {
+      stagedCancel.addEventListener("click", function () {
+        staged = null;
+        userOverrode = false;
+        resetToIdle();
+      });
+    }
+    if (stagedProcess instanceof HTMLButtonElement) {
+      stagedProcess.addEventListener("click", function () {
+        if (!staged) return;
+        const preset = (stagedPresetSelect instanceof HTMLSelectElement)
+          ? stagedPresetSelect.value
+          : selectedPreset();
+        // Mirror the staged selection back to the idle picker so reset
+        // shows the same preset the user just ran.
+        if (presetSelect instanceof HTMLSelectElement) {
+          presetSelect.value = preset;
+          syncPresetUI();
+          if (presetBlurb instanceof HTMLElement) {
+            const opt = presetOptions.find(function (p) { return p.value === preset; });
+            if (opt) presetBlurb.textContent = opt.blurb;
+          }
+        }
+        const file = staged.file;
+        staged = null;
+        userOverrode = false;
+        void submit(file, preset);
+      });
+    }
+
+    async function stageFile(file) {
+      // Surface the file in the staged region immediately, then run the
+      // (async) sniff and patch in the detected format + recommendation.
+      if (stagedFilename instanceof HTMLElement) stagedFilename.textContent = file.name;
+      if (stagedSize instanceof HTMLElement) stagedSize.textContent = formatBytes(file.size);
+      if (stagedDetect instanceof HTMLElement) stagedDetect.textContent = "detecting format…";
+      if (stagedAutoNote instanceof HTMLElement) stagedAutoNote.setAttribute("hidden", "");
+      userOverrode = false;
+
+      // Seed the staged picker with the current idle-picker selection so
+      // a user who carefully picked a preset before dropping doesn't get
+      // it silently reset by the sniffer for non-PLY files.
+      if (stagedPresetSelect instanceof HTMLSelectElement && presetSelect instanceof HTMLSelectElement) {
+        stagedPresetSelect.value = presetSelect.value;
+      }
+      syncStagedBlurb();
+
+      staged = { file: file, sniff: null };
+      setState("ready-to-submit");
+
+      let sniff;
+      try {
+        sniff = await sniffPlyFormat(file);
+      } catch (_) {
+        sniff = { format: "unknown", recommendedPreset: "web-mobile", headerSummary: "" };
+      }
+      // Bail if the user already cancelled / processed by the time we
+      // resolved (slice/decode is fast but not instant on huge PLYs).
+      if (!staged || staged.file !== file) return;
+      staged.sniff = sniff;
+
+      let recommended = sniff.recommendedPreset;
+      // PLY inputs that recommend a bundle preset get downgraded to the
+      // single-PLY tier of the same family — the user dropped a raw .ply,
+      // not an archive.
+      if (recommended && extOf(file.name) === ".ply") {
+        recommended = downgradeBundleForPly(recommended);
+      }
+
+      const summary = sniff.headerSummary || (sniff.format ? sniff.format : "unknown format");
+      if (stagedDetect instanceof HTMLElement) {
+        if (recommended) {
+          const recOpt = presetOptions.find(function (p) { return p.value === recommended; });
+          const recLabel = recOpt ? recOpt.label : recommended;
+          stagedDetect.textContent = "Detected: " + summary + "  ·  suggested preset: " + recLabel;
+        } else {
+          stagedDetect.textContent = "Detected: " + summary;
+        }
+      }
+
+      // Only auto-select the recommendation if the user hasn't already
+      // overridden it manually since we staged the file.
+      if (recommended && !userOverrode && stagedPresetSelect instanceof HTMLSelectElement) {
+        // Confirm the recommended preset is actually in the picker before
+        // assigning — defensive against future preset-list edits.
+        const known = presetOptions.some(function (p) { return p.value === recommended; });
+        if (known) {
+          stagedPresetSelect.value = recommended;
+          syncStagedBlurb();
+          if (stagedAutoNote instanceof HTMLElement) stagedAutoNote.removeAttribute("hidden");
+        }
+      }
+    }
+
     async function handleFile(file) {
       // Validate against the extension set for the *currently selected*
-      // preset. Picking hacpp-lzma with a plain .ply used to fall through
-      // the picker's `accept=` filter (drag-drop bypasses it) and then
-      // explode on the worker — surface the mismatch up front instead.
+      // preset on the idle picker. Picking hacpp-lzma with a plain .ply
+      // used to fall through the picker's `accept=` filter (drag-drop
+      // bypasses it) and then explode on the worker — surface the
+      // mismatch up front instead.
       const preset = selectedPreset();
       const supportedExts = isBundlePreset(preset) ? bundleSupported : supported;
       const lower = file.name.toLowerCase();
@@ -1001,6 +1308,12 @@ const presetOptions = [
         fail(hint);
         return;
       }
+      // Stage the file; actual upload waits on the Process button.
+      await stageFile(file);
+    }
+
+    async function submit(file, presetOverride) {
+      const preset = presetOverride || selectedPreset();
       // Move into the progress region immediately.
       if (progressFilename) progressFilename.textContent = file.name + " · " + formatBytes(file.size);
       setProgress("Uploading", "starting…", 0);
@@ -1031,6 +1344,9 @@ const presetOptions = [
         setProgress("Processing", "starting optimize…", null);
         setState("processing");
         processingStartedAt = Date.now();
+        // createJob reads selectedPreset() off the idle picker; we sync
+        // the staged selection back before submit() so that read returns
+        // the preset the user actually clicked Process with.
         const job = await createJob(signed.sourceUrl);
         if (progressFilename) progressFilename.textContent = file.name;
         const finalJob = await waitFor(job.id);
