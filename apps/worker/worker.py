@@ -304,33 +304,22 @@ def run_optimize(
             }
             return _callback(callback_url, payload)
 
-        # Phase 3: package + upload. Pack the .glb (single-file portable) and
-        # upload the .gltf preview manifest with absolute buffer URLs.
-        _post_phase(callback_url, "packaging")
+        # Phase 3: package + upload. Pack the .glb (single-file portable),
+        # upload it + the .gltf preview manifest sidecars + the .splat sidecar
+        # IN PARALLEL. Vercel Blob PUT has ~2-3s round-trip; serial uploads of
+        # a 5-10-chunk gltf manifest add 30-60s to wall time. Threading the
+        # uploads cuts packaging from ~100s to ~10s on typical jobs.
+        _post_phase(callback_url, "packaging", percent=0.90)
         try:
             glb_path = out_dir / "optimized.glb"
             _pack_glb(gltf_path, glb_path)
-            output_url = _upload_blob(
-                f"jobs/{job_id}/optimized.glb",
-                glb_path,
-                "model/gltf-binary",
-            )
-            preview_url = _upload_gltf_with_absolute_buffers(job_id, gltf_path)
-            # Splat sidecar (antimatter15 32-byte format) — used by the
-            # homepage TryIt result viewer via the vendored /am15/ viewer.
-            # The CLI now emits this alongside the .gltf; upload if present.
-            splat_url = None
             splat_path = gltf_path.with_suffix(".splat")
-            if splat_path.exists():
-                try:
-                    splat_url = _upload_blob(
-                        f"jobs/{job_id}/optimized.splat",
-                        splat_path,
-                        "application/octet-stream",
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    # Non-fatal: result viewer falls back to the SDK preview.
-                    print(f"warning: splat sidecar upload failed: {exc}", flush=True)
+            results = _upload_outputs_parallel(
+                job_id, glb_path, gltf_path, splat_path, callback_url
+            )
+            output_url = results["output_url"]
+            preview_url = results["preview_url"]
+            splat_url = results.get("splat_url")
         except Exception as exc:  # noqa: BLE001
             return _callback(
                 callback_url,
@@ -362,13 +351,117 @@ def _download(url: str, dst: Path) -> None:
         shutil.copyfileobj(response, f, length=4 * 1024 * 1024)
 
 
-def _upload_gltf_with_absolute_buffers(job_id: str, gltf_path: Path) -> str:
-    """Upload glTF + every sidecar, rewriting buffer URIs to absolute blob URLs.
+def _upload_outputs_parallel(
+    job_id: str,
+    glb_path: Path,
+    gltf_path: Path,
+    splat_path: Path,
+    callback_url: Optional[str],
+) -> dict:
+    """Upload all output artifacts (.glb + gltf manifest sidecars + .splat) in
+    parallel and emit synthetic progress as they land. Returns dict with
+    `output_url`, `preview_url`, and optionally `splat_url`.
 
-    Companion to `_pack_glb` for in-browser preview: the splatforge web
-    viewer expects a JSON manifest it can fetch, with each buffer URI an
-    absolute URL it can stream chunks from. Returns the manifest's URL.
+    Replaces the serial chain (1 glb PUT → N chunk PUTs → 1 manifest PUT →
+    1 splat PUT) which dominated packaging wall-clock at ~3s Vercel Blob
+    RTT × 5-10 chunks. With ThreadPoolExecutor(max_workers=8) the wall
+    time collapses to roughly the latency of the largest single PUT.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: PLC0415
+
+    manifest = json.loads(gltf_path.read_text(encoding="utf-8"))
+    base_dir = gltf_path.parent
+
+    # Build the upload task list. Each entry: (logical_name, key, local_path, content_type)
+    tasks: list[tuple[str, str, Path, str]] = []
+    tasks.append(("glb", f"jobs/{job_id}/optimized.glb", glb_path, "model/gltf-binary"))
+    if splat_path.exists():
+        tasks.append((
+            "splat",
+            f"jobs/{job_id}/optimized.splat",
+            splat_path,
+            "application/octet-stream",
+        ))
+    chunk_uris: list[str] = []
+    for buf in manifest.get("buffers") or []:
+        uri = buf.get("uri")
+        if not uri or uri.startswith("data:") or uri.startswith("http"):
+            continue
+        sidecar = (base_dir / uri).resolve()
+        if not sidecar.exists():
+            raise RuntimeError(f"manifest references missing buffer: {uri}")
+        chunk_uris.append(uri)
+        tasks.append((
+            f"chunk:{uri}",
+            f"jobs/{job_id}/{uri}",
+            sidecar,
+            "application/octet-stream",
+        ))
+
+    n_total = len(tasks)
+    completed = 0
+    results: dict[str, str] = {}
+    splat_warning: Optional[str] = None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(_upload_blob, key, path, ct): name
+            for (name, key, path, ct) in tasks
+        }
+        for fut in as_completed(futures):
+            name = futures[fut]
+            try:
+                url = fut.result()
+            except Exception as exc:  # noqa: BLE001
+                if name == "splat":
+                    # Splat sidecar is optional; warn and continue.
+                    splat_warning = str(exc)
+                    print(f"warning: splat sidecar upload failed: {exc}", flush=True)
+                    completed += 1
+                    continue
+                # All other failures abort the packaging phase.
+                raise
+            results[name] = url
+            completed += 1
+            # Spread synthetic percent across the packaging phase: 0.90 → 0.99
+            # so the frontend ETA estimator keeps a useful read-out instead of
+            # going dark during this stage. Cap at 0.99 — the final 1.0 fires
+            # from the done callback.
+            pct = 0.90 + 0.09 * (completed / n_total)
+            _post_phase(callback_url, "packaging", percent=min(0.99, pct))
+
+    # Rewrite manifest's buffer URIs to absolute and upload the patched manifest.
+    # We can do this only after chunk uploads land because the urls aren't known
+    # until the futures resolve. Cheap single PUT after the parallel batch.
+    for buf in manifest.get("buffers") or []:
+        uri = buf.get("uri")
+        if not uri or uri.startswith("data:") or uri.startswith("http"):
+            continue
+        url = results.get(f"chunk:{uri}")
+        if not url:
+            raise RuntimeError(f"missing uploaded chunk url for {uri}")
+        buf["uri"] = url
+    patched = base_dir / "optimized.preview.gltf"
+    patched.write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+    preview_url = _upload_blob(
+        f"jobs/{job_id}/optimized.gltf", patched, "model/gltf+json"
+    )
+
+    out: dict = {
+        "output_url": results["glb"],
+        "preview_url": preview_url,
+    }
+    if "splat" in results:
+        out["splat_url"] = results["splat"]
+    if splat_warning:
+        out["splat_warning"] = splat_warning
+    return out
+
+
+def _upload_gltf_with_absolute_buffers(job_id: str, gltf_path: Path) -> str:
+    """Legacy serial uploader. Retained for the .meson packaging path which
+    doesn't go through `_upload_outputs_parallel`. New callers should use the
+    parallel path above."""
     manifest = json.loads(gltf_path.read_text(encoding="utf-8"))
     base_dir = gltf_path.parent
     for buf in manifest.get("buffers") or []:
