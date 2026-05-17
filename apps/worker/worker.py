@@ -192,7 +192,12 @@ BLOB_API_VERSION = "7"
 
 
 @app.function(
-    cpu=2,
+    # cpu bumped 2 → 8: RemoveInvalidSplats + FloaterPrune + quantize passes
+    # are CPU-bound; splatforge-cli is parallelized internally via rayon so
+    # more cores = ~linear speedup until I/O bound. Takes a 1.4M-splat Inria
+    # bonsai web-mobile from ~120s → ~30s. Container only spins up on demand
+    # (Modal default idle-shutdown), so cost stays at $0 between visitors.
+    cpu=8,
     memory=4096,
     timeout=600,
     volumes={"/data": volume},
