@@ -163,7 +163,7 @@ const version = splatbench.catetusVersion;
             // FP32 SoA splats vs the WebGL2 CPU-decoded subset). 0.45
             // is fine on WebGL2 because CPU decode quietly drops splats
             // whose projected radius blows up.
-            autoRotateFraming: hasWebGPU ? 1.0 : 0.45,
+            autoRotateFraming: 1.0,
           });
           viewer.on("firstRender", () => {
             setStatus(
