@@ -4,7 +4,7 @@
   "context": "task#151 flat-CRF sweep reported codec-gs-mixed at production CRF=28 hitting 16.26 / 14.49 / 11.16 dB valid-cam mean render-PSNR on bonsai / bicycle / stump. The agent caveat noted orbit-camera coverage was uneven (1-2 of 5 cams hit non-empty content). This task disambiguates whether (a) the harness was placing cameras in empty space or (b) codec-gs-mixed genuinely hit the same render-PSNR regime as the MesonGS++ K=256 that we already killed in task#141.",
 
   "root_cause_harness_bug": {
-    "file": "/home/montabano1/sf-fidelity-tmp/v04-oracle/oracle_pipeline.py",
+    "file": "$HOME/sf-fidelity-tmp/v04-oracle/oracle_pipeline.py",
     "function": "orbit_view_mats",
     "bug": "Camera position computed as [cx + r*cos, cy + height, cz + r*sin] where caller passes `height = centroid[1] + 0.3*radius`. Net camera y = cy + (cy + 0.3*r) = 2*cy + 0.3*r — the centroid y-coordinate is added twice, lifting the orbit ring well above the scene. For scenes with non-zero centroid.y, most cameras fire into empty space (src_mean ≈ 0, PSNR pegged at 100 dB by the MSE clamp). This contaminated every prior render-PSNR gate that pulled orbit_view_mats from oracle_pipeline (including #141 MesonGS++ measurement and #151 codec-gs-mixed sweep).",
     "note_141_was_largely_ok": "task#141 used a SECOND independent script (tasks/scripts/meson_attribute_isolation.py) with its OWN orbit_view_mats that does NOT have the double-cy bug. That's why #141 measured bonsai at 21.55 dB on 5 content-bearing cams. The bug only affected scripts that pulled orbit_view_mats from oracle_pipeline directly — which includes tasks/scripts/meson_render_psnr.py and the #151 codec-gs sweep harness.",
@@ -82,5 +82,5 @@
     "size-min"
   ],
 
-  "results_dir_on_4090": "/home/montabano1/sf-crf-sweep/sanity-out/"
+  "results_dir_on_4090": "$HOME/sf-crf-sweep/sanity-out/"
 }

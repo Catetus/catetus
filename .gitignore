@@ -172,7 +172,7 @@ experiments/w3-codecgs-integrate/*.bundle/
 # jacobian-census J_per_splat.npz files >100 MB exceed GitHub's hard limit.
 # Reproducible via experiments/jacobian-census-canonical-11/code/run_scene.sh;
 # live on the 4090 box at
-# /home/montabano1/catetus/jacobian-census-canonical-11/out/<scene>-30k-*/.
+# $HOME/catetus/jacobian-census-canonical-11/out/<scene>-30k-*/.
 experiments/jacobian-census-bicycle-30k/J_per_splat.npz
 experiments/jacobian-census-bicycle-30k/raw_runs/*/J_per_splat.npz
 experiments/jacobian-census-garden-30k/J_per_splat.npz

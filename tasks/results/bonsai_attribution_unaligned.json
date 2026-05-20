@@ -1,7 +1,7 @@
 {
   "scene": "bonsai_iter7000",
-  "src": "/home/montabano1/catetus/scenes/bonsai.ply",
-  "dec": "/home/montabano1/Catetus/.bench-scenes/meson-validate/bonsai_iter7000_decoded.ply",
+  "src": "$HOME/catetus/scenes/bonsai.ply",
+  "dec": "$HOME/Catetus/.bench-scenes/meson-validate/bonsai_iter7000_decoded.ply",
   "sh_degree": 3,
   "n_cams": 5,
   "image_size": 512,

@@ -1,5 +1,5 @@
 {
-  "report": "canonical-11-sf",
+  "report": "canonical-11",
   "generated_utc": "2026-05-20T17:54:14Z",
   "preset": "wmv-vq45-no-prune-tight",
   "encoder": "catetus 0.1.0",

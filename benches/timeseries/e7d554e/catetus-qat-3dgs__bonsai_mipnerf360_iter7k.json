@@ -20,6 +20,6 @@
     "delta_lpips": 0.0,
     "wall_secs": 12,
     "modal_cost_cents": 4,
-    "output_url": "https://montabano1--catetus-qat-3dgs.modal.run/artifact/bonsai_iter7k.qat3dgs.ply"
+    "output_url": "https://api.catetus.com/artifact/bonsai_iter7k.qat3dgs.ply"
   }
 }

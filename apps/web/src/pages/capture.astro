@@ -233,8 +233,8 @@ catetus capture submit \\
   --preset catetus-qat-bundle \\
   --out ./out.ply
 
-# 3. Or POST direct to the Modal app
-curl -X POST https://montabano1--catetus-capture-enqueue.modal.run/ \\
+# 3. Or POST direct to the hosted endpoint
+curl -X POST https://api.catetus.com/v1/capture/enqueue \\
   -H 'content-type: application/json' \\
   -d '{
     "job_id": "demo-001",

@@ -1,8 +1,8 @@
 {
   "label": "mesonpp-k256",
   "scene": "bicycle_iter7000",
-  "source_ply": "/home/montabano1/catetus/scenes/bicycle.ply",
-  "decoded_ply": "/home/montabano1/Catetus/.bench-scenes/meson-validate/bicycle_decoded.ply",
+  "source_ply": "$HOME/catetus/scenes/bicycle.ply",
+  "decoded_ply": "$HOME/Catetus/.bench-scenes/meson-validate/bicycle_decoded.ply",
   "n_cams": 8,
   "image_size": 512,
   "sh_degree": 3,

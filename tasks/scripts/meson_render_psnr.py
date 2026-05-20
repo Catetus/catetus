@@ -8,10 +8,10 @@ oracle_pipeline.py and gsplat are already installed.
 
 Usage:
   python meson_render_psnr.py \
-    --source /home/montabano1/catetus/scenes/bonsai.ply \
-    --decoded /home/montabano1/Catetus/.bench-scenes/meson-validate/bonsai_iter7000_decoded.ply \
+    --source $HOME/catetus/scenes/bonsai.ply \
+    --decoded $HOME/Catetus/.bench-scenes/meson-validate/bonsai_iter7000_decoded.ply \
     --scene bonsai_iter7000 \
-    --out /home/montabano1/Catetus/.bench-scenes/meson-validate/bonsai_psnr.json
+    --out $HOME/Catetus/.bench-scenes/meson-validate/bonsai_psnr.json
 """
 from __future__ import annotations
 import argparse, json, math, sys, time
@@ -22,7 +22,7 @@ import torch
 
 # pull in load_inria / to_gpu / render_orbit_8 / orbit_view_mats from the
 # existing oracle pipeline on the 4090
-sys.path.insert(0, '/home/montabano1/sf-fidelity-tmp/v04-oracle')
+sys.path.insert(0, '$HOME/sf-fidelity-tmp/v04-oracle')
 from oracle_pipeline import load_inria, to_gpu, orbit_view_mats, DEVICE  # noqa: E402
 from gsplat import rasterization  # noqa: E402
 

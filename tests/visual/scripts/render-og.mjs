@@ -3,7 +3,7 @@
 import playwright from 'playwright-core';
 import { resolve } from 'node:path';
 
-const OUT = '/Users/montabano1/Desktop/Catetus/apps/web/public/og-image.png';
+const OUT = '$HOME/Desktop/Catetus/apps/web/public/og-image.png';
 const HTML = 'file:///tmp/og-card.html';
 
 const browser = await playwright.chromium.launch({ headless: true });

@@ -156,7 +156,7 @@ If you get an auth prompt:
   • HTTPS + Personal Access Token: paste the PAT when prompted for password
   • HTTPS + GitHub CLI:  brew install gh && gh auth login
   • SSH (cleaner):
-        git remote set-url origin git@github.com:montabano1/Catetus.git
+        git remote set-url origin git@github.com:Catetus/catetus.git
         git push -u origin main
 
 Then visit: https://github.com/Catetus/catetus

@@ -11,7 +11,7 @@
 // honestly shows that and tells contributors how to send numbers.
 import Base from "../layouts/Base.astro";
 import Leaderboard from "../components/Leaderboard.astro";
-import canonical11 from "../data/canonical-11-sf.json";
+import canonical11 from "../data/canonical-11.json";
 import {
   splatbench,
   encoders,
@@ -217,7 +217,7 @@ const otherEncoders = [
       </tbody>
     </table>
     <p class="methodology">
-      Machine-readable: <a href={`${githubUrl}/blob/main/benches/reports/canonical-11-sf.json`}>canonical-11-sf.json</a> ·
+      Machine-readable: <a href={`${githubUrl}/blob/main/benches/reports/canonical-11.json`}>canonical-11.json</a> ·
       input PLY manifest with MD5s: <a href={`${githubUrl}/blob/main/benches/scenes/canonical-11/MANIFEST.md`}>MANIFEST.md</a>.
     </p>
   </section>

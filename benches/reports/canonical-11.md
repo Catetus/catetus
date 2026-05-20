@@ -37,5 +37,5 @@ Canonical 11-scene corpus used by the Inria 3D Gaussian Splatting paper (Mip-NeR
 - **PSNR:** RGB MSE → 10·log10(255²/MSE).
 - **SSIM:** 8x8 non-overlapping blocks on luminance, Bessel-corrected variance.
 
-Per-frame PSNR/SSIM and decoder reproducibility detail in [`canonical-11-sf.json`](./canonical-11-sf.json).
+Per-frame PSNR/SSIM and decoder reproducibility detail in [`canonical-11.json`](./canonical-11.json).
 

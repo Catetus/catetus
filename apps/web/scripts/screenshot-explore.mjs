@@ -7,7 +7,7 @@
  *   apps/web/screenshots/explore.png        — registry index w/ filter chips
  *   apps/web/screenshots/explore-scene.png  — per-scene page (bonsai)
  */
-import { chromium } from '/Users/montabano1/Desktop/Catetus/.wt-explore/tests/visual/node_modules/playwright-core/index.mjs';
+import { chromium } from '$HOME/Desktop/Catetus/.wt-explore/tests/visual/node_modules/playwright-core/index.mjs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 

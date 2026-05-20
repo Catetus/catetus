@@ -53,7 +53,7 @@ The open-source core (this repo) ships the CLI, viewer SDK, benchmark corpus, an
 | Mean PSNR (gsplat, 512², orbit-8, SH=3) | **47.45 dB** (median 47.78, min 43.46) |
 | Mean SSIM | **0.9991** (min 0.9973) |
 
-Per-scene table: [canonical-11-sf.md](./benches/reports/canonical-11-sf.md) · machine-readable: [canonical-11-sf.json](./benches/reports/canonical-11-sf.json)
+Per-scene table: [canonical-11.md](./benches/reports/canonical-11.md) · machine-readable: [canonical-11.json](./benches/reports/canonical-11.json)
 
 **Broader SplatBench v0 corpus** (28 scenes including synthetic stress probes, `web-mobile` preset):
 

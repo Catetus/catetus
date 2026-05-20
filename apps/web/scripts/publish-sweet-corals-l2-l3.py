@@ -10,7 +10,7 @@ Run on the 4090 (WSL) where the source .lodge directory lives:
         --lodge-dir /mnt/c/Users/monta/Catetus/.bench-scenes/sweet-corals-full.lodge \
         --reuse-manifest https://xmcqr5nqjygbqjqw.public.blob.vercel-storage.com/samples/sweet-corals.lodge/manifest-l4-l5-QevCTqvCPEvNGoZKyeEUn9iYFWgEoX.json \
         --blob-prefix samples/sweet-corals.lodge \
-        --output-urls /home/montabano1/sweet-corals-l2-l3-urls.json
+        --output-urls $HOME/sweet-corals-l2-l3-urls.json
 """
 from __future__ import annotations
 

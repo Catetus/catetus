@@ -11,7 +11,7 @@
   "render_determinism_psnr": "100 dB across all cams (src vs src) — gsplat render is deterministic at this configuration",
   "scenes": {
     "bonsai_iter7000": {
-      "source_ply": "/home/montabano1/catetus/scenes/bonsai.ply (273.7 MB, 1,157,141 splats, sh_deg=3)",
+      "source_ply": "$HOME/catetus/scenes/bonsai.ply (273.7 MB, 1,157,141 splats, sh_deg=3)",
       "decoded_ply": "bonsai_iter7000_decoded.ply (273.7 MB, 1,157,141 splats — splat count + bbox preserved)",
       "meson_artifact": "bonsai_iter7000.meson (12.5 MB, 23.0x ratio, mgs-balanced)",
       "per_cam_psnr_db": [100.0, 75.700, 100.0, 13.857, 19.407],
@@ -27,7 +27,7 @@
       "note": "3 of 5 cams (cam0, cam1, cam2) point at empty regions of the scene (src_mean < 1e-4 = essentially black). PSNR(black,black) = 100 dB inflates the raw mean. On the 2 cams that actually capture scene content, decoded rendering is visibly different from source: source mean luminance 0.33/0.53, decoded 0.20/0.45 — codec systematically dims & alters the SH-DC term. Per-cam PSNR on content cams is 13.9 dB and 19.4 dB, far worse than the 35 dB lossless-perceptual floor (drop = 21.1 dB and 15.6 dB respectively). Gate NOT met."
     },
     "bicycle_iter7000": {
-      "source_ply": "/home/montabano1/catetus/scenes/bicycle.ply (855 MB, 3,616,103 splats, sh_deg=3)",
+      "source_ply": "$HOME/catetus/scenes/bicycle.ply (855 MB, 3,616,103 splats, sh_deg=3)",
       "decoded_ply": "bicycle_decoded.ply (855 MB, 3,616,103 splats — splat count + bbox preserved)",
       "meson_artifact": "bicycle.meson (35 MB, 24.5x ratio, mgs-balanced)",
       "per_cam_psnr_db": [18.588, 43.074, 21.603, 9.744, 11.367],

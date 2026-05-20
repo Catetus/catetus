@@ -42,7 +42,7 @@ const SOURCES = [
   'splatbench-v0.json',
   'splatbench-v0.encoders.json',
   'bonsai-real-demo.md',
-  'canonical-11-sf.json',
+  'canonical-11.json',
 ];
 const DEST_DIR = resolve(APP_ROOT, 'src', 'data');
 

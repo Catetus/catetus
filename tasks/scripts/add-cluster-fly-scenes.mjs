@@ -5,7 +5,7 @@
 // runs; here we just write the scene rows with what we measured.
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const PATH = '/Users/montabano1/Desktop/Catetus/.wt-cluster-fly/benches/reports/splatbench-v0.json';
+const PATH = '$HOME/Desktop/Catetus/.wt-cluster-fly/benches/reports/splatbench-v0.json';
 const sb = JSON.parse(readFileSync(PATH, 'utf8'));
 
 const lods = [

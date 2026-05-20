@@ -1,8 +1,8 @@
 {
   "label": "mesonpp-k256",
   "scene": "bonsai_iter7000",
-  "source_ply": "/home/montabano1/catetus/saliency_v1_real/bonsai_iter7000.ply",
-  "decoded_ply": "/home/montabano1/Catetus/.bench-scenes/meson-validate/bonsai_iter7000_decoded.ply",
+  "source_ply": "$HOME/catetus/saliency_v1_real/bonsai_iter7000.ply",
+  "decoded_ply": "$HOME/Catetus/.bench-scenes/meson-validate/bonsai_iter7000_decoded.ply",
   "n_cams": 8,
   "image_size": 512,
   "sh_degree": 3,

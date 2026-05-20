@@ -206,6 +206,6 @@ v1 tightening and the first SplatBench leaderboard.
 - Pre-built binary is Linux aarch64 only — `cargo build` locally for other
   platforms (instructions in [`INSTALL.md`](./INSTALL.md)).
 
-[Unreleased]: https://github.com/montabano1/Catetus/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/montabano1/Catetus/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/montabano1/Catetus/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Catetus/catetus/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Catetus/catetus/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Catetus/catetus/releases/tag/v0.1.0

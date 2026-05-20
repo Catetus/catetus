@@ -1,8 +1,8 @@
 {
   "label": "codec-gs-mixed-crf28",
   "scene": "bicycle_iter7000",
-  "source_ply": "/home/montabano1/catetus/scenes/bicycle.ply",
-  "decoded_ply": "/home/montabano1/sf-crf-sweep/sanity-out/decoded/bicycle_iter7000_codecgs_crf28.ply",
+  "source_ply": "$HOME/catetus/scenes/bicycle.ply",
+  "decoded_ply": "$HOME/sf-crf-sweep/sanity-out/decoded/bicycle_iter7000_codecgs_crf28.ply",
   "n_cams": 8,
   "image_size": 512,
   "sh_degree": 3,

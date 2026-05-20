@@ -10,7 +10,7 @@
             |                                                     |
    public landing page                              hosted optimize API
    apps/web (Astro static)                          apps/api (Axum on DO droplet,
-   github.com/montabano1                            planned; in-memory store today)
+   github.com/Catetus                            planned; in-memory store today)
    /Catetus                                              │
                                                             v
                                                   apps/worker (Modal Python)
@@ -167,7 +167,7 @@ that variance.
 | `crates/catetus-cli`       | Rust bin     | shipped    | The `catetus` binary              |
 | `crates/catetus-usd`       | Rust lib     | draft v0.2 | OpenUSD I/O — SPEC-0011              |
 | `apps/api`                    | Rust bin     | scaffolded | Hosted optimize endpoint — not deployed |
-| `apps/worker`                 | Modal Python | deployed   | https://montabano1--enqueue.modal.run |
+| `apps/worker`                 | Modal Python | deployed   | https://api.catetus.com |
 | `apps/fidelity-gpu`           | Modal Python | deployed   | One-shot GPU fidelity rerun          |
 | `apps/web`                    | Astro static | deployed   | https://catetus-…vercel.app       |
 | `packages/viewer`             | TS lib       | shipped    | WebGPU + WebGL2 splat renderer       |

@@ -53,14 +53,14 @@ function loadGlbChunks(bytes: Uint8Array): { json: unknown; bin: Uint8Array } {
   return { json, bin };
 }
 
-describe('decodeSFExtensions — tiny-sf fixture', () => {
-  const glbBytes = new Uint8Array(readFileSync(resolve(FIXTURE_DIR, 'tiny-sf.glb')));
-  const palBytes = readFileSync(resolve(FIXTURE_DIR, 'tiny-sf.glb.shpal'));
+describe('decodeSFExtensions — tiny fixture', () => {
+  const glbBytes = new Uint8Array(readFileSync(resolve(FIXTURE_DIR, 'tiny.glb')));
+  const palBytes = readFileSync(resolve(FIXTURE_DIR, 'tiny.glb.shpal'));
   const ref = JSON.parse(readFileSync(resolve(FIXTURE_DIR, 'fixture-reference.json'), 'utf8')) as FixtureRef;
   const { json, bin } = loadGlbChunks(glbBytes);
 
   const decoded = decodeSFExtensions(json, bin, {
-    'tiny-sf.glb.shpal': palBytes.buffer.slice(
+    'tiny.glb.shpal': palBytes.buffer.slice(
       palBytes.byteOffset,
       palBytes.byteOffset + palBytes.byteLength,
     ),

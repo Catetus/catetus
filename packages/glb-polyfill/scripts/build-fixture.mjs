@@ -10,7 +10,7 @@
  * assert byte-for-byte fidelity against ground truth — not against itself.
  *
  * Run with:   node scripts/build-fixture.mjs
- * Output:     tests/fixtures/tiny-sf.glb + tiny-sf.glb.shpal + fixture-reference.json
+ * Output:     tests/fixtures/tiny.glb + tiny.glb.shpal + fixture-reference.json
  *
  * Wire format mirrors `crates/catetus-gltf/src/lib.rs` byte-for-byte; see
  * the per-section comments in this file for the producer-side reference.
@@ -318,7 +318,7 @@ for (let i = 0; i < N; i++) {
 accessors[0].min = [pxMin, pyMin, pzMin];
 accessors[0].max = [pxMax, pyMax, pzMax];
 
-const sidecarUri = 'tiny-sf.glb.shpal';
+const sidecarUri = 'tiny.glb.shpal';
 const gltf = {
   asset: { version: '2.0', generator: 'glb-polyfill/build-fixture' },
   extensionsUsed: [
@@ -397,7 +397,7 @@ glb.set(binAligned, binChunkOff + 8);
 
 /* ---------------- write outputs ---------------- */
 
-const glbPath = join(OUT_DIR, 'tiny-sf.glb');
+const glbPath = join(OUT_DIR, 'tiny.glb');
 const palPath = join(OUT_DIR, sidecarUri);
 const refPath = join(OUT_DIR, 'fixture-reference.json');
 

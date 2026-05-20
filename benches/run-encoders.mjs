@@ -67,7 +67,7 @@ const report = {
   scenes: [],
 };
 
-const tmpRoot = join("/Users/montabano1/Desktop/Catetus/.tmp", "bench-encoders");
+const tmpRoot = join("$HOME/Desktop/Catetus/.tmp", "bench-encoders");
 mkdirSync(tmpRoot, { recursive: true });
 
 for (const scene of scenes) {

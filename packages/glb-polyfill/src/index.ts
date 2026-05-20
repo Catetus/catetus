@@ -139,13 +139,13 @@ const SH_COEFS_PER_DEGREE = [1, 3, 5, 7] as const;
  * (target: 4-6 weeks from rename).
  */
 const LEGACY_EXTENSION_REMAP: Record<string, string> = {
-  CT_zstd_split_buffer: 'CT_zstd_split_buffer',
-  CT_gaussian_splatting_palette: 'CT_gaussian_splatting_palette',
-  CT_log_quant_attrs: 'CT_log_quant_attrs',
-  CT_quat_smallest3: 'CT_quat_smallest3',
-  CT_v5_tail_residual: 'CT_v5_tail_residual',
+  SF_zstd_split_buffer: 'CT_zstd_split_buffer',
+  SF_gaussian_splatting_palette: 'CT_gaussian_splatting_palette',
+  SF_log_quant_attrs: 'CT_log_quant_attrs',
+  SF_quat_smallest3: 'CT_quat_smallest3',
+  SF_v5_tail_residual: 'CT_v5_tail_residual',
   SF_brotli_buffer: 'CT_brotli_buffer',
-  CT_spatial_streaming_index: 'CT_spatial_streaming_index',
+  SF_spatial_streaming_index: 'CT_spatial_streaming_index',
 };
 const warnedLegacyKeys = new Set<string>();
 

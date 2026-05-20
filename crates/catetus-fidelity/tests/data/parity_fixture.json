@@ -1,6 +1,6 @@
 {
-  "ply_path": "/Users/montabano1/Desktop/Catetus/benches/scenes/real/bonsai_iter7000.ply",
-  "baseline_path": "/Users/montabano1/Desktop/Catetus/benches/scenes/bonsai_mipnerf360_iter7k.ply",
+  "ply_path": "$HOME/Desktop/Catetus/benches/scenes/real/bonsai_iter7000.ply",
+  "baseline_path": "$HOME/Desktop/Catetus/benches/scenes/bonsai_mipnerf360_iter7k.ply",
   "features": [
     0.0,
     1.0,
