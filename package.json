@@ -1,0 +1,22 @@
+{
+  "name": "catetus-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "packages/*",
+    "tests/visual"
+  ],
+  "scripts": {
+    "lint": "pnpm -r --if-present run lint",
+    "test": "pnpm -r --if-present run test",
+    "build": "pnpm -r --if-present run build",
+    "build:viewer-app": "pnpm -C packages/glb-polyfill build && pnpm -C packages/viewer-app build",
+    "dev:viewer-app": "pnpm -C packages/viewer-app dev",
+    "playwright": "pnpm -F catetus-visual test"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.45.0"
+  }
+}

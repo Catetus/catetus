@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Catetus — diag-vq45 (compressed-format viewer smoke test)</title>
+  <style>
+    body {
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      margin: 0;
+      padding: 24px;
+      max-width: 1400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 { color: #e6edf3; margin-top: 0; }
+    h2 { color: #adbac7; font-size: 14px; margin: 0 0 8px 0; }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      background: #000;
+      border: 1px solid #30363d;
+      display: block;
+    }
+    pre {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 11px;
+      max-height: 280px;
+      overflow: auto;
+      white-space: pre;
+      margin: 0;
+    }
+    button {
+      background: #238636; color: #fff; border: 0; border-radius: 6px;
+      padding: 8px 14px; cursor: pointer; font: inherit;
+    }
+    .ok { color: #56d364; }
+    .err { color: #ff7b72; }
+    .loading { color: #d2a8ff; }
+  </style>
+</head>
+<body>
+  <h1>Catetus — viewer decoder smoke test</h1>
+  <div class="card">
+    <p>
+      Renders <code>bonsai_input.glb</code> (vanilla <code>KHR_gaussian_splatting</code>,
+      FP32) next to <code>wmv-vq45-no-prune.glb</code> (Catetus optimized:
+      <code>KHR_mesh_quantization</code> + <code>SF_zstd_split_buffer</code> +
+      BYTE-quantized SH-rest) using the same JS decoder paths as the bench
+      harness at <code>experiments/w3-fidelity-harness/code/cpu-fidelity.mjs</code>.
+      The compressed path additionally probes the
+      <code>SF_gaussian_splatting_palette</code> sidecar (<code>.shpal</code>)
+      via the ported <code>loadShPaletteSidecar</code> reader.
+    </p>
+    <p>
+      <button id="run">Reload &amp; render</button>
+    </p>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>baseline — bonsai_input.glb (FP32, 273 MiB)</h2>
+      <div id="status-baseline" class="loading">idle</div>
+      <canvas id="canvas-baseline" width="480" height="480"></canvas>
+    </div>
+    <div class="card">
+      <h2>compressed — wmv-vq45-no-prune.glb (68 MiB on disk, ~252 MiB BIN after zstd)</h2>
+      <div id="status-compressed" class="loading">idle</div>
+      <canvas id="canvas-compressed" width="480" height="480"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <pre id="log">(click Reload &amp; render, or load with ?auto=1)</pre>
+  </div>
+
+  <script type="module" src="./diag-vq45/diag.js"></script>
+</body>
+</html>

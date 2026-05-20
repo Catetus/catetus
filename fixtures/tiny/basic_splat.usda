@@ -1,0 +1,6 @@
+#usda 1.0
+def "scene" {
+  def ParticleField3DGaussianSplat "splats" {
+    int splatCount = 3
+  }
+}

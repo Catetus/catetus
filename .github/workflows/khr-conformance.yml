@@ -1,0 +1,55 @@
+name: khr-conformance
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/catetus-khr-conformance/**"
+      - "crates/catetus-gltf/**"
+      - "crates/catetus-core/**"
+      - ".github/workflows/khr-conformance.yml"
+  pull_request:
+    paths:
+      - "crates/catetus-khr-conformance/**"
+      - "crates/catetus-gltf/**"
+      - "crates/catetus-core/**"
+      - ".github/workflows/khr-conformance.yml"
+
+jobs:
+  conformance:
+    name: KHR_gaussian_splatting conformance suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      # Build the validator and the fixture generator, then run the suite.
+      - name: cargo build
+        run: cargo build -p catetus-khr-conformance --release
+
+      - name: cargo clippy
+        run: cargo clippy -p catetus-khr-conformance --all-targets -- -D warnings
+
+      - name: cargo test (regenerates the corpus + asserts every clause)
+        run: cargo test -p catetus-khr-conformance --release
+
+      # Re-validate the committed fixture corpus to catch drift between
+      # the generator and the bytes checked into the repo.
+      - name: validate committed fixtures
+        run: |
+          set -euo pipefail
+          for f in crates/catetus-khr-conformance/fixtures/*.glb \
+                   crates/catetus-khr-conformance/fixtures/*.gltf; do
+            echo "--- $f"
+            if [[ "$f" == *invalid* ]]; then
+              # Negative fixtures MUST fail (exit code 1).
+              if ./target/release/catetus-khr-validate "$f" --quiet; then
+                echo "::error::expected $f to fail validation but it passed"
+                exit 1
+              fi
+            else
+              ./target/release/catetus-khr-validate "$f" --quiet
+            fi
+          done

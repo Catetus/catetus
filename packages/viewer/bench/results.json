@@ -1,0 +1,26 @@
+[
+  {
+    "splatCount": 1000000,
+    "decodeMs": 245.69999998807907,
+    "perFrameMs": 7.856666667262713,
+    "perFrameMsBreakdown": {
+      "project": 1.5713333334525428,
+      "sort": 5.499666667083899,
+      "gather": 0.7856666667262714
+    },
+    "framesPerSecond": 127.28044122920682,
+    "iterations": 30
+  },
+  {
+    "splatCount": 10000000,
+    "decodeMs": 626.1000000238419,
+    "perFrameMs": 89.20999999940395,
+    "perFrameMsBreakdown": {
+      "project": 17.84199999988079,
+      "sort": 62.44699999958276,
+      "gather": 8.920999999940395
+    },
+    "framesPerSecond": 11.209505660875255,
+    "iterations": 10
+  }
+]

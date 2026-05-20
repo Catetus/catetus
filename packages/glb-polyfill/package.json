@@ -1,0 +1,47 @@
+{
+  "name": "@catetus/glb-polyfill",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Tiny decoder for Catetus SF_* glTF extensions (SF_zstd_split_buffer, SF_gaussian_splatting_palette, SF_quat_smallest3). Drop-in helper for Three.js, Babylon, model-viewer or any GLB pipeline.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fzstd": "^0.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "gltf",
+    "glb",
+    "gaussian-splatting",
+    "catetus",
+    "zstd",
+    "vector-quantization",
+    "three.js",
+    "babylon",
+    "model-viewer"
+  ]
+}

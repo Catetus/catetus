@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/healthz",
+      "destination": "http://catetus-api.fly.dev:8080/healthz"
+    },
+    {
+      "source": "/api/v1/:path*",
+      "destination": "http://catetus-api.fly.dev:8080/v1/:path*"
+    },
+    {
+      "source": "/viewer",
+      "destination": "/viewer/index.html"
+    },
+    {
+      "source": "/viewer/",
+      "destination": "/viewer/index.html"
+    }
+  ]
+}

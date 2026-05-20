@@ -1,0 +1,83 @@
+{
+  "label": "hosted-neural",
+  "scene": "bicycle_iter7000",
+  "source_ply": "/tmp/p2-hosted-neural-2_kcon3u/source.ply",
+  "decoded_ply": "/tmp/p2-hosted-neural-2_kcon3u/decoded.ply",
+  "n_cams": 8,
+  "image_size": 512,
+  "sh_degree": 3,
+  "centroid": [
+    -3.5893304347991943,
+    -4.178813457489014,
+    0.566841721534729
+  ],
+  "radius": 22.549274147062594,
+  "min_src_mean_threshold": 0.05,
+  "per_cam_psnr_db": [
+    9.066744133484587,
+    11.554911246915536,
+    14.253013700488633,
+    13.679629947639247,
+    7.163851145646368,
+    9.17043117884505,
+    7.142271985774897,
+    10.860818150738531
+  ],
+  "per_cam_src_mean": [
+    0.3956618309020996,
+    0.24446402490139008,
+    0.2961265444755554,
+    0.22619342803955078,
+    0.569802463054657,
+    0.5202895402908325,
+    0.5016344785690308,
+    0.5318946242332458
+  ],
+  "per_cam_dec_mean": [
+    0.32044002413749695,
+    0.14964154362678528,
+    0.21685126423835754,
+    0.2509549856185913,
+    0.26090943813323975,
+    0.37828564643859863,
+    0.22677308320999146,
+    0.4963071346282959
+  ],
+  "per_cam_det_baseline_db": [
+    100.0,
+    100.0,
+    100.0,
+    100.0,
+    100.0,
+    100.0,
+    100.0,
+    100.0
+  ],
+  "per_cam_flag": [
+    "CONTENT",
+    "CONTENT",
+    "CONTENT",
+    "CONTENT",
+    "CONTENT",
+    "CONTENT",
+    "CONTENT",
+    "CONTENT"
+  ],
+  "content_cams": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "content_mean_psnr_db": 10.361458936191607,
+  "content_min_psnr_db": 7.142271985774897,
+  "elapsed_sec": 95.24989748001099,
+  "psnr_v2_wall_sec": 98.23278832435608,
+  "stdout_tail": "[psnr2] hosted-neural | bicycle_iter7000 | sh=3 n_src=3616103 n_dec=1808054\n[psnr2] centroid=[-3.5893304347991943, -4.178813457489014, 0.566841721534729] radius=22.549\ngsplat: CUDA extension has been set up successfully in 86.49 seconds.\n[psnr2] per_cam: \n   cam0 [CONTENT      ] src_mean=0.3957 dec_mean=0.3204 det=100.00 dB | PSNR(dec,src)=9.067 dB\n   cam1 [CONTENT      ] src_mean=0.2445 dec_mean=0.1496 det=100.00 dB | PSNR(dec,src)=11.555 dB\n   cam2 [CONTENT      ] src_mean=0.2961 dec_mean=0.2169 det=100.00 dB | PSNR(dec,src)=14.253 dB\n   cam3 [CONTENT      ] src_mean=0.2262 dec_mean=0.2510 det=100.00 dB | PSNR(dec,src)=13.680 dB\n   cam4 [CONTENT      ] src_mean=0.5698 dec_mean=0.2609 det=100.00 dB | PSNR(dec,src)=7.164 dB\n   cam5 [CONTENT      ] src_mean=0.5203 dec_mean=0.3783 det=100.00 dB | PSNR(dec,src)=9.170 dB\n   cam6 [CONTENT      ] src_mean=0.5016 dec_mean=0.2268 det=100.00 dB | PSNR(dec,src)=7.142 dB\n   cam7 [CONTENT      ] src_mean=0.5319 dec_mean=0.4963 det=100.00 dB | PSNR(dec,src)=10.861 dB\n[psnr2] content_cams=[0, 1, 2, 3, 4, 5, 6, 7] mean=10.361458936191607 min=7.142271985774897\n[psnr2] wrote /tmp/p2-hosted-neural-2_kcon3u/psnr.json\n",
+  "source_bytes": 896795076,
+  "decoded_bytes": 448398924
+}

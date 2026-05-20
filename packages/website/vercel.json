@@ -1,0 +1,60 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "//": "Vercel deploy config for @catetus/website. Composite build: website (root /) + viewer-app (under /viewer/). Stealth — do not deploy without explicit approval. Replace __DOMAIN__ before going live.",
+  "framework": null,
+  "buildCommand": "bash packages/website/build-composite.sh",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "outputDirectory": "packages/website/dist",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- packages/website packages/viewer-app packages/glb-polyfill",
+  "trailingSlash": false,
+  "cleanUrls": false,
+  "rewrites": [
+    {
+      "//": "SPA-style fallback so deep links into the viewer hit its index.html. The viewer-app is built with base: './' so relative asset URLs resolve under /viewer/.",
+      "source": "/viewer/:path*",
+      "destination": "/viewer/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)\\.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    },
+    {
+      "source": "/",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/viewer/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/demos/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=86400, stale-while-revalidate=604800" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Permissions-Policy", "value": "interest-cohort=()" }
+      ]
+    }
+  ]
+}

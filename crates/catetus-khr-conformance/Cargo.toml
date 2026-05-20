@@ -1,0 +1,33 @@
+[package]
+name = "catetus-khr-conformance"
+# Explicitly versioned (not via workspace) so the conformance crate can
+# advance independently with each Khronos RC revision. See CHANGELOG.md
+# in this crate.
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Conformance test suite for the Khronos KHR_gaussian_splatting glTF extension."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "catetus-khr-validate"
+path = "src/bin/validate.rs"
+
+[[bin]]
+name = "catetus-khr-fixtures"
+path = "src/bin/fixtures.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+catetus-core = { workspace = true }
+catetus-spz = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

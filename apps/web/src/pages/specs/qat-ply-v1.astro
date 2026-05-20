@@ -1,0 +1,437 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const title = "Catetus QAT-PLY v1 — bit-level format specification";
+const description =
+  "Public bit-level specification for the Catetus QAT-PLY v1 quantized PLY format. Enables any 3DGS renderer (Three.js, Cesium, gsplat, Unity, Unreal, Inria, bespoke pipelines) to decode Catetus's compressed PLYs without runtime Catetus dependencies. Includes worked example, conformance suite, and reference C99 decoder.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      catetus
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="/#try">Try it</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <h1>Catetus QAT-PLY v1</h1>
+    <p class="lede">
+      Bit-level specification for the on-disk PLY-with-quantized-fields
+      format produced by every Catetus codec preset
+      (<code>catetus-qat-scaffold</code>,
+      <code>catetus-qat-bundle</code>,
+      <code>catetus-qat-3dgs</code>). Any third-party
+      Gaussian-Splat renderer can decode a Catetus-compressed PLY
+      bit-exactly by following this document &mdash; no runtime
+      dependency on Catetus code is required.
+    </p>
+    <p class="meta">
+      Version <strong>1</strong> &middot; status <strong>frozen</strong>
+      &middot; reference C99 decoder:
+      <a href="https://github.com/catetus/catetus/tree/main/apps/codec/qat-ply-c"><code>apps/codec/qat-ply-c/</code></a>
+      &middot; conformance suite:
+      <a href="https://github.com/catetus/catetus/tree/main/apps/codec/conformance"><code>apps/codec/conformance/</code></a>
+    </p>
+  </header>
+
+  <h2 id="overview">1 &middot; Overview</h2>
+  <p>
+    QAT-PLY v1 is a strict superset of the canonical Stanford PLY 1.0
+    binary little-endian format. Every QAT-PLY v1 file is a valid PLY
+    file: legacy readers that ignore <code>comment</code> lines see a
+    standard PLY with no surprises. The quantization layer is carried
+    entirely in:
+  </p>
+  <ol>
+    <li>
+      <strong>Header markers</strong> &mdash;
+      <code>comment quantized_field ...</code> lines that declare each
+      quantized field's dtype, channel count, and (for per-channel
+      scales) the base64-encoded scale array.
+    </li>
+    <li>
+      <strong>Body columns</strong> &mdash; per-vertex <code>char</code>
+      (signed 8-bit) columns named <code>&lt;field&gt;_q_&lt;i&gt;</code>
+      that carry the quantized values directly, plus (for per-anchor
+      scaled int4 fields) a per-vertex <code>float</code> column named
+      <code>&lt;field&gt;_scale</code>.
+    </li>
+  </ol>
+  <p>
+    A complementary header marker
+    <code>comment constant_field &lt;name&gt; &lt;hex&gt;</code> carries
+    columns whose value is fp32-constant across all vertices, but
+    constant-field handling is orthogonal to this spec.
+  </p>
+
+  <h2 id="header">2 &middot; Header markers</h2>
+  <p>The grammar of one quantized-field declaration:</p>
+  <pre><code>comment quantized_field &lt;NAME&gt; &lt;DTYPE&gt; channels=&lt;C&gt; [scale_b64=&lt;BASE64&gt;] [scale_kind=&lt;KIND&gt;] [packed_per_byte=&lt;N&gt;]</code></pre>
+  <ul>
+    <li>
+      <code>&lt;NAME&gt;</code> &mdash; the logical field name
+      (e.g. <code>f_anchor_feat</code>, <code>f_offset</code>,
+      <code>f_rest</code>). Must match
+      <code>[A-Za-z_][A-Za-z0-9_]*</code> with length <code>1..63</code>.
+    </li>
+    <li>
+      <code>&lt;DTYPE&gt;</code> &mdash; literal token
+      <code>int8</code> or <code>int4</code>. v1 reserves
+      <code>int2</code>, <code>int16</code> for future versions but
+      decoders must reject them in v1.
+    </li>
+    <li>
+      <code>channels=&lt;C&gt;</code> &mdash; decimal logical channel
+      count. For <code>int8</code>, the body carries exactly <code>C</code>
+      <code>char</code> columns. For <code>int4</code>, the body carries
+      <code>ceil(C/2)</code> packed <code>char</code> columns plus one
+      <code>float</code> per-anchor scale column.
+    </li>
+    <li>
+      <code>scale_b64=&lt;BASE64&gt;</code> &mdash;
+      <strong>required</strong> when the scale is per-channel (the v1
+      default for <code>int8</code>). <code>&lt;BASE64&gt;</code> is the
+      RFC 4648 standard-alphabet (<code>+/</code>, padding
+      <code>=</code>) encoding of the raw little-endian
+      <code>fp32</code> bytes of a length-<code>C</code> array.
+    </li>
+    <li>
+      <code>scale_kind=per_channel</code> or
+      <code>scale_kind=per_anchor</code>. Defaults: <code>int8</code>
+      &rarr; <code>per_channel</code>;
+      <code>int4</code> &rarr; <code>per_anchor</code>. When
+      <code>per_anchor</code>, the per-vertex scale lives in a
+      <code>float</code> column named <code>&lt;NAME&gt;_scale</code>
+      and <code>scale_b64</code> MUST be absent.
+    </li>
+    <li>
+      <code>packed_per_byte=2</code> &mdash; required for
+      <code>int4</code>. v1 only supports two nibbles per byte; future
+      versions may add other packings.
+    </li>
+  </ul>
+  <p>
+    Decoders MUST tolerate unknown <code>key=value</code> tokens for
+    forward compatibility. Tokens MUST be separated by a single ASCII
+    space or tab. Line endings MAY be LF or CRLF; decoders strip a
+    trailing CR before parsing. The header is terminated by an
+    <code>end_header</code> line per PLY 1.0.
+  </p>
+
+  <h3 id="markers-examples">2.1 &middot; Example markers</h3>
+  <pre><code>{`comment quantized_field f_anchor_feat int8 channels=32 scale_b64=zczMPc3MTD6amZk+...`}</code></pre>
+  <pre><code>{`comment quantized_field f_offset int4 channels=30 packed_per_byte=2 scale_kind=per_anchor`}</code></pre>
+
+  <h2 id="body">3 &middot; Body layout</h2>
+  <p>
+    The PLY body follows the
+    <code>format binary_little_endian 1.0</code> declared in the
+    standard PLY header. Element order, property order, and row layout
+    are all standard PLY &mdash; quantized columns are simply additional
+    <code>property char</code> (signed 8-bit) and <code>property float</code>
+    declarations.
+  </p>
+
+  <h3 id="body-int8">3.1 &middot; int8 layout</h3>
+  <p>
+    For a field declared <code>int8 channels=C</code>, the body carries
+    exactly <code>C</code> consecutive <code>property char &lt;NAME&gt;_q_&lt;i&gt;</code>
+    columns for <code>i = 0 .. C-1</code>. Each value is a signed
+    int8 in the range <code>[-128, 127]</code>. The PLY type token MAY
+    be <code>char</code> or <code>uchar</code>: both refer to the same
+    1-byte storage and the decoder reinterprets the byte as signed.
+  </p>
+
+  <h3 id="body-int4">3.2 &middot; int4 layout</h3>
+  <p>
+    For a field declared <code>int4 channels=C packed_per_byte=2</code>:
+  </p>
+  <ul>
+    <li>
+      The body carries <code>B = ceil(C/2)</code> consecutive
+      <code>property char &lt;NAME&gt;_q_&lt;i&gt;</code> columns for
+      <code>i = 0 .. B-1</code>. Each byte packs two unsigned-shifted
+      4-bit nibbles.
+    </li>
+    <li>
+      For byte index <code>j</code>: the low nibble
+      (<code>byte &amp; 0x0F</code>) represents channel
+      <code>2j</code>; the high nibble (<code>(byte &gt;&gt; 4) &amp; 0x0F</code>)
+      represents channel <code>2j+1</code>.
+    </li>
+    <li>
+      When <code>C</code> is odd, the final byte's high nibble is unused
+      and writers MUST set it to <code>0</code>; readers MUST ignore it.
+    </li>
+    <li>
+      A single <code>property float &lt;NAME&gt;_scale</code> column
+      follows the packed columns and carries one fp32 per-anchor scale
+      (little-endian).
+    </li>
+  </ul>
+
+  <h2 id="quant-math">4 &middot; Quantization math</h2>
+  <p>
+    Dequantization is symmetric (zero-point = 0) and stateless. The
+    decoder computes:
+  </p>
+  <h3 id="quant-int8">4.1 &middot; int8 per-channel</h3>
+  <pre><code>signed_q = (int8) byte           // [-128, 127]
+output[row][c] = (float) signed_q * scale[c]</code></pre>
+  <h3 id="quant-int4">4.2 &middot; int4 per-anchor</h3>
+  <pre><code>byte_u   = (uint8) byte          // [0, 255]
+nibble   = (c % 2 == 0) ? (byte_u &amp; 0x0F) : ((byte_u &gt;&gt; 4) &amp; 0x0F)
+signed_q = (int) nibble - 8       // [-8, 7]
+output[row][c] = (float) signed_q * scale[row]</code></pre>
+  <p>
+    All arithmetic is fp32. <code>(float) signed_q</code> is exact for
+    every value in the encoded range; the only rounding step is the
+    final fp32 multiply, which rounds-half-to-even per IEEE-754.
+    Decoders that perform the multiplication in <code>fp64</code> and
+    round the result to <code>fp32</code> at storage time produce the
+    same byte output and are conformant.
+  </p>
+  <p class="note">
+    The scale values in the <code>scale_b64</code> block are stored as
+    <code>fp32</code>, so a decoder that reads them into <code>fp64</code>
+    variables MUST first round them through <code>fp32</code> before
+    multiplying, otherwise its byte output may differ from the
+    reference by 1 ULP. The reference C decoder reads scales as
+    <code>float</code> and performs all arithmetic in fp32, sidestepping
+    the issue.
+  </p>
+
+  <h2 id="scale-encoding">5 &middot; Scale-block encoding</h2>
+  <p>
+    For per-channel scales, the <code>scale_b64</code> token's value is
+    base64-encoded according to RFC 4648 &sect;4 (standard alphabet,
+    padding required). Decoded byte length MUST equal
+    <code>4 * channels</code>. The decoded bytes are interpreted as a
+    contiguous little-endian <code>fp32</code> array of length
+    <code>channels</code>.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Position</th><th>Byte (hex)</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0..3</td><td><code>xx xx xx xx</code></td><td>scale[0] as little-endian fp32</td></tr>
+      <tr><td>4..7</td><td><code>xx xx xx xx</code></td><td>scale[1]</td></tr>
+      <tr><td>...</td><td>...</td><td>...</td></tr>
+      <tr><td>4(C-1)..4C-1</td><td><code>xx xx xx xx</code></td><td>scale[C-1]</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="worked-example">6 &middot; Worked example</h2>
+  <p>
+    A 1-anchor, 3-channel <code>int8</code> field
+    <code>f_anchor_feat</code>. The scales are
+    <code>[0.1, 0.25, 0.5]</code>. The quantized values for the single
+    anchor are <code>[-50, 10, 127]</code>.
+  </p>
+
+  <h3 id="we-header">6.1 &middot; Header marker</h3>
+  <p>
+    The three scales as little-endian fp32 bytes:
+    <code>cd cc cc 3d&nbsp;&nbsp;00 00 80 3e&nbsp;&nbsp;00 00 00 3f</code>
+    (the first 4 bytes are 0x3DCCCCCD = fp32 0.1; next four are 0.25; last four 0.5).
+  </p>
+  <p>
+    Base64-encoding those 12 bytes yields
+    <code>zczMPQAAgD4AAAA/</code>. The full marker reads:
+  </p>
+  <pre><code>comment quantized_field f_anchor_feat int8 channels=3 scale_b64=zczMPQAAgD4AAAA/</code></pre>
+
+  <h3 id="we-body">6.2 &middot; Body bytes</h3>
+  <p>
+    With <code>x, y, z</code> all 0.0 and the three quant columns
+    declared as <code>property char f_anchor_feat_q_0..2</code>, the
+    single 15-byte vertex record is:
+  </p>
+  <pre><code>{`00 00 00 00   00 00 00 00   00 00 00 00   ce   0a   7f
+[--- x ---]   [--- y ---]   [--- z ---]   q0   q1   q2`}</code></pre>
+  <p>
+    where <code>0xce = -50</code> (signed int8),
+    <code>0x0a = 10</code>, and <code>0x7f = 127</code>.
+  </p>
+
+  <h3 id="we-dequant">6.3 &middot; Dequant</h3>
+  <p>The reference computation is:</p>
+  <pre><code>{`(-50) * fp32(0.1)  = -5.0
+( 10) * fp32(0.25) =  2.5
+(127) * fp32(0.5)  = 63.5`}</code></pre>
+  <p>The resulting fp32 little-endian bytes are:</p>
+  <pre><code>{`00 00 a0 c0   00 00 20 40   00 00 7e 42
+[ -5.0   ]   [  2.5   ]   [ 63.5    ]`}</code></pre>
+  <p>
+    A conforming decoder MUST produce exactly those 12 bytes when
+    reconstructing the three fp32 values. The conformance test
+    <code>case01_int8_1x1.ply</code> exercises a single-element variant
+    of this example; <code>case02_int8_4x3.ply</code> extends it to four
+    anchors.
+  </p>
+
+  <h2 id="conformance">7 &middot; Conformance</h2>
+  <p>
+    The conformance suite at
+    <a href="https://github.com/catetus/catetus/tree/main/apps/codec/conformance">
+    <code>apps/codec/conformance/</code></a> ships ten test fixtures
+    covering the full v1 surface:
+  </p>
+  <table>
+    <thead><tr><th>Case</th><th>What it tests</th></tr></thead>
+    <tbody>
+      <tr><td><code>case01_int8_1x1</code></td><td>minimal int8: 1 anchor, 1 channel</td></tr>
+      <tr><td><code>case02_int8_4x3</code></td><td>typical int8: 4 anchors, 3 channels, mixed signs</td></tr>
+      <tr><td><code>case03_int8_5x32</code></td><td>realistic int8: 5 anchors, 32 channels (Scaffold-GS anchor-feat shape)</td></tr>
+      <tr><td><code>case04_int4_1x4</code></td><td>minimal int4: 1 anchor, 4 channels, full nibble range</td></tr>
+      <tr><td><code>case05_int4_3x30</code></td><td>typical int4: 3 anchors, 30 channels (Scaffold-GS f_offset shape)</td></tr>
+      <tr><td><code>case06_int4_2x5_odd</code></td><td>int4 with odd channel count (5) &mdash; exercises the high-nibble-zero rule</td></tr>
+      <tr><td><code>case07_mixed</code></td><td>both int8 and int4 fields in one PLY</td></tr>
+      <tr><td><code>case08_int8_zero</code></td><td>all-zero quantized values (degenerate but legal)</td></tr>
+      <tr><td><code>case09_int8_extreme_scales</code></td><td>scales spanning 1e-10 .. 1e10</td></tr>
+      <tr><td><code>case10_int8_with_constant</code></td><td>quantized_field plus a constant_field marker</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Each fixture ships with a JSON assertion (in <code>conformance.json</code>)
+    listing the expected dequantized fp32 output as a base64-encoded
+    byte string. A decoder is conformant when its dequant output
+    matches each fixture's <code>expected_fp32_b64</code> byte-for-byte.
+  </p>
+  <p>
+    The verifier script
+    <a href="https://github.com/catetus/catetus/blob/main/apps/codec/conformance/verify.py"><code>verify.py</code></a>
+    cross-checks two independent reference decoders (Python +
+    C99) against every fixture; both currently agree byte-for-byte
+    across all 10 cases.
+  </p>
+
+  <h2 id="versioning">8 &middot; Versioning</h2>
+  <p>
+    Version 1 is identified solely by the presence of
+    <code>quantized_field</code> comments and the
+    <code>int8</code> / <code>int4</code> dtype tokens. Future versions
+    will add an explicit version token (e.g.
+    <code>quantized_field f_x int8 v=2 ...</code>) so v1 decoders MUST
+    reject any quantized_field token whose dtype is not in
+    <code>{`{int8, int4}`}</code> and MAY skip tokens with unknown
+    <code>key=value</code> pairs (forward compatibility).
+  </p>
+  <p>
+    The next iteration (<strong>v2</strong>, planned) is expected to
+    introduce: int2 / non-symmetric quant (asymmetric zero-point),
+    per-block scale tables (instead of per-channel / per-anchor), and
+    an optional CRC32 footer over the body for tamper detection.
+  </p>
+
+  <h2 id="reference-impls">9 &middot; Reference implementations</h2>
+  <ul>
+    <li>
+      <strong>C99 reference decoder</strong> &mdash;
+      <a href="https://github.com/catetus/catetus/tree/main/apps/codec/qat-ply-c"><code>apps/codec/qat-ply-c/</code></a>.
+      Single header + single <code>.c</code> file, MIT-licensed,
+      no <code>malloc</code>, no I/O, no platform dependencies beyond
+      <code>&lt;stdint.h&gt;</code> / <code>&lt;stddef.h&gt;</code> /
+      <code>&lt;string.h&gt;</code>. Vendor it directly.
+    </li>
+    <li>
+      <strong>Python reference decoder</strong> &mdash; embedded in
+      <a href="https://github.com/catetus/catetus/blob/main/apps/codec/conformance/verify.py"><code>verify.py</code></a>.
+      Useful for tooling and CI checks.
+    </li>
+    <li>
+      <strong>WebAssembly (browser)</strong> &mdash;
+      <a href="https://github.com/catetus/catetus/tree/main/apps/codec/qat-ply-wasm"><code>apps/codec/qat-ply-wasm/</code></a>.
+      Emscripten build of the C decoder; ships as
+      <code>@catetus/qat-ply-wasm</code> with the
+      <code>qat_ply_decode.&#123;js,wasm&#125;</code> pair.
+      Build: <code>brew install emscripten &amp;&amp; make build</code>.
+    </li>
+    <li>
+      <strong>iOS / macOS Metal</strong> &mdash;
+      <a href="https://github.com/catetus/catetus/tree/main/apps/ios/CatetusQATKernel"><code>apps/ios/CatetusQATKernel/</code></a>.
+      SwiftPM module with a Metal compute pipeline (one thread per
+      <code>(anchor &times; channel)</code>) and a pure-Swift header parser.
+      Build: <code>swift build &amp;&amp; swift test</code>.
+    </li>
+    <li>
+      <strong>Android Vulkan</strong> &mdash;
+      <a href="https://github.com/catetus/catetus/tree/main/apps/android/catetus-qat-vulkan"><code>apps/android/catetus-qat-vulkan/</code></a>.
+      Vulkan compute shader (SPIR-V) + JNI bridge + Kotlin facade.
+      Build: <code>./gradlew assembleDebug</code> (Android SDK / NDK 26+).
+    </li>
+  </ul>
+  <p>
+    All four runtime implementations (C / WASM / Metal / Vulkan) are
+    cross-checked against the Python reference and the same JSON
+    expectations under
+    <a href="https://github.com/catetus/catetus/tree/main/apps/codec/conformance/cross-target"><code>conformance/cross-target/</code></a>;
+    any deviation breaks CI. Bindings for additional languages and
+    runtimes are tracked at
+    <a href="https://github.com/catetus/catetus/labels/qat-ply-v1"><code>label:qat-ply-v1</code></a>.
+  </p>
+
+  <p>
+    <a href="/#try">&larr; back to Try it</a>
+    &nbsp;&middot;&nbsp;
+    <a href="/docs/qat-3dgs">QAT-3DGS (Inria 3DGS single-PLY)</a>
+    &nbsp;&middot;&nbsp;
+    <a href="/docs/qat-bundle">QAT-Bundle (Scaffold-GS retrain)</a>
+    &nbsp;&middot;&nbsp;
+    <a href="/docs/api/qat-scaffold">QAT-Scaffold</a>
+  </p>
+
+  <style>
+    h1 { font-size: 2rem; margin-bottom: 0.4rem; }
+    h2 { margin-top: 2.25rem; font-size: 1.25rem; }
+    h3 { margin-top: 1.25rem; font-size: 1.0rem; opacity: 0.92; }
+    .hero { margin-bottom: 1.5rem; }
+    .lede { opacity: 0.85; max-width: 64ch; }
+    .meta { font-size: 0.88rem; opacity: 0.7; margin-top: 0.4rem; }
+    pre {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.9rem 1.1rem;
+      border-radius: 0.6rem;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    p code, li code, td code {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.3rem;
+      font-size: 0.92em;
+    }
+    .note {
+      font-size: 0.88rem;
+      opacity: 0.78;
+      border-left: 2px solid rgba(139, 92, 246, 0.4);
+      padding-left: 0.75rem;
+      max-width: 64ch;
+    }
+    ol, ul { max-width: 64ch; }
+    ol li, ul li { margin: 0.35rem 0; }
+    table {
+      border-collapse: collapse;
+      margin-top: 0.6rem;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 0.4rem 0.7rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: rgba(255, 255, 255, 0.04); font-weight: 600; }
+  </style>
+</Base>

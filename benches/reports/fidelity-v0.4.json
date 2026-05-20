@@ -1,0 +1,31 @@
+{
+  "version": "0.4.0-mlp22",
+  "bootstrap": true,
+  "bootstrap_n_synthetic_pairs": 500,
+  "baseline_ply": "benches/scenes/bonsai_mipnerf360_iter7k.ply",
+  "scenes": {
+    "bonsai_real": {
+      "ply": "benches/scenes/real/bonsai_iter7000.ply",
+      "score": 0.8414761,
+      "baseline_used": true
+    },
+    "bicycle_real": {
+      "ply": "benches/scenes/real/bicycle_iter7000.ply",
+      "score": 0.90071815,
+      "baseline_used": true
+    },
+    "stump_real": {
+      "ply": "benches/scenes/real/stump_iter7000.ply",
+      "score": 0.96477,
+      "baseline_used": true
+    }
+  },
+  "cv": {
+    "ungrouped_5fold_r2": 0.9638,
+    "ungrouped_5fold_rmse": 0.0431,
+    "grouped_5fold_r2": -0.0967,
+    "grouped_5fold_rmse": 0.2371,
+    "note": "Bootstrap data has 15 distinct (scene, preset) items. Per-row CV (rows from same item may straddle train/val) is the headline. Per-group CV (held-out kinds) is negative — expected at this sample size and explicitly flagged so downstream consumers do not over-trust v0.4 on novel corruption kinds. The grouped number will improve as the production ratings table grows past the bootstrap cutoff."
+  },
+  "tool": "catetus fidelity-score <ply> [--baseline <ply>]"
+}

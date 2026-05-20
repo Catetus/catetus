@@ -1,0 +1,13 @@
+{
+  "baseUrl": "http://127.0.0.1:4321",
+  "acceptAfterSelect": ".tar,.tar.gz,.tgz",
+  "chipMode": "bundle",
+  "helpHidden": null,
+  "errorBody": "The hacpp-lzma preset needs a Scaffold-GS bundle archive (.tar, .tar.gz, .tgz). See /docs/hacpp-bundle for the layout.",
+  "stamps": [
+    "hacpp-bundle-flow-1-idle-default.png",
+    "hacpp-bundle-flow-2-hacpp-selected.png",
+    "hacpp-bundle-flow-3-wrong-file-error.png",
+    "hacpp-bundle-flow-4-docs-page.png"
+  ]
+}

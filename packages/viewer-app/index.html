@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+  <title>Catetus Viewer</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; padding: 0; height: 100%; background: #050608; color: #eee;
+      font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+    #stage { position: fixed; inset: 0; touch-action: none; -webkit-user-select: none; user-select: none; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    .panel { position: fixed; padding: 8px 12px; background: rgba(8,10,14,0.78);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+      font: 12px/1.3 ui-monospace, monospace; backdrop-filter: blur(6px); pointer-events: auto; }
+    #hud { top: 12px; left: 12px; min-width: 200px; }
+    #hud b { color: #7df; font-weight: 600; }
+    #hud .row { display: flex; gap: 12px; justify-content: space-between; }
+    #hud .err { color: #f87171; }
+    #hud .ok  { color: #34d399; }
+    #help { bottom: 12px; left: 12px; max-width: 320px; opacity: 0.85; }
+    #help kbd { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.12); font: inherit; }
+    #picker { top: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px; }
+    #picker button, #picker label { display: inline-block; padding: 6px 10px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px; color: #eee; cursor: pointer; font: inherit; text-align: center; }
+    #picker button:hover, #picker label:hover { background: rgba(255,255,255,0.12); }
+    #picker input[type=file] { display: none; }
+    #drop-overlay { position: fixed; inset: 0; display: none; background: rgba(20,60,120,0.35);
+      border: 3px dashed rgba(120,200,255,0.6); border-radius: 12px; pointer-events: none;
+      align-items: center; justify-content: center; font-size: 18px; }
+    #drop-overlay.active { display: flex; }
+    a, a:visited { color: #7df; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="hud" class="panel">
+      <div class="row"><span>state</span><b id="state">idle</b></div>
+      <div class="row"><span>format</span><b id="format">-</b></div>
+      <div class="row"><span>splats</span><b id="splats">0</b></div>
+      <div class="row"><span>fps</span><b id="fps">0</b></div>
+      <div class="row"><span>renderer</span><b id="rname">webgl2</b></div>
+      <div class="row" id="psnr-row" style="display:none"><span>psnr</span><b id="psnr">-</b></div>
+      <hr style="border:0;border-top:1px solid rgba(255,255,255,0.08);margin:6px 0" />
+      <div class="row"><span>pos</span><b id="cam-pos">0, 0, 0</b></div>
+      <div class="row"><span>target</span><b id="cam-target">0, 0, 0</b></div>
+      <div class="row"><span>dir</span><b id="cam-dir">0, 0, 0</b></div>
+      <div class="row"><span>yaw / pitch</span><b id="cam-yawpitch">0°, 0°</b></div>
+      <div class="row"><span>roll / dist</span><b id="cam-rolldist">0°, 0</b></div>
+      <div class="row"><span>fov / near / far</span><b id="cam-frustum">0°, 0, 0</b></div>
+      <button id="cam-copy" style="margin-top:6px;padding:4px 8px;background:rgba(255,255,255,0.06);
+        border:1px solid rgba(255,255,255,0.12);border-radius:5px;color:#eee;cursor:pointer;
+        font:inherit;width:100%">Copy camera JSON</button>
+    </div>
+    <div id="picker" class="panel">
+      <label for="file-input">Open file(s)…</label>
+      <input id="file-input" type="file" multiple
+        accept=".ply,.splat,.sog,.glb,.shpal,application/octet-stream" />
+      <button id="reset-cam" title="R">Reset view</button>
+      <button id="frame-all" title="F">Frame all</button>
+      <button id="goto-preset" title="Jump to saved preset camera">Preset view</button>
+    </div>
+    <div id="help" class="panel">
+      <div><b>Mouse</b>
+        L-drag = orbit ·
+        R-drag / Alt+L = free-look ·
+        M-drag / Shift+L = pan ·
+        wheel = zoom ·
+        L-dbl-click = set orbit pivot
+      </div>
+      <div><b>Touch</b> 1-finger = orbit · 2-finger = pan · pinch = zoom</div>
+      <div><b>Keys</b>
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly ·
+        <kbd>Q</kbd>/<kbd>E</kbd> down/up ·
+        <kbd>Z</kbd>/<kbd>C</kbd> yaw ·
+        <kbd>↑</kbd>/<kbd>↓</kbd> pitch ·
+        <kbd>1</kbd>/<kbd>3</kbd> roll ·
+        <kbd>R</kbd> reset · <kbd>F</kbd> frame ·
+        <kbd>H</kbd> toggle SH-rest (off = fast mode)
+      </div>
+      <div>Drop a <b>.ply / .splat / .sog / .glb</b> on the canvas, or use Open file(s). Drop <b>.glb + .glb.shpal</b> together for SF assets.</div>
+    </div>
+    <div id="drop-overlay">Drop file(s) to load</div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

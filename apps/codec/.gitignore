@@ -1,0 +1,7 @@
+# Build artifacts for the conformance + C reference decoder.
+qat-ply-c/tests/test_qat_ply_decode
+conformance/c_decode_runner
+*.o
+*.bak
+*.bak2
+*.bak3

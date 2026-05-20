@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Catetus — Hero Preview</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #eee; font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    #stage { position: fixed; inset: 0; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    #hud {
+      position: fixed; bottom: 12px; left: 12px; padding: 6px 10px;
+      background: rgba(0,0,0,0.55); border-radius: 6px;
+      font: 12px/1.2 ui-monospace, monospace; pointer-events: none; min-width: 280px;
+    }
+    #hud .row { display: flex; gap: 12px; }
+    #hud b { color: #7df; font-weight: 600; }
+    #ctl {
+      position: fixed; bottom: 12px; right: 12px; padding: 8px 10px;
+      background: rgba(0,0,0,0.55); border-radius: 6px;
+      font: 12px/1.4 ui-monospace, monospace;
+    }
+    #ctl label { display: block; margin: 2px 0; }
+    #ctl input[type="range"] { width: 160px; vertical-align: middle; }
+    #ctl b { color: #7df; }
+    .err { color: #f66; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+      <div class="row"><span>state</span><b id="state">idle</b></div>
+      <div class="row"><span>chunks</span><b id="chunks">0 / 0</b></div>
+      <div class="row"><span>splats</span><b id="splats">-</b></div>
+      <div class="row"><span>renderer</span><b id="renderer">-</b></div>
+    </div>
+    <div id="ctl">
+      <label>framing <b id="framingV">0.45</b><br/>
+        <input id="framing" type="range" min="0.20" max="1.00" step="0.05" value="0.45" />
+      </label>
+      <label>speed <b id="speedV">8</b><br/>
+        <input id="speed" type="range" min="1" max="30" step="1" value="8" />
+      </label>
+      <label><input id="pause" type="checkbox" /> pause</label>
+    </div>
+  </div>
+  <script type="module">
+    import { CatetusViewer } from '/viewer/index.js';
+
+    const canvas = document.getElementById('canvas');
+    const stateEl = document.getElementById('state');
+    const chunksEl = document.getElementById('chunks');
+    const splatsEl = document.getElementById('splats');
+    const rendererEl = document.getElementById('renderer');
+    const framingI = document.getElementById('framing');
+    const framingV = document.getElementById('framingV');
+    const speedI = document.getElementById('speed');
+    const speedV = document.getElementById('speedV');
+    const pauseI = document.getElementById('pause');
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    const params = new URLSearchParams(location.search);
+    const src = params.get('src') ?? '/hero-scene/scene.gltf';
+    const initialFraming = parseFloat(params.get('framing') ?? framingI.value);
+    framingI.value = String(initialFraming);
+    framingV.textContent = initialFraming.toFixed(2);
+
+    const viewer = new CatetusViewer({
+      canvas,
+      src,
+      cameraPath: 'static',
+      autoRotate: !pauseI.checked,
+      autoRotateSpeed: parseFloat(speedI.value),
+      autoRotateFraming: initialFraming,
+      stats: false,
+    });
+    rendererEl.textContent = 'auto';
+    let total = 0, loaded = 0;
+    viewer.on('loadStart', () => { stateEl.textContent = 'loading'; });
+    viewer.on('manifestLoaded', (e) => {
+      total = e.chunkCount;
+      chunksEl.textContent = `0 / ${total}`;
+    });
+    viewer.on('chunkLoaded', () => {
+      loaded++;
+      chunksEl.textContent = `${loaded} / ${total}`;
+    });
+    viewer.on('firstRender', () => { stateEl.textContent = 'rendering'; });
+    viewer.on('complete', () => {
+      stateEl.textContent = 'live · auto-orbit';
+      try {
+        const sc = viewer.cachedManifest?.splatCount ?? viewer._cachedManifest?.splatCount;
+        if (sc) splatsEl.textContent = `${sc.toLocaleString()}`;
+      } catch {}
+    });
+    viewer.on('error', (e) => {
+      stateEl.textContent = `error: ${e.code}`;
+      stateEl.classList.add('err');
+    });
+    viewer.load().catch(() => {});
+
+    // Live controls — most of these only take effect on next autoRotate frame
+    function applyAuto() {
+      viewer.opts.autoRotate = !pauseI.checked;
+      viewer.opts.autoRotateSpeed = parseFloat(speedI.value);
+      viewer.opts.autoRotateFraming = parseFloat(framingI.value);
+      // Restart the auto loop so framing kicks in immediately
+      if (typeof viewer.stopAutoRotate === 'function') viewer.stopAutoRotate();
+      if (!pauseI.checked && typeof viewer.startAutoRotate === 'function') {
+        viewer.startAutoRotate();
+      }
+    }
+    framingI.addEventListener('input', () => {
+      framingV.textContent = parseFloat(framingI.value).toFixed(2);
+      applyAuto();
+    });
+    speedI.addEventListener('input', () => {
+      speedV.textContent = speedI.value;
+      applyAuto();
+    });
+    pauseI.addEventListener('change', applyAuto);
+  </script>
+</body>
+</html>

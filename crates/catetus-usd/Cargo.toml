@@ -1,0 +1,39 @@
+[package]
+name = "catetus-usd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OpenUSD I/O for Catetus — ParticleField3DGaussianSplat writer + USDA + USDC binary. Spec: SPEC-0011 + SPEC-0012."
+
+[features]
+# `usdc` is on by default now that the binary writer round-trips against
+# Pixar's `usdcat`. The `usdcat-validation` feature gates the shell-out
+# test (it only passes when `usdcat` is on PATH).
+default = ["usdc"]
+usdc = []
+streaming = []
+usdcat-validation = []
+
+[dependencies]
+catetus-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[test]]
+name = "roundtrip"
+path = "tests/roundtrip.rs"
+
+[[test]]
+name = "usdc_roundtrip"
+path = "tests/usdc_roundtrip.rs"
+
+[[test]]
+name = "usdc_usdcat"
+path = "tests/usdc_usdcat.rs"
+required-features = ["usdcat-validation"]

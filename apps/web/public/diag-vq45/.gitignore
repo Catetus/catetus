@@ -1,0 +1,14 @@
+# Symlinks into experiments/ — local-dev only. The real GLB + sidecar live in
+# `experiments/SOG_STUDY_RUN/` and `experiments/w3-fidelity-harness/out/`, which
+# are already excluded from this repo's tracked tree (multi-GB). Re-link via:
+#
+#   cd apps/web/public/diag-vq45
+#   ln -s ../../../../experiments/SOG_STUDY_RUN/wmv-vq45-no-prune.glb \
+#         wmv-vq45-no-prune.glb
+#   ln -s ../../../../experiments/SOG_STUDY_RUN/wmv-vq45-no-prune.glb.shpal \
+#         wmv-vq45-no-prune.glb.shpal
+#   ln -s ../../../../experiments/w3-fidelity-harness/out/bonsai_input.glb \
+#         bonsai_input.glb
+bonsai_input.glb
+wmv-vq45-no-prune.glb
+wmv-vq45-no-prune.glb.shpal

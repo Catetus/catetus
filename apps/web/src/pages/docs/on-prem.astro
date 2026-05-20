@@ -1,0 +1,319 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const title = "Catetus — on-prem codec (enterprise)";
+const description =
+  "Self-hosted Docker image for the Catetus codec. Same compression numbers as the hosted SaaS, deployable on your own NVIDIA GPU — for air-gap, defense, healthcare, and automotive customers who can't send training data to a third-party endpoint.";
+
+// Bench expectations are identical to /docs/qat-bundle — same trainer,
+// same recipe, same numbers. The on-prem image is a packaging
+// difference, not an algorithmic one.
+const benchExpectations = [
+  { scene: "bonsai",   psnr: "+0.58 dB", save: "40.5%",  note: "best-case (indoor, dense cams)" },
+  { scene: "garden",   psnr: "+0.19 dB", save: "40.5%",  note: "high-quality outdoor" },
+  { scene: "bicycle",  psnr: "+0.09 dB", save: "40.5%",  note: "challenging outdoor" },
+  { scene: "stump",    psnr: "+0.04 dB", save: "33.9%",  note: "outdoor with sky" },
+  { scene: "treehill", psnr: "+0.07 dB", save: "33.7%",  note: "outdoor foliage" },
+  { scene: "flowers",  psnr: "+0.03 dB", save: "33.8%",  note: "worst-case (close-up, low cam count)" },
+];
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      catetus
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="mailto:sales@catetus.com">Sales</a>
+    </div>
+  </nav>
+
+  <h1>On-prem codec (enterprise)</h1>
+  <p class="lede">
+    A self-hosted Docker image of the Catetus codec for customers
+    whose training data can't leave their network. Defense, healthcare,
+    automotive, and any other regulated environment runs the same
+    binary that backs the hosted SaaS — same per-scene numbers, same
+    API contract, your hardware.
+  </p>
+  <p class="lede">
+    <strong>Licensing:</strong> bundled with the Team Seat plan
+    (<a href="mailto:sales@catetus.com">contact sales</a>) as an
+    Ed25519-signed entitlement. Your license token is checked at
+    container start; it cannot be exfiltrated to enable a second
+    install. <strong>Image distribution:</strong> private registry,
+    pull-credentials issued per customer.
+  </p>
+
+  <h2>Two tiers, two compute profiles</h2>
+  <p>
+    The on-prem image ships two endpoints. Pick whichever matches your
+    hardware:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Endpoint</th>
+        <th>GPU required?</th>
+        <th>Compression</th>
+        <th>Quality</th>
+        <th>Wall time</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/qat-scaffold</code></td>
+        <td>No (CPU-only)</td>
+        <td>~10% lossless</td>
+        <td>Bit-exact roundtrip</td>
+        <td>seconds</td>
+      </tr>
+      <tr>
+        <td><code>/qat-bundle</code></td>
+        <td>Yes (NVIDIA, 24 GB+)</td>
+        <td>33-40% per scene</td>
+        <td>+0.03..+0.58 dB PSNR</td>
+        <td>30-60 min</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Customers without an NVIDIA GPU can still run the container and use
+    the lossless <code>/qat-scaffold</code> tier &mdash; it strips
+    always-constant attribute columns (<code>nx, ny, nz, opacity,
+    rot_0..rot_3</code>) from a Scaffold-GS PLY and emits a header that
+    any QAT-PLY-v1-aware decoder reconstructs bit-exactly. No GPU, no
+    accuracy loss, no retrain.
+  </p>
+  <p>
+    The retrain tier (<code>/qat-bundle</code>) needs an NVIDIA GPU
+    because it runs a 5000-iteration QAT finetune to absorb int8 quant
+    noise on <code>f_anchor_feat</code> &mdash; that's where the
+    33-40% number comes from. Without a GPU, this endpoint returns 503
+    with a customer-actionable detail string.
+  </p>
+
+  <h2>System requirements</h2>
+
+  <h3>Lossless tier (<code>/qat-scaffold</code>) &mdash; CPU only</h3>
+  <ul>
+    <li><strong>CPU:</strong> any x86_64 host (the image is linux/amd64).</li>
+    <li><strong>RAM:</strong> 4 GB host RAM is plenty &mdash; the
+      constant-strip codec is a streaming numpy pass.</li>
+    <li><strong>Disk:</strong> 16 GB for the image + your PLYs.</li>
+    <li><strong>No GPU, no driver, no <code>nvidia-container-toolkit</code></strong>
+      required. Run with plain <code>docker run</code>.</li>
+  </ul>
+
+  <h3>Retrain tier (<code>/qat-bundle</code>) &mdash; GPU required</h3>
+  <ul>
+    <li><strong>GPU:</strong> NVIDIA with &ge; 24 GB VRAM
+      (A10 / A100 / L40 / H100 / RTX 4090 / A6000).</li>
+    <li><strong>Driver:</strong> CUDA 12.1 or newer on the host.</li>
+    <li><strong>Docker:</strong> 24.0 or newer with
+      <code>nvidia-container-toolkit</code> installed so
+      <code>--gpus all</code> works.</li>
+    <li><strong>Disk:</strong> 16 GB for the image plus your training
+      bundles. Image is ~7 GB compressed.</li>
+    <li><strong>RAM:</strong> 32 GB host RAM recommended; the trainer
+      streams scenes from disk so peak host-side memory stays small.</li>
+    <li><strong>Network:</strong> none required at runtime. Air-gapped
+      installs use <code>docker load</code> from an offline tarball;
+      we ship a flat tarball alongside the registry image.</li>
+  </ul>
+
+  <h2>Compute cost: who pays what</h2>
+  <p>
+    Both tiers run on your hardware &mdash; Catetus bills only the
+    Team Seat. There is no per-job metering on your container.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Tier</th><th>Where it runs</th><th>Catetus charge</th><th>Your cost</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/qat-scaffold</code></td>
+        <td>Your container (CPU)</td>
+        <td>Team Seat only</td>
+        <td>negligible &mdash; seconds of CPU</td>
+      </tr>
+      <tr>
+        <td><code>/qat-bundle</code></td>
+        <td>Your container (NVIDIA GPU)</td>
+        <td>Team Seat only</td>
+        <td>your GPU cost &mdash; ~30-60 min per scene</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Quickstart</h2>
+  <ol>
+    <li>
+      <strong>Pull the image</strong> from the private registry
+      (credentials issued with your contract):
+      <pre><code>docker pull ghcr.io/catetus/codec:latest</code></pre>
+    </li>
+    <li>
+      <strong>Start the container.</strong> Use one of two flavors:
+      <pre><code># Retrain tier (requires NVIDIA GPU + nvidia-container-toolkit):
+docker run --gpus all -p 8080:8080 \
+  -e CATETUS_LICENSE=&quot;$TOKEN&quot; \
+  ghcr.io/catetus/codec:latest
+
+# Lossless tier only (no GPU required):
+docker run -p 8080:8080 \
+  -e CATETUS_LICENSE=&quot;$TOKEN&quot; \
+  ghcr.io/catetus/codec:latest</code></pre>
+      A missing or expired token exits the container with
+      <code>exit 1</code> before CUDA initializes — no
+      partial-startup state. The license is re-checked every hour; if
+      it expires mid-run, routes return 503 with a renewal hint
+      (without crashing in-flight jobs).
+    </li>
+    <li>
+      <strong>Verify the install:</strong>
+      <pre><code>curl http://localhost:8080/healthz
+# {`{`}"ok":true,"service":"catetus-codec","gpu_available":true,
+#  "license_customer":"Acme Defense","license_expiry":"2027-12-31"{`}`}</code></pre>
+    </li>
+  </ol>
+
+  <h2>API contract</h2>
+  <p>
+    The on-prem image exposes the same routes as the hosted Modal
+    endpoints, so existing customer code that targets
+    <a href="/docs/api/qat-scaffold"><code>catetus-qat-scaffold</code></a>
+    or
+    <a href="/docs/qat-bundle"><code>catetus-qat-bundle</code></a>
+    works unchanged — just point it at your container's URL instead of
+    the hosted host.
+  </p>
+  <ul>
+    <li><code>GET  /healthz</code> — liveness probe, returns license
+      metadata and GPU status.</li>
+    <li><code>GET  /license</code> — full license payload for
+      diagnostics.</li>
+    <li><code>POST /qat-scaffold</code> — single-PLY compression.
+      Request body matches the hosted SaaS payload; for air-gap
+      installs, pass <code>local_path</code> instead of
+      <code>blob_url</code> after mounting the file with
+      <code>-v</code>.</li>
+    <li><code>POST /qat-bundle</code> — full-retrain compression with
+      QAT finetune. Same payload shape as the hosted endpoint.</li>
+  </ul>
+
+  <h2>Compression numbers</h2>
+  <p>
+    Identical to the hosted SaaS. The on-prem image vendors the same
+    QAT trainer; per-scene results are bit-comparable across the two
+    deployment surfaces. Numbers from the public bench
+    (<a href="/bench">/bench</a>, commit <code>c3387b3</code>):
+  </p>
+  <table>
+    <thead>
+      <tr><th>Scene</th><th>ΔPSNR</th><th>PLY save</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      {benchExpectations.map((row) => (
+        <tr>
+          <td><code>{row.scene}</code></td>
+          <td>{row.psnr}</td>
+          <td>{row.save}</td>
+          <td>{row.note}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+
+  <h2>Validate the install (smoke test)</h2>
+  <p>
+    Each install ships with a tiny sample bundle and a smoke script.
+    From the host that's running the container:
+  </p>
+  <pre><code>curl -O https://catetus.com/sample/bonsai-tiny.tar.gz
+curl -O https://catetus.com/sample/smoke.sh
+chmod +x smoke.sh
+./smoke.sh bonsai-tiny.tar.gz http://localhost:8080</code></pre>
+  <p>
+    The script hits <code>/healthz</code>, <code>/license</code>, and
+    <code>/qat-bundle</code> and prints the response shape. If any
+    step fails, the script exits non-zero with a clear error.
+  </p>
+
+  <h2>Air-gapped install</h2>
+  <p>
+    For environments with no outbound internet, request the offline
+    tarball from <a href="mailto:sales@catetus.com">sales@catetus.com</a>
+    after your contract is signed. Load it once on the target host:
+  </p>
+  <pre><code>docker load -i catetus-codec-0.1.0.tar.gz
+docker run --gpus all -p 8080:8080 \
+  -e CATETUS_LICENSE=&quot;$TOKEN&quot; \
+  catetus/codec:0.1.0</code></pre>
+
+  <h2>License rotation</h2>
+  <p>
+    Tokens are Ed25519-signed JSON payloads. They carry a customer
+    label, an issue date, an expiry date, and a feature list. Expired
+    tokens are rejected before CUDA loads — there is no grace period,
+    by design. Renewal tokens are issued a month before expiry; rotate
+    by restarting the container with the new
+    <code>CATETUS_LICENSE</code> env var.
+  </p>
+
+  <h2>Pricing</h2>
+  <p>
+    Included in the Team Seat plan. Per-image runtime is
+    unmetered — you pay for the seat, not for compute.
+    <a href="mailto:sales@catetus.com">Email sales</a> for tier details
+    or a defense/government quote.
+  </p>
+
+  <p>
+    <a href="mailto:sales@catetus.com">← Team Seat (contact sales)</a>
+    &nbsp;·&nbsp;
+    <a href="/docs/qat-bundle">QAT-Bundle format</a>
+    &nbsp;·&nbsp;
+    <a href="/docs/api/qat-scaffold">QAT-Scaffold API</a>
+    &nbsp;·&nbsp;
+    <a href="/bench">SplatBench</a>
+  </p>
+
+  <style>
+    h1 { font-size: 2rem; margin-bottom: 0.4rem; }
+    h2 { margin-top: 2rem; font-size: 1.25rem; }
+    .lede { opacity: 0.85; max-width: 60ch; }
+    pre {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.9rem 1.1rem;
+      border-radius: 0.6rem;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    p code, li code, td code {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.3rem;
+      font-size: 0.92em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+    th, td {
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    th { font-weight: 600; opacity: 0.75; }
+  </style>
+</Base>

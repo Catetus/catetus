@@ -1,0 +1,24 @@
+{
+  "schema": "catetus.splatbench-v3.cell/0.1",
+  "commit": "482ed52677af683b23078f9d59106ae1916af068",
+  "ref": "main",
+  "preset": "web-mobile",
+  "scene_id": "tnt_train",
+  "scene_class": "outdoor-object",
+  "scene_dataset": "tanks-and-temples",
+  "run_id": "sbv3-19992a59f6a5eed6",
+  "timestamp": "2026-05-19T17:52:04.700808+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}

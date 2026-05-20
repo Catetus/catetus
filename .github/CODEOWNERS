@@ -1,0 +1,7 @@
+# Catetus code owners.
+#
+# Until there are more humans on the project, everything routes to the
+# project lead for review. Add path-scoped rules above the catch-all as
+# new maintainers come on board.
+
+* @montabano1

@@ -1,0 +1,29 @@
+{
+  "schema": "catetus.splatbench-v3.timeseries/0.1",
+  "commit": "e7d554e",
+  "generatedAt": "2026-05-16T15:17:10.702Z",
+  "cellCount": 1,
+  "presets": [
+    "catetus-qat-3dgs"
+  ],
+  "scenes": [
+    "bonsai_mipnerf360_iter7k"
+  ],
+  "rows": [
+    {
+      "commit": "e7d554e",
+      "timestamp": "2026-05-16T15:20:00.000Z",
+      "preset": "catetus-qat-3dgs",
+      "scene": "bonsai_mipnerf360_iter7k",
+      "ok": true,
+      "ply_save_pct": 0.0484,
+      "delta_psnr_db": 0,
+      "delta_ssim": 0,
+      "delta_lpips": 0,
+      "wall_secs": 12,
+      "modal_cost_cents": 4,
+      "output_url": "https://montabano1--catetus-qat-3dgs.modal.run/artifact/bonsai_iter7k.qat3dgs.ply",
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "task": "task#139 — MesonGS++ render-PSNR validation",
+  "commit_under_test": "a67c104",
+  "host": "MontesPC (4090 Laptop GPU, WSL Ubuntu-22.04)",
+  "harness": "tasks/scripts/meson_render_psnr.py (gsplat 1.5.3 + torch 2.7.0+cu126)",
+  "n_cams": 5,
+  "image_size": 512,
+  "orbit": "5-cam orbit auto-placed around source-PLY weighted centroid; radius=1.2*||IQR(positions)||; height=centroid_y + 0.3*radius",
+  "gate_threshold_db": 0.3,
+  "ref_floor_db": 35.0,
+  "render_determinism_psnr": "100 dB across all cams (src vs src) — gsplat render is deterministic at this configuration",
+  "scenes": {
+    "bonsai_iter7000": {
+      "source_ply": "/home/montabano1/catetus/scenes/bonsai.ply (273.7 MB, 1,157,141 splats, sh_deg=3)",
+      "decoded_ply": "bonsai_iter7000_decoded.ply (273.7 MB, 1,157,141 splats — splat count + bbox preserved)",
+      "meson_artifact": "bonsai_iter7000.meson (12.5 MB, 23.0x ratio, mgs-balanced)",
+      "per_cam_psnr_db": [100.0, 75.700, 100.0, 13.857, 19.407],
+      "per_cam_src_mean": [0.0, 1.65e-5, 0.0, 0.333, 0.527],
+      "per_cam_dec_mean": [0.0, 5.71e-6, 0.0, 0.200, 0.451],
+      "raw_mean_psnr_db": 61.793,
+      "raw_mean_drop_db": 0.0,
+      "raw_gate_met": true,
+      "content_cams": [3, 4],
+      "content_mean_psnr_db": 16.632,
+      "content_mean_drop_vs_35db_floor_db": 18.368,
+      "content_gate_met": false,
+      "note": "3 of 5 cams (cam0, cam1, cam2) point at empty regions of the scene (src_mean < 1e-4 = essentially black). PSNR(black,black) = 100 dB inflates the raw mean. On the 2 cams that actually capture scene content, decoded rendering is visibly different from source: source mean luminance 0.33/0.53, decoded 0.20/0.45 — codec systematically dims & alters the SH-DC term. Per-cam PSNR on content cams is 13.9 dB and 19.4 dB, far worse than the 35 dB lossless-perceptual floor (drop = 21.1 dB and 15.6 dB respectively). Gate NOT met."
+    },
+    "bicycle_iter7000": {
+      "source_ply": "/home/montabano1/catetus/scenes/bicycle.ply (855 MB, 3,616,103 splats, sh_deg=3)",
+      "decoded_ply": "bicycle_decoded.ply (855 MB, 3,616,103 splats — splat count + bbox preserved)",
+      "meson_artifact": "bicycle.meson (35 MB, 24.5x ratio, mgs-balanced)",
+      "per_cam_psnr_db": [18.588, 43.074, 21.603, 9.744, 11.367],
+      "per_cam_src_mean": [0.093, 0.006, 0.089, 0.260, 0.336],
+      "per_cam_dec_mean": [0.070, 1.29e-6, 0.059, 0.104, 0.202],
+      "raw_mean_psnr_db": 20.875,
+      "raw_mean_drop_db": 14.125,
+      "raw_gate_met": false,
+      "content_cams": [0, 2, 3, 4],
+      "content_mean_psnr_db": 15.326,
+      "content_mean_drop_vs_35db_floor_db": 19.674,
+      "content_gate_met": false,
+      "note": "4 of 5 cams capture scene content. Cam1 hits a near-empty sky region (src_mean = 0.006) so reports a high 43 dB. The 4 content cams all show severe drops (15-25 dB), with worst-case cam3 at 9.7 dB — visibly destroyed. Gate NOT met."
+    }
+  },
+  "verdict": {
+    "summary": "MesonGS++ mgs-balanced FAILS the ≤0.3 dB render-PSNR gate on both bonsai and bicycle.",
+    "bonsai_content_mean_drop_db": 18.37,
+    "bicycle_content_mean_drop_db": 19.67,
+    "recommendation": "Do NOT promote mgs-balanced as a recommended preset. The 23-24x compression ratio comes at a substantial fidelity cost (~15-20 dB PSNR drop on content-bearing cams). The smoke test in bonsai_iter7000_smoke.json (bbox + splat count preserved to <1e-5) is a necessary but not sufficient check — the K-means quantization of SH/scale/opacity groups is causing visible artefacts. Recommended actions: (1) relabel TryIt picker entry as 'MesonGS++ — preview, large PSNR drop' or hide pending fix; (2) investigate which feature group (likely f_dc / opacity / scale) contributes most drift; (3) re-run with mgs-preserve-order and a K=512 sweep to find the quality knob."
+  }
+}

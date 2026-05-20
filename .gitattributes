@@ -1,0 +1,19 @@
+# Catetus .gitattributes
+#
+# Local-only directives. These flags do NOT prevent `git push` — that
+# protection requires a pre-push hook (see
+# experiments/partnership-docs-audit/AUDIT.md §6 item 6). They:
+#   - exclude these paths from `git archive` tarballs (export-ignore)
+#   - mark them as documentation/strategy for linguist & language stats
+#   - serve as a human-readable signal that these paths are pre-decisional
+#
+# docs/standards-outreach/** — pre-decisional outreach drafts, NEVER push to
+# public remotes until operator has explicitly authorized each file.
+docs/standards-outreach/**       export-ignore linguist-documentation
+docs/standards-outreach/*.md     export-ignore linguist-documentation
+
+# Same handling for any future re-creation of docs/partnerships/ (the
+# original was removed in commit c003011 but the path is reserved so
+# accidental re-add carries the same protections).
+docs/partnerships/**             export-ignore linguist-documentation
+docs/partnerships/*.md           export-ignore linguist-documentation

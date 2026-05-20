@@ -1,0 +1,41 @@
+[package]
+name = "catetus-gltf"
+# Explicit version (not workspace) so the glTF writer can advance with each
+# KHR_gaussian_splatting spec revision. See CHANGELOG.md in this crate.
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "glTF 2.0 + KHR_gaussian_splatting writer/reader for Catetus."
+
+[dependencies]
+catetus-core = { workspace = true }
+catetus-spz  = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+blake3 = { workspace = true }
+byteorder = { workspace = true }
+thiserror = { workspace = true }
+# Used by the V5.2 sidecar codec (`v5_tail` module) for the encoder's
+# Context / bail! error chaining. The rest of the crate keeps its
+# `thiserror::Error` (`GltfError`); `decode_v5tail_bytes` translates
+# `anyhow::Error` into `GltfError::Malformed` at the boundary so the
+# public reader API stays on the single error type.
+anyhow = { workspace = true }
+# Lossless wrapper for the GLB BIN payload. Brotli-11 saves ~47% on the
+# quality-max FP32 SH coefficients and ~5-7% on quantized presets — the
+# largest pure-lossless lever measured in experiments/lossless-zstd. v8.x
+# is the current pure-Rust port (no system libbrotli required).
+brotli = { version = "8", default-features = false, features = ["std"] }
+# Used by the `Zstd19Split` lossless wrap (`SF_zstd_split_buffer`). The split
+# wrap byte-plane-transposes each bufferView before compression — adjacent
+# splats in Morton order share most high-bytes, so zstd-19 on the transposed
+# stream picks up the spatial-coherence win that whole-BIN brotli misses on
+# quantized integer accessors (~50% extra on top of `wmv-sh3-q8`).
+zstd = { version = "0.13", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+catetus-khr-conformance = { workspace = true }
+serde_json = { workspace = true }

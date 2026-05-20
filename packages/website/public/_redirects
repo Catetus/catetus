@@ -1,0 +1,7 @@
+# Cloudflare Pages redirects / rewrites. Plain-text, one rule per line.
+# Format: <from>  <to>  <status>
+#
+# SPA fallback for deep links into the viewer-app. The website itself uses
+# hash routing so it needs no fallback — `/`, `/index.html` are real files.
+
+/viewer/*  /viewer/index.html  200

@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Catetus pre-push guard: block partnership/standards-outreach docs from
+# being pushed.
+#
+# Background: 2026-05-15 leak — docs/partnerships/{adobe-spz-memo,contact-map,
+# outreach-sequence}.md and docs/standards-outreach/{khronos-issue,
+# openusd-forum-post}.md were pushed to the public test-hero-fast branch
+# for ~4 days, leading to Khronos issue #2580 being closed citing the leaked
+# outreach doc as evidence the submission was premature.
+#
+# This hook reads the list of ref updates from stdin (git's pre-push protocol)
+# and, for each update, compares the new SHA against the remote SHA. Any added
+# or modified path under docs/partnerships/ or docs/standards-outreach/ aborts
+# the push.
+#
+# Override: CATETUS_PARTNERSHIP_OVERRIDE=1 git push ...
+# (Use ONLY for legitimate cases like deleting a leaked file from history.
+# An audit line is written to stderr when override fires.)
+#
+# Design notes:
+# - FAST: only runs `git diff --name-only` once per ref update.
+# - FAIL-OPEN on diff machinery errors (we don't want to block legit work
+#   if the repo is in a weird state — CI is the belt-and-suspenders).
+# - First-push: when the remote SHA is all-zeros, we diff against
+#   origin/HEAD (or origin/main / origin/master as fallback) to avoid
+#   diffing the entire branch history against /dev/null.
+
+set -u
+
+remote="${1:-origin}"
+# shellcheck disable=SC2034  # url passed by git, unused
+url="${2:-}"
+
+PROTECTED_PATTERN='^docs/(partnerships|standards-outreach)/'
+ZERO='0000000000000000000000000000000000000000'
+
+# Fast bail-out: not pushing? nothing to do.
+if [ -t 0 ]; then
+  exit 0
+fi
+
+# Resolve a fallback base ref for first-push case.
+fallback_base=""
+for candidate in "${remote}/HEAD" "${remote}/main" "${remote}/master"; do
+  if git rev-parse --verify --quiet "${candidate}" >/dev/null 2>&1; then
+    fallback_base="${candidate}"
+    break
+  fi
+done
+
+violations=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Branch deletion: local_sha is zeros, nothing to check.
+  if [ "${local_sha}" = "${ZERO}" ]; then
+    continue
+  fi
+
+  # Determine the diff range.
+  if [ "${remote_sha}" = "${ZERO}" ]; then
+    # First push of this branch. Diff against fallback base if available;
+    # otherwise diff against the empty tree (covers the no-fallback case
+    # without erroring out).
+    if [ -n "${fallback_base}" ]; then
+      range="${fallback_base}..${local_sha}"
+    else
+      # Empty tree SHA — every file becomes "added".
+      empty_tree="$(git hash-object -t tree /dev/null 2>/dev/null || echo '4b825dc642cb6eb9a060e54bf8d69288fbee4904')"
+      range="${empty_tree}..${local_sha}"
+    fi
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+
+  # FAIL-OPEN: if diff machinery errors, let the push through (CI catches it).
+  changed="$(git diff --name-only --diff-filter=AM "${range}" 2>/dev/null)" || {
+    echo "pre-push: warning — git diff failed for ${range}; skipping protection (CI will still check)" >&2
+    continue
+  }
+
+  hits="$(printf '%s\n' "${changed}" | grep -E "${PROTECTED_PATTERN}" || true)"
+  if [ -n "${hits}" ]; then
+    violations="${violations}${violations:+$'\n'}--- ${local_ref} -> ${remote_ref} ---"$'\n'"${hits}"
+  fi
+done
+
+if [ -z "${violations}" ]; then
+  exit 0
+fi
+
+if [ "${CATETUS_PARTNERSHIP_OVERRIDE:-}" = "1" ]; then
+  who="$(git config user.email 2>/dev/null || echo 'unknown')"
+  when="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "==============================================================" >&2
+  echo "pre-push: OVERRIDE engaged (CATETUS_PARTNERSHIP_OVERRIDE=1)" >&2
+  echo "  user:  ${who}" >&2
+  echo "  when:  ${when}" >&2
+  echo "  remote: ${remote}" >&2
+  echo "  paths overridden:" >&2
+  printf '%s\n' "${violations}" | sed 's/^/    /' >&2
+  echo "==============================================================" >&2
+  exit 0
+fi
+
+cat >&2 <<EOF
+==============================================================
+pre-push: BLOCKED — partnership/outreach docs in push
+
+The following paths are protected and MUST NOT be pushed to any
+remote (the repo flips public eventually; these docs never should):
+
+${violations}
+
+Why: a 2026-05-15 leak of docs/partnerships/* on the public
+test-hero-fast branch produced concrete external fallout
+(Khronos issue #2580 closed citing the leaked outreach doc).
+See experiments/partnership-docs-audit/AUDIT.md.
+
+Options:
+  1) Drop these paths from the push:
+       git restore --staged docs/partnerships docs/standards-outreach
+       git commit --amend            # or rebase to remove the commits
+  2) Legitimate exception (e.g. deleting a leaked file from
+     history, intentional internal-only remote):
+       CATETUS_PARTNERSHIP_OVERRIDE=1 git push ...
+     (An audit line will be written to stderr.)
+==============================================================
+EOF
+exit 1

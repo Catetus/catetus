@@ -1,0 +1,264 @@
+---
+import Base from "../../../layouts/Base.astro";
+
+const title = "Catetus — QAT-Scaffold (Scaffold-GS PLY) API";
+const description =
+  "Post-training Quant-Aware codec for Scaffold-GS PLYs. Two tiers: live single-PLY endpoint delivers ~10.13% lossless prefix; full QAT recipe (37.25% PLY save, +0.172 dB mean PSNR) requires GT cameras via premium bundle-upload tier. Free tier: 1 scene/day under 100 MB. Paid tier: $0.50/GB processed.";
+
+const apiBase = import.meta.env.PUBLIC_API_BASE ?? "https://api.catetus.com";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      catetus
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="/#try" aria-current="page">Try it</a>
+    </div>
+  </nav>
+
+  <h1>QAT-Scaffold preset (Scaffold-GS PLY)</h1>
+  <p class="lede">
+    The <code>catetus-qat-scaffold</code> preset is a
+    <strong>post-training Quant-Aware codec</strong> for Scaffold-GS PLYs.
+    It has two tiers with different inputs and different deliverables.
+  </p>
+
+  <h2>What the live single-PLY endpoint delivers</h2>
+  <p>
+    The default endpoint takes a single Scaffold-GS PLY (no GT
+    cameras) and returns a smaller Scaffold-GS PLY using the
+    <strong>lossless constant-strip prefix</strong> only. Measured on
+    bonsai 30k:
+  </p>
+  <ul>
+    <li><strong>~10.13% PLY-size save</strong>, lossless (deterministic dequant)</li>
+    <li><strong>Δ PSNR / SSIM / LPIPS = 0</strong> by construction — codec asserts byte-exact attribute round-trip</li>
+    <li>Encode wall ≈ 1.3 s on Modal; total round-trip ≈ 25 s including upload/download</li>
+  </ul>
+  <p>
+    Stripped fields are the eight Scaffold-GS columns the trainer
+    initialises and never updates (<code>nx, ny, nz, opacity,
+    rot_0..rot_3</code>). Bench data lives in
+    <code>benches/encoders/qat-scaffold-gs/</code>.
+  </p>
+
+  <h2>Full QAT recipe — premium tier (requires GT cameras)</h2>
+  <p>
+    The bench numbers below come from the full QAT recipe: constant-strip
+    plus int8 quant-aware retrain of <code>f_anchor_feat</code> plus int4
+    per-anchor quant of <code>f_offset</code>. The retrain pass needs
+    the original training images + COLMAP cameras to evaluate against,
+    so it ships as a separate
+    <a href="/docs/qat-bundle"><strong>QAT-Bundle</strong></a> preset
+    (~$0.50/scene, ~10&nbsp;min on A100). Pick <em>QAT-Bundle (premium)</em>
+    in the Try-it preset picker and drop a Scaffold-GS bundle archive —
+    see <a href="/docs/qat-bundle">/docs/qat-bundle</a> for the exact
+    layout and the per-scene expectations table.
+  </p>
+  <p class="footnote">
+    Tier-1 of QAT-Bundle ships the int8 <code>f_anchor_feat</code>
+    finetune + lossless constant-strip; int4 offset stacking (the
+    extra ~7 percentage points to hit the headline 37% aggregate)
+    lands in a follow-up. Each job returns honest per-scene numbers
+    in the callback, so the customer always sees the actual ΔPSNR
+    their capture earned.
+  </p>
+
+  <h2>Bench numbers — full recipe, 6 scenes, 2026-05-16</h2>
+  <p>
+    Aggregate <strong>37.25% PLY-size save</strong> across the six
+    trained Mip-NeRF 360 scenes, with a positive PSNR delta on every
+    scene (6/6). Per-scene breakdown:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Scene</th>
+        <th>PLY save</th>
+        <th>Delta PSNR (dB)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>bonsai</td><td>40.51%</td><td>+0.581</td></tr>
+      <tr><td>bicycle</td><td>40.51%</td><td>+0.087</td></tr>
+      <tr><td>garden</td><td>40.51%</td><td>+0.198</td></tr>
+      <tr><td>stump</td><td>33.80%</td><td>+0.076</td></tr>
+      <tr><td>treehill</td><td>33.80%</td><td>+0.056</td></tr>
+      <tr><td>flowers</td><td>33.80%</td><td>+0.032</td></tr>
+      <tr>
+        <td><strong>Aggregate (6 scenes)</strong></td>
+        <td><strong>37.25%</strong></td>
+        <td><strong>+0.172 (mean)</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="footnote">
+    Raw bench column lives at
+    <code>benches/encoders/qat-scaffold-gs/</code> and the per-scene
+    cells are in <code>benches/reports/splatbench-v0.json</code> under
+    <code>qatScaffoldGs</code>. SSIM and LPIPS improve on every scene
+    too — see the leaderboard page for the full matrix.
+  </p>
+
+  <h2>Endpoint</h2>
+  <pre><code>POST {apiBase}/v1/jobs
+Authorization: Bearer &lt;api_key&gt;
+Content-Type: application/json
+
+&#123;
+  "preset": "catetus-qat-scaffold",
+  "blob_url": "https://blob.vercel-storage.com/uploads/&lt;sha&gt;-scaffold.ply",
+  "filename": "scaffold.ply"
+&#125;</code></pre>
+
+  <h2>Auth</h2>
+  <p>
+    Every request needs <code>Authorization: Bearer &lt;api_key&gt;</code>.
+    New accounts get a free-tier key via the existing self-serve flow at
+    <a href="mailto:sales@catetus.com">sales@catetus.com</a>: Stripe Checkout submits the
+    email, the webhook issues an API key, and the key shows up in both
+    the receipt email and the account dashboard. No separate
+    QAT-Scaffold signup; the same key gates every preset.
+  </p>
+
+  <h2>Request / response</h2>
+  <p>
+    Same job shape as every other preset — only <code>preset</code>
+    changes. The API returns a <code>job_id</code> immediately and POSTs
+    the terminal result to your registered callback (or you can poll
+    <code>GET /v1/jobs/&lt;job_id&gt;</code>).
+  </p>
+  <pre><code>// 202 Accepted
+&#123;
+  "job_id": "01HZ9X2P8E4QXM6R0M3T7G1K8C",
+  "preset": "catetus-qat-scaffold",
+  "status": "queued",
+  "estimated_compute_seconds": 360,
+  "estimated_cost_usd_cents": 18
+&#125;
+
+// terminal callback (or GET /v1/jobs/&lt;id&gt;)
+&#123;
+  "job_id": "01HZ9X2P8E4QXM6R0M3T7G1K8C",
+  "status": "done",
+  "output_url": "https://blob.vercel-storage.com/outputs/&lt;sha&gt;-qat.ply",
+  "size_bytes_in":  136847392,
+  "size_bytes_out":  85946720,
+  "ply_save_pct": 37.2,
+  "delta_psnr_db": 0.17
+&#125;</code></pre>
+
+  <h2>Input shapes</h2>
+  <ul>
+    <li>
+      A <strong>Scaffold-GS PLY</strong> (single file). The encoder
+      reads the standard Scaffold attribute layout and rejects vanilla
+      3DGS PLYs with a clear error. Use the <code>hacpp-lzma</code>
+      preset if you have a Scaffold bundle (PLY + MLP weights) instead
+      of a flat PLY.
+    </li>
+  </ul>
+
+  <h2>Output shape</h2>
+  <p>
+    A single Scaffold-GS PLY, smaller than the input. The file is
+    self-contained — any Scaffold-GS-aware decoder can render it
+    because the quantized streams are stored in standard PLY-attribute
+    slots with documented quant scales in the header comment.
+  </p>
+
+  <h2>Rate limits</h2>
+  <table>
+    <thead>
+      <tr><th>Tier</th><th>Per-key request budget</th><th>Per-input size</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Free</strong></td>
+        <td>1 scene / 24 h</td>
+        <td>&lt;= 100 MB Scaffold PLY</td>
+      </tr>
+      <tr>
+        <td><strong>Paid</strong></td>
+        <td>No daily cap</td>
+        <td>No size cap (subject to Modal-side timeouts on enormous
+        captures — talk to us if you have a &gt;5 GB Scaffold)</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Rate limits are enforced per-key by the existing
+    <code>catetus_rate_limit</code> middleware (PR #33). Free-tier
+    overage returns <code>HTTP 429</code> with an
+    <code>X-Free-Tier-Reset</code> header pointing at the next
+    midnight UTC window.
+  </p>
+
+  <h2>Pricing</h2>
+  <ul>
+    <li>
+      <strong>Free tier:</strong> 1 scene/day, &lt;= 100 MB input. No
+      card required. Sign up at <a href="mailto:sales@catetus.com">sales@catetus.com</a>.
+    </li>
+    <li>
+      <strong>Paid tier:</strong> <code>$0.50 / GB processed</code>.
+      Billed monthly via Stripe. No flat fee, no minimum, no daily
+      cap. A typical 130 MB Scaffold PLY costs ~$0.065 / scene.
+    </li>
+  </ul>
+  <p>
+    Use <code>POST /v1/pricing/preview</code> with
+    <code>&#123; "size_bytes": &lt;n&gt;, "preset": "catetus-qat-scaffold" &#125;</code>
+    to get a quote before submitting the job.
+  </p>
+
+  <h2>Worker dispatch</h2>
+  <p>
+    The public worker forwards every <code>catetus-qat-scaffold</code>
+    enqueue to a private Modal app. The operator sets
+    <code>CATETUS_QAT_SCAFFOLD_URL</code> in the
+    <code>catetus-preset-urls</code> Modal secret to wire the route;
+    <code>GET /healthz</code> on the worker exposes a
+    <code>preset_dispatch_configured.catetus-qat-scaffold</code>
+    bool so deploys are verifiable without inspecting secrets.
+  </p>
+
+  <h2>Anti-claims</h2>
+  <ul>
+    <li>
+      <strong>Not a vanilla 3DGS codec.</strong> The compression only
+      works on Scaffold-GS PLYs because it leans on Scaffold's
+      anchor-feature + offset structure. Use <code>fcgs-instant</code>
+      or <code>hacpp-lzma</code> for non-Scaffold inputs.
+    </li>
+    <li>
+      <strong>Lossless in the codec sense != "pixel-identical".</strong>
+      Dequant is deterministic, so the codec round-trip is reproducible
+      and zero-error in attribute space. Render PSNR <em>improves</em>
+      because the QAT pass nudges the Scaffold parameters toward a
+      configuration that the quantized representation re-renders
+      slightly better than the source.
+    </li>
+    <li>
+      <strong>N=1 per scene today.</strong> All six scenes cleared the
+      P2 gate at N=1 (minimum delta +0.032 dB &gt; 0). N&gt;=3
+      multi-seed runs are scheduled and will replace these cells when
+      they land.
+    </li>
+  </ul>
+
+  <h2>See also</h2>
+  <p>
+    The on-disk format produced by this preset is documented in the
+    <a href="/specs/qat-ply-v1">QAT-PLY v1 specification</a>, with a
+    zero-dependency C99 reference decoder and a 10-fixture conformance
+    suite so any third-party renderer can decode Catetus PLYs
+    bit-exactly without a runtime Catetus dependency.
+  </p>
+</Base>

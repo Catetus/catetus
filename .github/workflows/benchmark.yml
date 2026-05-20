@@ -1,0 +1,23 @@
+name: benchmark
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p catetus-cli
+      # `corpus run` prints the suite JSON to stdout; capture it into the
+      # reports dir so the upload-artifact step has something to publish.
+      - run: mkdir -p benches/reports
+      - run: ./target/release/catetus corpus run smoke | tee benches/reports/corpus-smoke.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-report
+          path: benches/reports/

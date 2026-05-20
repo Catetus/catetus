@@ -1,0 +1,31 @@
+[package]
+name = "catetus-optimize"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Composable optimization passes for Catetus."
+
+[dependencies]
+catetus-core = { workspace = true }
+catetus-gltf = { workspace = true }
+# `catetus-posthac` (the categorical range coder over palette indices) was
+# moved to the private `catetus/catetus-private` repo on 2026-05-19 as part
+# of the open-core split. `VQPaletteShRest` no longer enables the PostHAC
+# index-stream payload by default; the public crate ships the raw u16 index
+# stream and the wider `.shpal` format. Hosted callers that want the
+# entropy-coded variant POST to api.catetus.com.
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Pure-Rust zstd encoder used by the SplatDelta side-channel writer. Same
+# version pin as catetus-cli for crate-graph stability.
+zstd = { version = "0.13", default-features = false }
+# Used by `VQPaletteShRest` for parallel nearest-centroid assignment in the
+# 45-D SH-rest k-means palette pass (SOG primitive #3).
+rayon = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+catetus-gltf = { workspace = true }

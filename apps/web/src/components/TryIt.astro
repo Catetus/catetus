@@ -1,0 +1,1027 @@
+---
+// "Try it" is the call-to-action that proves Catetus is alive.
+// The PRIMARY action is "Choose a file" (file picker) + drop zone — the
+// drop zone IS the section, not a button inside it. Secondary affordances
+// (apply as design partner, view docs) live BELOW the upload card so they
+// don't compete with the upload action.
+// Same-origin proxy. Vercel rewrites /api/* to the actual HTTP backend
+// (see apps/web/vercel.json). This avoids the browser's mixed-content
+// block when the page is served over HTTPS but the backend is HTTP.
+// Override via PUBLIC_API_BASE for local dev (e.g. http://127.0.0.1:8080).
+const apiBase = import.meta.env.PUBLIC_API_BASE ?? "/api";
+const partnerHref =
+  "https://github.com/Catetus/catetus/issues/new?title=design-partner-interest&body=Hi%20%E2%80%94%20I%27d%20like%20to%20run%20a%20splat%20through%20Catetus";
+const supported = [".ply", ".spz", ".gltf", ".glb", ".splat"];
+// Presets that require a bundled archive instead of a single splat file.
+// hacpp-lzma needs a Scaffold-GS checkpoint (point_cloud.ply + 3 MLPs).
+// The private encoder unpacks the archive with `tarfile.open(..., "r:*")`,
+// which transparently handles uncompressed tar, gzip, and xz — so this
+// list MUST stay synchronized with what tarfile recognizes. (.zip is NOT
+// included because the worker has no zipfile branch yet; advertising
+// .zip here would surface as a confusing post-upload encoder error.)
+// See /docs/hacpp-bundle for the exact layout.
+const bundleSupported = [".tar", ".tar.gz", ".tgz"];
+const bundlePresets = ["hacpp-lzma", "catetus-qat-bundle", "catetus-qat-3dgs-bundle"];
+
+// Preset picker entries. The first is the default. Ratio claims are from
+// bonsai (273.7 MB Inria PLY) end-to-end Modal validation; real-world
+// ratios vary by scene density and SH degree.
+const presetOptions = [
+  {
+    value: "web-mobile",
+    label: "Web-mobile (default)",
+    blurb: "SH-preserving repack · ~5× · drop-in",
+  },
+  {
+    value: "hacpp-lzma",
+    label: "HAC++ lzma",
+    blurb: "Anchor entropy + lzma · ~11× · needs Scaffold-GS .tar bundle",
+  },
+  // codec-gs-mixed REMOVED 2026-05-15 — Principle 2 render-PSNR violation.
+  // task#156 disambiguation matrix (8 content-bearing cams, src-vs-src=100 dB baseline):
+  //   bonsai_iter7000 CRF=28 → 16.78 dB content-cam mean (14.58 dB min)
+  //   bicycle_iter7000 CRF=28 → 12.70 dB content-cam mean (10.68 dB min)
+  //   stump_iter7000   CRF=28 → 13.94 dB content-cam mean (11.80 dB min)
+  // MesonGS++ K=256 was killed for hitting 21 dB on the same regime. codec-gs-mixed
+  // is unambiguously worse. Picker removal follows the #141 precedent. Codec stays
+  // wired through pricing/worker/CLI so research can still drive it via API.
+  // See tasks/results/codec_gs_mixed_kill_summary.json.
+  {
+    value: "fcgs-instant",
+    label: "FCGS-instant",
+    blurb: "Zero-train feed-forward · ~20× · fastest encode",
+  },
+  // hosted-neural REMOVED 2026-05-16 — Principle 2 render-PSNR violation.
+  // p2-audit-2026-05-15 v2 harness (8 content-bearing orbit cams — the same
+  // orbit-8 path the production viewer wires below, src-vs-src=100 dB baseline):
+  //   bonsai_iter7000  → 12.56 dB content-cam mean (6.07 dB min, 2.00× ratio)
+  //   bicycle_iter7000 → 10.36 dB content-cam mean (7.14 dB min, 2.00× ratio)
+  // Both land BELOW the already-killed codec-gs-mixed (16.78 / 12.70 dB on the
+  // same harness). The picker's "+8dB outdoor" copy described a delta vs an
+  // internal opacity-prune baseline, not absolute PSNR; on the orbit-camera
+  // regime the viewer actually renders from, the encoder destroys fidelity.
+  // Encoder stays wired through worker/CLI/Modal so research can drive it via
+  // API. Recovery paths (co-train on orbit cams; drop sh3 from objective)
+  // documented in catetus-private/research/p2-audit-2026-05-15.md.
+  {
+    value: "size-min",
+    label: "Size-min",
+    blurb: "Aggressive quantize + LOD · ~10× · web-friendly",
+  },
+  // QAT-Scaffold — post-training Quant-Aware codec for Scaffold-GS PLYs.
+  // Public numbers come from benches/encoders/qat-scaffold-gs (committed
+  // 2026-05-16 in c3387b3): aggregate 37.25% PLY-size save across 6
+  // Mip-NeRF 360 scenes (bonsai, bicycle, garden, stump, treehill,
+  // flowers), with a positive PSNR delta on every scene (min +0.032 dB,
+  // max +0.581 dB, mean +0.172 dB). Output is a smaller Scaffold-GS PLY
+  // that strictly improves PSNR / SSIM / LPIPS on the training-time
+  // eval cameras — lossless in the codec sense (deterministic dequant).
+  // Routed through catetus-worker → catetus-qat-scaffold Modal
+  // app. /docs/api/qat-scaffold has the full contract.
+  {
+    value: "catetus-qat-scaffold",
+    label: "QAT-Scaffold (Scaffold-GS PLY)",
+    blurb: "Scaffold-GS PLY → ~10% smaller, lossless single-PLY prefix. Full benchmark recipe (37% save / +0.17 dB) requires GT cameras — pick QAT-Bundle below.",
+  },
+  // QAT-Bundle — premium tier. Full retrain recipe (int8 f_anchor_feat
+  // finetune + constant-strip) requires a bundle with GT cameras +
+  // images so the trainer can absorb feature-quant noise via L1+SSIM
+  // loss on the customer's own captures. ~$0.50/scene, ~10 min on
+  // A100. Per-scene results vary — bonsai +0.58 dB / 40.5% save;
+  // flowers +0.03 dB / 33.8% save (see /docs/qat-bundle for the
+  // honest table). Routed through catetus-worker →
+  // catetus-qat-bundle Modal app.
+  {
+    value: "catetus-qat-bundle",
+    label: "QAT-Bundle (premium — full recipe)",
+    blurb: "Full retrain · +PSNR & ~30-40% PLY save · needs Scaffold-GS .tar bundle with GT cams + images",
+  },
+  // QAT-3DGS — vanilla Inria 3DGS single-PLY tier. Targets the
+  // de-facto consumer PLY format (Luma / Polycam / Scaniverse /
+  // graphdeco-inria trainer outputs, 62 fp32 columns per vertex).
+  // Lossless constant-strip drops empirically-constant columns
+  // (nx, ny, nz on every Inria 3DGS PLY tested) and emits a
+  // smaller-but-bit-identical PLY. End-to-end Modal smoke (deployed
+  // /qat-3dgs route, 287 MB bonsai mipnerf360 iter-7k): 4.84% lossless
+  // save, bit-exact round-trip verified, 0 dB delta by construction.
+  // The full ~55% projected save (45 fp32 f_rest_* SH coefficients →
+  // 45 int8) requires the retrain leg with GT cameras + images; that
+  // tier ships separately as `catetus-qat-3dgs-bundle`.
+  // Routed through catetus-worker → catetus-qat-3dgs Modal app.
+  // /docs/qat-3dgs has the full contract.
+  {
+    value: "catetus-qat-3dgs",
+    label: "QAT-3DGS (Inria PLY)",
+    blurb: "Vanilla Inria 3DGS PLY → ~5% smaller, lossless. Drops zero-valued normals (nx/ny/nz) from the body and stores them in the header. Full SH int8 recipe (~55% save) requires GT cameras — bundle tier coming next.",
+  },
+  // QAT-3DGS-Bundle — premium tier for vanilla Inria 3DGS. Takes a
+  // bundle (point_cloud.ply + sparse/0/ COLMAP + images/) and runs
+  // an int8 SH (`f_rest_*`) quant-aware retrain on A100. The 45
+  // f_rest fp32 coefficients are 73% of an Inria 3DGS PLY's bytes;
+  // switching them to int8 with finetune-absorbed quant noise lands
+  // ~55% realized save vs the ~5% lossless ceiling of the single-PLY
+  // tier. Bonsai N=1 smoke: 59.27% PLY save / +0.81 dB ΔPSNR.
+  // Routed through catetus-worker → catetus-qat-3dgs-bundle
+  // Modal app. /docs/qat-3dgs-bundle has the full contract.
+  {
+    value: "catetus-qat-3dgs-bundle",
+    label: "QAT-3DGS Bundle (premium — full SH retrain)",
+    blurb: "Vanilla Inria 3DGS PLY + GT cameras → ~55% smaller, retrained for +PSNR. Premium tier.",
+  },
+];
+---
+
+<section id="try" class="try-section" aria-labelledby="try-title">
+  <div class="section-head">
+    <h2 id="try-title" class="section-title">Try it on your splat</h2>
+    <p class="section-sub">
+      Drop a Gaussian-splat scene and we'll run the full
+      upload&nbsp;→&nbsp;optimize&nbsp;→&nbsp;download round-trip against the
+      hosted API
+      <span class="api-status" data-api-status>
+        <span class="status-dot" aria-hidden="true"></span>
+        <span data-api-status-label>live</span>
+      </span>.
+    </p>
+  </div>
+
+  <div class="dropzone" data-uploader data-state="idle">
+    <input
+      type="file"
+      id="splat-file-input"
+      data-file-input
+      accept=".ply,.spz,.gltf,.glb,.splat"
+      hidden
+    />
+
+    <div class="region region-idle">
+      <div class="dropzone-icon" aria-hidden="true">
+        <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+          <circle cx="28" cy="28" r="27" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.4"></circle>
+          <path d="M28 18v18M21 27l7-9 7 9" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path d="M15 38v3a2 2 0 002 2h22a2 2 0 002-2v-3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+        </svg>
+      </div>
+      <div class="dropzone-headline">Drop a splat or click to choose a file</div>
+      <div class="dropzone-body">Files stay local until you confirm. Supported formats below.</div>
+      <label for="splat-file-input" class="btn btn-primary dropzone-cta">
+        <span aria-hidden="true">📎</span>&nbsp;Choose file
+      </label>
+      <div class="preset-picker" data-tryit-preset-picker aria-label="Compression preset">
+        <label for="tryit-preset-select" class="preset-label">Preset</label>
+        <select id="tryit-preset-select" data-tryit-preset-select class="preset-select">
+          {presetOptions.map((p, i) => (
+            <option value={p.value} selected={i === 0}>{p.label}</option>
+          ))}
+        </select>
+        <span class="preset-blurb" data-tryit-preset-blurb>{presetOptions[0].blurb}</span>
+        <a
+          class="preset-help"
+          data-tryit-bundle-help
+          href="/docs/hacpp-bundle"
+          target="_blank"
+          rel="noreferrer noopener"
+          hidden
+          aria-label="Scaffold-GS bundle format docs"
+          title="This preset requires a Scaffold-GS bundle — click for the exact layout."
+        >?</a>
+      </div>
+      {/* Two chip groups: the default (single splat formats) and the
+         bundle group (archives). The data-tryit-format-chips container
+         picks which one is visible based on the active preset, so the
+         user sees the formats their selected preset actually accepts. */}
+      <div class="format-chips-wrap" data-tryit-format-chips data-mode="single">
+        <div class="format-chips format-chips-single" aria-label="Supported input formats">
+          {supported.map((ext) => <span class="chip">{ext}</span>)}
+        </div>
+        <div class="format-chips format-chips-bundle" aria-label="Bundle archive formats">
+          {bundleSupported.map((ext) => <span class="chip chip-bundle">{ext}</span>)}
+          <span class="chip-note">
+            Scaffold-GS bundle · <a href="/docs/hacpp-bundle">layout</a>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="region region-progress">
+      <div class="progress-headline" data-progress-headline>Uploading</div>
+      <div class="progress-sub" data-progress-sub>preparing</div>
+      <div class="job-progress" data-job-progress>
+        <div class="job-progress-bar" data-job-progress-bar></div>
+      </div>
+      <div class="progress-filename" data-progress-filename></div>
+    </div>
+
+    <div class="region region-result">
+      <canvas data-result-canvas class="result-canvas"></canvas>
+      <div class="result-meta" data-result-meta>auto-rotating preview</div>
+      <div class="result-stats" data-result-stats hidden>
+        <span class="result-stat">
+          <span class="result-stat-label">Input</span>
+          <span class="result-stat-value" data-result-input>—</span>
+        </span>
+        <span class="result-stat-arrow" aria-hidden="true">→</span>
+        <span class="result-stat">
+          <span class="result-stat-label">Optimized</span>
+          <span class="result-stat-value" data-result-output>—</span>
+        </span>
+        <span class="result-stat-ratio" data-result-ratio></span>
+      </div>
+      <div class="result-actions">
+        <a class="btn btn-primary" data-result-download download>
+          <span aria-hidden="true">⬇</span>&nbsp;Download .glb
+        </a>
+        <button type="button" class="btn btn-secondary" data-result-reset>
+          Optimize another
+        </button>
+      </div>
+    </div>
+
+    <div class="region region-error">
+      <div class="error-headline">Something went wrong</div>
+      <div class="error-body" data-error-body></div>
+      <div class="error-actions">
+        <button type="button" class="btn btn-secondary" data-error-retry>Try again</button>
+        <a class="btn btn-secondary" href={partnerHref} target="_blank" rel="noreferrer noopener">
+          Apply as design partner →
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="try-footer">
+    <span class="pill">Design-partner alpha</span>
+    <span class="try-footer-meta">
+      Need a deeper integration or a giant scene?
+      <a href={partnerHref} target="_blank" rel="noreferrer noopener"
+        >Apply as design partner →</a
+      >
+    </span>
+  </div>
+</section>
+
+<style>
+  /* Center the TryIt header so it visually aligns with the centered
+     content inside the dropzone below. Other sections keep the default
+     left-aligned head; the upload card is the one place where centering
+     reads better because the whole interaction is centered. */
+  .try-section .section-head {
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+  }
+
+  /* Region visibility is driven by data-state on the .dropzone. Only one
+     region renders at a time so the dropzone *transforms* through the flow
+     (idle -> progress -> result) instead of stacking panels. */
+  .region {
+    display: none;
+    width: 100%;
+  }
+  .dropzone[data-state="idle"] .region-idle { display: block; }
+  .dropzone[data-state="uploading"] .region-progress,
+  .dropzone[data-state="processing"] .region-progress { display: block; }
+  .dropzone[data-state="done"] .region-result { display: flex; flex-direction: column; gap: 0.85rem; }
+  .dropzone[data-state="error"] .region-error { display: block; }
+
+  /* Progress region */
+  .progress-headline {
+    font-weight: 600;
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+  .progress-sub {
+    font-size: 0.92rem;
+    opacity: 0.75;
+    margin-bottom: 0.9rem;
+  }
+  .progress-filename {
+    font-size: 0.82rem;
+    opacity: 0.55;
+    margin-top: 0.7rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    word-break: break-all;
+  }
+  .job-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+  }
+  .job-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    transition: width 0.3s ease;
+  }
+  .job-progress.indeterminate .job-progress-bar {
+    width: 38%;
+    animation: job-progress-slide 1.4s ease-in-out infinite;
+  }
+  @keyframes job-progress-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(280%); }
+  }
+
+  /* Result region */
+  .result-canvas {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    background: #0a0a0a;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: block;
+  }
+  /* Interactive control class is added by the viewer once pointer handlers
+     are wired up; gives the user a visible cue that drag will work. */
+  .result-canvas.interactive { cursor: grab; }
+  .result-canvas.interactive:active { cursor: grabbing; }
+  .result-meta {
+    font-size: 0.82rem;
+    opacity: 0.55;
+    text-align: center;
+  }
+  .result-stats {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+    padding: 0.65rem 0.9rem;
+    border-radius: 0.6rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .result-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .result-stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.55;
+  }
+  .result-stat-value {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.95rem;
+    color: var(--fg);
+  }
+  .result-stat-arrow { opacity: 0.4; font-size: 1.1rem; }
+  .result-stat-ratio {
+    margin-left: 0.4rem;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+    font-weight: 600;
+    font-size: 0.85rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+  }
+
+  /* Preset picker */
+  .preset-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-top: 0.85rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .preset-label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.6;
+  }
+  .preset-select {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--fg);
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.88rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .preset-select:focus {
+    outline: 2px solid #8b5cf6;
+    outline-offset: 1px;
+  }
+  .preset-blurb {
+    font-size: 0.78rem;
+    opacity: 0.55;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  /* Bundle-help glyph appears beside the picker only when the active
+     preset needs a bundle. Sized to read as a secondary affordance —
+     present but not competing with the picker itself. */
+  .preset-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: rgba(139, 92, 246, 0.18);
+    color: #c4b5fd;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid rgba(139, 92, 246, 0.32);
+  }
+  .preset-help:hover { background: rgba(139, 92, 246, 0.28); }
+  .preset-help[hidden] { display: none; }
+  /* Format-chip groups — only one is visible based on the picker's
+     current preset. Bundle mode also shows a small explainer chip so
+     users understand they need an archive, not a raw splat. */
+  .format-chips-wrap .format-chips-bundle { display: none; }
+  .format-chips-wrap[data-mode="bundle"] .format-chips-single { display: none; }
+  .format-chips-wrap[data-mode="bundle"] .format-chips-bundle { display: flex; }
+  .chip-bundle {
+    background: rgba(139, 92, 246, 0.12);
+    color: #c4b5fd;
+    border-color: rgba(139, 92, 246, 0.28);
+  }
+  .chip-note {
+    font-size: 0.78rem;
+    opacity: 0.7;
+  }
+  .chip-note a { color: inherit; text-decoration: underline; }
+
+  /* Error region */
+  .error-headline {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 0.4rem;
+  }
+  .error-body {
+    font-size: 0.88rem;
+    color: #fda4af;
+    margin-bottom: 1rem;
+    word-break: break-word;
+  }
+  .error-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+  }
+</style>
+
+<script is:inline define:vars={{ apiBase, partnerHref, presetOptions, supported, bundleSupported, bundlePresets }}>
+  (function () {
+    const zone = document.querySelector("[data-uploader]");
+    const input = document.querySelector("[data-file-input]");
+    const progressHeadline = document.querySelector("[data-progress-headline]");
+    const progressSub = document.querySelector("[data-progress-sub]");
+    const progressFilename = document.querySelector("[data-progress-filename]");
+    const progressTrack = document.querySelector("[data-job-progress]");
+    const progressBar = document.querySelector("[data-job-progress-bar]");
+    const resultCanvas = document.querySelector("[data-result-canvas]");
+    const resultMeta = document.querySelector("[data-result-meta]");
+    const downloadLink = document.querySelector("[data-result-download]");
+    const resetBtn = document.querySelector("[data-result-reset]");
+    const errorBody = document.querySelector("[data-error-body]");
+    const errorRetry = document.querySelector("[data-error-retry]");
+    const resultStats = document.querySelector("[data-result-stats]");
+    const resultInput = document.querySelector("[data-result-input]");
+    const resultOutput = document.querySelector("[data-result-output]");
+    const resultRatio = document.querySelector("[data-result-ratio]");
+    const presetSelect = document.querySelector("[data-tryit-preset-select]");
+    const presetBlurb = document.querySelector("[data-tryit-preset-blurb]");
+    const bundleHelp = document.querySelector("[data-tryit-bundle-help]");
+    const formatChipsWrap = document.querySelector("[data-tryit-format-chips]");
+    if (!(zone instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
+
+    function selectedPreset() {
+      if (presetSelect instanceof HTMLSelectElement) return presetSelect.value || "web-mobile";
+      return "web-mobile";
+    }
+    // Bundle presets (e.g. hacpp-lzma) require an archive containing a
+    // Scaffold-GS checkpoint, not a single splat file. Centralize the
+    // logic here so the file input, the chip group, and the validator
+    // all agree on which extensions are accepted.
+    /** @type {string[]} */
+    const bundlePresetList = bundlePresets;
+    function isBundlePreset(preset) {
+      return bundlePresetList.indexOf(preset) !== -1;
+    }
+    function acceptListFor(preset) {
+      return (isBundlePreset(preset) ? bundleSupported : supported).join(",");
+    }
+    function syncPresetUI() {
+      const preset = selectedPreset();
+      // Keep the input's accept attribute in sync with the chip group so
+      // the OS file picker also filters by the right extensions.
+      input.setAttribute("accept", acceptListFor(preset));
+      if (formatChipsWrap instanceof HTMLElement) {
+        formatChipsWrap.dataset.mode = isBundlePreset(preset) ? "bundle" : "single";
+      }
+      if (bundleHelp instanceof HTMLElement) {
+        if (isBundlePreset(preset)) {
+          // Each bundle preset has its own docs page describing the
+          // exact required layout. Keep this map in sync with
+          // `bundlePresets` above so adding a new bundle preset never
+          // leaks a stale help link.
+          const docsByPreset = {
+            "hacpp-lzma": "/docs/hacpp-bundle",
+            "catetus-qat-bundle": "/docs/qat-bundle",
+            "catetus-qat-3dgs-bundle": "/docs/qat-3dgs-bundle",
+          };
+          bundleHelp.setAttribute(
+            "href",
+            docsByPreset[preset] || "/docs/hacpp-bundle",
+          );
+          bundleHelp.removeAttribute("hidden");
+        } else {
+          bundleHelp.setAttribute("hidden", "");
+        }
+      }
+    }
+    if (presetSelect instanceof HTMLSelectElement && presetBlurb instanceof HTMLElement) {
+      presetSelect.addEventListener("change", function () {
+        const opt = presetOptions.find(function (p) { return p.value === presetSelect.value; });
+        if (opt) presetBlurb.textContent = opt.blurb;
+        syncPresetUI();
+      });
+    }
+    // Run once at mount so the input/chips match the default-selected
+    // option (in case the browser restored a different option from the
+    // bfcache).
+    syncPresetUI();
+
+    let viewerHandle = null;
+
+    function setState(name) {
+      zone.dataset.state = name;
+    }
+    function setProgress(headline, sub, percent) {
+      if (progressHeadline) progressHeadline.textContent = headline;
+      if (progressSub) progressSub.textContent = sub || "";
+      if (!(progressTrack instanceof HTMLElement) || !(progressBar instanceof HTMLElement)) return;
+      progressTrack.classList.remove("indeterminate");
+      if (typeof percent === "number") {
+        progressBar.style.width = Math.max(0, Math.min(100, percent)).toFixed(1) + "%";
+      } else {
+        // Indeterminate: clear any sticky inline width from the previous
+        // determinate phase, otherwise the CSS class-level width never wins.
+        progressBar.style.width = "";
+        progressTrack.classList.add("indeterminate");
+      }
+    }
+    function formatBytes(n) {
+      if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
+      if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+      if (n >= 1024) return (n / 1024).toFixed(0) + " KB";
+      return n + " B";
+    }
+    function formatEta(seconds) {
+      if (!isFinite(seconds) || seconds < 0) return "";
+      if (seconds < 60) return "~" + Math.ceil(seconds) + "s left";
+      const m = Math.floor(seconds / 60);
+      const s = Math.ceil(seconds - m * 60);
+      return "~" + m + "m " + (s > 0 ? s + "s " : "") + "left";
+    }
+
+    function disposeViewer() {
+      if (viewerHandle) {
+        if (typeof viewerHandle.__detachInteractive === "function") {
+          try { viewerHandle.__detachInteractive(); } catch (_) {}
+        }
+        if (typeof viewerHandle.dispose === "function") {
+          try { viewerHandle.dispose(); } catch (_) {}
+        }
+      }
+      viewerHandle = null;
+    }
+    function resetToIdle() {
+      disposeViewer();
+      setState("idle");
+      input.value = ""; // allow re-picking the same file
+    }
+
+    const hot = function (e) { e.preventDefault(); zone.classList.add("drag-hover"); };
+    const cool = function () { zone.classList.remove("drag-hover"); };
+    zone.addEventListener("dragenter", hot);
+    zone.addEventListener("dragover", hot);
+    zone.addEventListener("dragleave", cool);
+
+    if (resetBtn instanceof HTMLButtonElement) resetBtn.addEventListener("click", resetToIdle);
+    if (errorRetry instanceof HTMLButtonElement) errorRetry.addEventListener("click", resetToIdle);
+
+    async function ping() {
+      try {
+        const r = await fetch(apiBase + "/healthz", { method: "GET" });
+        if (!r.ok) return false;
+        const j = await r.json();
+        return j && j.ok === true;
+      } catch (_) { return false; }
+    }
+
+    async function requestUploadUrl(file) {
+      const r = await fetch("/api/upload-url", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type || "application/octet-stream",
+          size: file.size,
+        }),
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error("could not get upload URL (" + r.status + ")");
+      }
+      return await r.json();
+    }
+
+    function uploadBytes(uploadUrl, file, contentType, onProgress) {
+      return new Promise(function (resolve, reject) {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", uploadUrl, true);
+        xhr.setRequestHeader("content-type", contentType);
+        xhr.upload.onprogress = function (e) {
+          if (e.lengthComputable) onProgress(e.loaded, e.total);
+        };
+        xhr.onload = function () {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error("upload failed (HTTP " + xhr.status + ")"));
+        };
+        xhr.onerror = function () { reject(new Error("upload failed (network error)")); };
+        xhr.onabort = function () { reject(new Error("upload was cancelled")); };
+        xhr.send(file);
+      });
+    }
+
+    async function createJob(sourceUrl) {
+      const r = await fetch(apiBase + "/v1/jobs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ preset: selectedPreset(), source_url: sourceUrl }),
+      });
+      if (!r.ok) throw new Error("could not start job (" + r.status + ")");
+      return await r.json();
+    }
+
+    async function pollJob(jobId) {
+      const r = await fetch(apiBase + "/v1/jobs/" + jobId, { method: "GET" });
+      if (!r.ok) throw new Error("could not check job status (" + r.status + ")");
+      return await r.json();
+    }
+
+    async function fetchOutputBytes(url) {
+      try {
+        const r = await fetch(url, { method: "HEAD" });
+        const len = r.headers.get("content-length");
+        return len ? Number(len) : null;
+      } catch (_) { return null; }
+    }
+    function renderStats(inputBytes, outputBytes) {
+      if (!(resultStats instanceof HTMLElement)) return;
+      if (!inputBytes || !outputBytes) {
+        resultStats.hidden = true;
+        return;
+      }
+      if (resultInput) resultInput.textContent = formatBytes(inputBytes);
+      if (resultOutput) resultOutput.textContent = formatBytes(outputBytes);
+      if (resultRatio) {
+        const ratio = inputBytes / outputBytes;
+        const savedPct = (1 - outputBytes / inputBytes) * 100;
+        if (ratio >= 1.05) {
+          resultRatio.textContent = ratio.toFixed(2) + "× smaller · −" + savedPct.toFixed(0) + "%";
+          resultRatio.style.background = "rgba(16, 185, 129, 0.12)";
+          resultRatio.style.color = "#34d399";
+        } else if (ratio >= 0.95) {
+          resultRatio.textContent = "~same size";
+          resultRatio.style.background = "rgba(255, 255, 255, 0.06)";
+          resultRatio.style.color = "#cbd5e1";
+        } else {
+          resultRatio.textContent = (1/ratio).toFixed(2) + "× larger";
+          resultRatio.style.background = "rgba(244, 63, 94, 0.12)";
+          resultRatio.style.color = "#fb7185";
+        }
+      }
+      resultStats.hidden = false;
+    }
+
+    async function showResult(job) {
+      // Wire the download button to the .glb (single-file portable artifact).
+      if (downloadLink instanceof HTMLAnchorElement && job.output_url) {
+        downloadLink.href = job.output_url;
+        const stem = (job._inputName || job.filename || "optimized").replace(/\.[^.]*$/, "");
+        downloadLink.setAttribute("download", stem + ".glb");
+      }
+      setState("done");
+      // Kick off the HEAD request for the output size in parallel with viewer load.
+      if (job.output_url) {
+        fetchOutputBytes(job.output_url).then(function (out) {
+          renderStats(job._inputBytes, out);
+        });
+      }
+      if (!(resultCanvas instanceof HTMLCanvasElement)) return;
+
+      // Size the canvas backing store to its rendered CSS size.
+      const rect = resultCanvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      resultCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      resultCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+
+      if (!job.preview_url) {
+        if (resultMeta) resultMeta.textContent = "preview not available — download to view";
+        return;
+      }
+      if (resultMeta) resultMeta.textContent = "loading preview…";
+      try {
+        disposeViewer();
+        const mod = await import(/* @vite-ignore */ "/viewer/index.js");
+        const v = new mod.CatetusViewer({
+          canvas: resultCanvas,
+          src: job.preview_url,
+          cameraPath: "orbit-8",
+          budget: "web-mobile",
+          autoRotate: true,
+          autoRotateSpeed: 8,
+        });
+        v.on("error", function (p) {
+          if (resultMeta) resultMeta.textContent = "preview unavailable (" + ((p && p.code) || "unknown") + ")";
+        });
+        let activated = false;
+        v.on("firstRender", function () {
+          if (resultMeta) resultMeta.textContent = "auto-rotating · drag to orbit · scroll to zoom";
+          // Defer activation a tick so the viewer's auto-rotate RAF has settled.
+          if (!activated) {
+            activated = true;
+            setTimeout(function () { attachInteractiveControls(v); }, 0);
+          }
+        });
+        await v.load();
+        viewerHandle = v;
+      } catch (err) {
+        if (resultMeta) resultMeta.textContent = "preview failed: " + ((err && err.message) || err);
+      }
+    }
+
+    // Wire up drag-to-orbit + wheel-to-zoom on top of the viewer. The
+    // viewer doesn't ship interactive controls (only auto-rotate or a
+    // baked orbit-8 path), so we drive renderer.renderFrame() ourselves
+    // with custom yaw/pitch/distance derived from pointer events.
+    function attachInteractiveControls(v) {
+      if (!(resultCanvas instanceof HTMLCanvasElement)) return;
+      if (!v || !v.renderer || !v.cachedManifest) return;
+      const bbox = (v.opts && v.opts.cameraBbox) || v.cachedManifest.bbox;
+      if (!bbox) return;
+      const center = [
+        (bbox.min[0] + bbox.max[0]) * 0.5,
+        (bbox.min[1] + bbox.max[1]) * 0.5,
+        (bbox.min[2] + bbox.max[2]) * 0.5,
+      ];
+      const dx = bbox.max[0] - bbox.min[0];
+      const dy = bbox.max[1] - bbox.min[1];
+      const dz = bbox.max[2] - bbox.min[2];
+      const radius = Math.max(0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz), 0.001);
+
+      let yaw = 0;
+      let pitch = (20 * Math.PI) / 180;
+      let distMult = 2.5;
+
+      // Wrap pitch to [-π, π] for math. The actual `pitch` accumulator is
+      // unbounded — letting the user spin the model continuously without
+      // hitting a wall. When the wrapped pitch puts the camera "behind"
+      // the model (|wrapped| > π/2), flip the up vector so the renderer's
+      // cross product doesn't degenerate and the view stays upright in the
+      // viewer's frame of reference rather than going black at the pole.
+      function rerender() {
+        const TAU = Math.PI * 2;
+        let p = pitch % TAU;
+        if (p > Math.PI) p -= TAU;
+        if (p < -Math.PI) p += TAU;
+        // Beyond ±π/2 we're upside down relative to world-up; flip our up
+        // vector so the renderer interprets "up" as still pointing away
+        // from the floor of the scene, which avoids the [0,0,0] cross at
+        // exact poles and gives smooth continuous orbiting.
+        const upY = Math.abs(p) > Math.PI / 2 ? -1 : 1;
+        const r = radius * distMult;
+        const cy = Math.cos(p);
+        const sy = Math.sin(p);
+        const aspect = resultCanvas.width / Math.max(resultCanvas.height, 1);
+        const pose = {
+          position: [
+            center[0] + r * cy * Math.sin(yaw),
+            center[1] + r * sy,
+            center[2] + r * cy * Math.cos(yaw),
+          ],
+          target: center,
+          up: [0, upY, 0],
+          fovY: (60 * Math.PI) / 180,
+          aspect: aspect,
+          near: 0.01,
+          far: r * 10,
+        };
+        try { void v.renderer.renderFrame(pose); } catch (_) {}
+      }
+
+      let dragging = false;
+      let lx = 0, ly = 0;
+      const ORBIT_SCALE = 0.0065;  // radians per pixel
+      function pointerDown(e) {
+        if (e.button !== undefined && e.button !== 0) return;
+        // First user interaction: pause auto-rotate so drag takes over.
+        if (typeof v.stopAutoRotate === "function") v.stopAutoRotate();
+        dragging = true;
+        lx = e.clientX; ly = e.clientY;
+        try { resultCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+      function pointerMove(e) {
+        if (!dragging) return;
+        const ndx = e.clientX - lx;
+        const ndy = e.clientY - ly;
+        lx = e.clientX; ly = e.clientY;
+        // No clamping: yaw and pitch both unbounded. rerender() handles
+        // the wraparound math + up-vector flipping so the user can
+        // continuously rotate in any direction.
+        yaw -= ndx * ORBIT_SCALE;
+        pitch += ndy * ORBIT_SCALE;
+        rerender();
+      }
+      function pointerUp(e) {
+        if (!dragging) return;
+        dragging = false;
+        try { resultCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      function wheel(e) {
+        e.preventDefault();
+        if (typeof v.stopAutoRotate === "function") v.stopAutoRotate();
+        const factor = Math.exp(e.deltaY * 0.0012);
+        distMult = Math.max(0.4, Math.min(10, distMult * factor));
+        rerender();
+      }
+
+      resultCanvas.addEventListener("pointerdown", pointerDown);
+      resultCanvas.addEventListener("pointermove", pointerMove);
+      resultCanvas.addEventListener("pointerup", pointerUp);
+      resultCanvas.addEventListener("pointercancel", pointerUp);
+      resultCanvas.addEventListener("wheel", wheel, { passive: false });
+      resultCanvas.classList.add("interactive");
+      // Stash so disposeViewer can pull controls down too if needed.
+      v.__detachInteractive = function () {
+        resultCanvas.removeEventListener("pointerdown", pointerDown);
+        resultCanvas.removeEventListener("pointermove", pointerMove);
+        resultCanvas.removeEventListener("pointerup", pointerUp);
+        resultCanvas.removeEventListener("pointercancel", pointerUp);
+        resultCanvas.removeEventListener("wheel", wheel);
+        resultCanvas.classList.remove("interactive");
+      };
+    }
+
+    function fail(message) {
+      disposeViewer();
+      if (errorBody) errorBody.textContent = message;
+      setState("error");
+    }
+
+    const PHASE_COPY = {
+      fetching: "fetching source",
+      optimizing: "optimizing splats",
+      packaging: "packaging output",
+      "loading-input": "loading scene",
+      "encoding-gltf": "encoding glTF",
+      "writing-report": "finalizing",
+      done: "wrapping up",
+      RemoveInvalidSplats: "removing invalid splats",
+      OpacityPrune: "pruning low-opacity splats",
+      FloaterPrune: "pruning floaters",
+      QuantizePosition: "quantizing positions",
+      QuantizeScale: "quantizing scale",
+      QuantizeRotation: "quantizing rotation",
+      ReduceSHDegree: "reducing SH degree",
+      MortonSort: "morton-sorting splats",
+      BuildLOD: "building LODs",
+    };
+    let processingStartedAt = 0;
+    function renderProgress(job) {
+      const s = job.status;
+      const phase = job.phase ? (PHASE_COPY[job.phase] || job.phase) : null;
+      const elapsed = processingStartedAt
+        ? Math.max(0, Math.round((Date.now() - processingStartedAt) / 1000))
+        : 0;
+      // ETA from observed throughput: if we know how far along we are and
+      // how long we've been running, project linearly.
+      let etaSuffix = "";
+      if (
+        typeof job.percent === "number" &&
+        job.percent > 0.02 &&
+        job.percent < 0.99 &&
+        elapsed > 1
+      ) {
+        const remaining = elapsed * (1 - job.percent) / job.percent;
+        etaSuffix = "  ·  ~" + Math.max(1, Math.ceil(remaining)) + "s left";
+      }
+      const elapsedSuffix = elapsed > 0 ? "  ·  " + elapsed + "s elapsed" : "";
+      const pct = typeof job.percent === "number" ? job.percent * 100 : null;
+      if (s === "queued") {
+        setProgress("Processing", "waiting for a worker" + elapsedSuffix, null);
+      } else if (s === "running") {
+        const sub = (phase || "optimizing your scene") + elapsedSuffix + etaSuffix;
+        setProgress("Processing", sub, pct);
+      } else if (s === "awaiting-upload" || s === "uploading") {
+        setProgress("Processing", "preparing scene" + elapsedSuffix, null);
+      }
+    }
+
+    function waitFor(jobId) {
+      return new Promise(function (resolve, reject) {
+        const started = Date.now();
+        const tick = async function () {
+          try {
+            const job = await pollJob(jobId);
+            if (job.status === "done") return resolve(job);
+            if (job.status === "error") return reject(new Error(job.error || "optimize failed"));
+            renderProgress(job);
+            if (Date.now() - started > 10 * 60 * 1000)
+              return reject(new Error("timed out after 10 minutes"));
+            setTimeout(tick, 2000);
+          } catch (err) { reject(err); }
+        };
+        tick();
+      });
+    }
+
+    async function handleFile(file) {
+      // Validate against the extension set for the *currently selected*
+      // preset. Picking hacpp-lzma with a plain .ply used to fall through
+      // the picker's `accept=` filter (drag-drop bypasses it) and then
+      // explode on the worker — surface the mismatch up front instead.
+      const preset = selectedPreset();
+      const supportedExts = isBundlePreset(preset) ? bundleSupported : supported;
+      const lower = file.name.toLowerCase();
+      if (!supportedExts.some(function (ext) { return lower.endsWith(ext); })) {
+        const hint = isBundlePreset(preset)
+          ? "The " + preset + " preset needs a Scaffold-GS bundle archive (" +
+            supportedExts.join(", ") +
+            "). See /docs/hacpp-bundle for the layout."
+          : "Unsupported file type. Try one of: " + supportedExts.join(", ");
+        fail(hint);
+        return;
+      }
+      // Move into the progress region immediately.
+      if (progressFilename) progressFilename.textContent = file.name + " · " + formatBytes(file.size);
+      setProgress("Uploading", "starting…", 0);
+      setState("uploading");
+
+      try {
+        const reachable = await ping();
+        if (!reachable) throw new Error("the optimize service is offline");
+        const signed = await requestUploadUrl(file);
+
+        const uploadStart = Date.now();
+        let lastUpdate = 0;
+        await uploadBytes(signed.uploadUrl, file, signed.contentType,
+          function (loaded, total) {
+            const now = Date.now();
+            if (now - lastUpdate < 150) return;
+            lastUpdate = now;
+            const elapsed = Math.max(0.001, (now - uploadStart) / 1000);
+            const bps = loaded / elapsed;
+            const pct = total > 0 ? (loaded / total) * 100 : 0;
+            const remaining = total > 0 && bps > 0 ? (total - loaded) / bps : Infinity;
+            const sub = pct.toFixed(0) + "%  ·  " +
+              (bps / 1024 / 1024).toFixed(1) + " MB/s  ·  " +
+              formatEta(remaining);
+            setProgress("Uploading", sub, pct);
+          });
+
+        setProgress("Processing", "starting optimize…", null);
+        setState("processing");
+        processingStartedAt = Date.now();
+        const job = await createJob(signed.sourceUrl);
+        if (progressFilename) progressFilename.textContent = file.name;
+        const finalJob = await waitFor(job.id);
+        // Carry the original input size into showResult so we can display
+        // before/after compression. The API job's size_bytes is 0 for
+        // source_url jobs (worker doesn't HEAD the source).
+        finalJob._inputBytes = file.size;
+        finalJob._inputName = file.name;
+        await showResult(finalJob);
+      } catch (err) {
+        fail((err && err.message) ? err.message : String(err));
+      }
+    }
+
+    zone.addEventListener("drop", function (e) {
+      e.preventDefault();
+      cool();
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) void handleFile(file);
+    });
+    input.addEventListener("change", function () {
+      const file = input.files && input.files[0];
+      if (file) void handleFile(file);
+    });
+  })();
+</script>

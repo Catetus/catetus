@@ -1,0 +1,20 @@
+[package]
+name = "catetus-ply"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PLY (Inria 3DGS) ingest into Catetus IR."
+
+[dependencies]
+catetus-core = { workspace = true }
+byteorder = { workspace = true }
+thiserror = { workspace = true }
+memmap2 = "0.9"
+rayon = { workspace = true }
+
+[[bin]]
+name = "ply-read-bench"
+path = "src/bin/ply_read_bench.rs"
+required-features = []

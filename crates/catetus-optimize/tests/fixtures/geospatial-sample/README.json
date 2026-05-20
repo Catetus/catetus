@@ -1,0 +1,34 @@
+{
+  "splats_after_pipeline": 450,
+  "synthetic_splat_count_input": 450,
+  "tiles": [
+    {
+      "fraction": 0.125,
+      "geometric_error": 5.282097911864592,
+      "glb": "lod3.glb",
+      "lod": 3,
+      "splats": 57
+    },
+    {
+      "fraction": 0.25,
+      "geometric_error": 2.641048955932296,
+      "glb": "lod2.glb",
+      "lod": 2,
+      "splats": 113
+    },
+    {
+      "fraction": 0.5,
+      "geometric_error": 1.320524477966148,
+      "glb": "lod1.glb",
+      "lod": 1,
+      "splats": 225
+    },
+    {
+      "fraction": 1.0,
+      "geometric_error": 0.0,
+      "glb": "lod0.glb",
+      "lod": 0,
+      "splats": 450
+    }
+  ]
+}

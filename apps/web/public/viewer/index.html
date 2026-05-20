@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Catetus Preview</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; padding: 0; height: 100%; background: #050608; color: #eee;
+      font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+    #stage { position: fixed; inset: 0; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    .panel {
+      position: fixed; padding: 8px 12px; background: rgba(8,10,14,0.78);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+      font: 12px/1.3 ui-monospace, monospace; backdrop-filter: blur(6px);
+      pointer-events: auto;
+    }
+    #hud { top: 12px; left: 12px; min-width: 220px; }
+    #hud b { color: #7df; font-weight: 600; }
+    #hud .row { display: flex; gap: 12px; justify-content: space-between; }
+    #hud .err { color: #f87171; }
+    #hud .ok  { color: #34d399; }
+    #picker { top: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px; }
+    #picker label, #picker button {
+      display: inline-block; padding: 6px 10px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px; color: #eee; cursor: pointer; font: inherit; text-align: center;
+    }
+    #picker label:hover, #picker button:hover { background: rgba(255,255,255,0.12); }
+    #picker input[type=file] { display: none; }
+    #help { bottom: 12px; left: 12px; max-width: 320px; opacity: 0.85; }
+    #drop-overlay {
+      position: fixed; inset: 0; display: none; background: rgba(20,60,120,0.35);
+      border: 3px dashed rgba(120,200,255,0.6); border-radius: 12px; pointer-events: none;
+      align-items: center; justify-content: center; font-size: 18px;
+    }
+    #drop-overlay.active { display: flex; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="hud" class="panel">
+      <div class="row"><span>state</span><b id="state">idle</b></div>
+      <div class="row"><span>format</span><b id="format">-</b></div>
+      <div class="row"><span>splats</span><b id="splats">0</b></div>
+      <div class="row"><span>chunks</span><b id="chunks">0 / 0</b></div>
+      <div class="row"><span>renderer</span><b id="renderer">-</b></div>
+    </div>
+    <div id="picker" class="panel">
+      <label for="file-input">Open file(s)…</label>
+      <input id="file-input" type="file" multiple
+        accept=".ply,.splat,.sog,.glb,.shpal,.v5tail,application/octet-stream" />
+    </div>
+    <div id="help" class="panel">
+      <div><b>Mouse</b> L-drag = free-look (camera-in-place) ·
+        R-drag / Alt+L = orbit · M-drag / Shift+L = pan ·
+        wheel = zoom · L-dbl-click = set pivot</div>
+      <div><b>Keys</b> WASD fly · Q/E down/up · Z/C yaw · ↑/↓ pitch ·
+        1/3 roll · R reset · F frame-all</div>
+      <div>Drop a <b>.ply / .splat / .sog / .glb</b> on the canvas, or use
+        Open file(s). Pair <b>.glb + .glb.shpal</b> or <b>.sog + .sog.v5tail</b>
+        together. Load via <code>?src=&lt;url&gt;</code>.</div>
+    </div>
+    <div id="drop-overlay">Drop file(s) to load</div>
+  </div>
+  <!--
+    Preview shell consumers (deployed at `dist/` or proxied through a
+    bundler) need an import map so the loader's bare-spec runtime deps
+    resolve from the page. Tweak the right-hand side of each entry to
+    match wherever your static server exposes the corresponding ESM
+    bundles (or replace with a bundler-built single file).
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "fflate": "https://esm.sh/fflate@0.8.2",
+      "fzstd": "https://esm.sh/fzstd@0.1.1",
+      "@catetus/glb-polyfill": "./glb-polyfill/index.js"
+    }
+  }
+  </script>
+  <script type="module">
+    // Built JS lives in ../dist/ (tsc output), not next to this HTML.
+    // Run `pnpm --filter @catetus/viewer build` before serving.
+    import {
+      CatetusViewer,
+      loadFromFiles,
+      loadFromUrl,
+      splatSceneToSoaChunk,
+    } from './index.js';
+    import { WebGPURenderer } from './renderer/webgpu.js';
+    import { defaultCamera, frameCameraToBbox, viewProjMatrix } from './camera-state.js';
+    import { OrbitControls } from './controls.js';
+
+    const params = new URLSearchParams(location.search);
+    const src = params.get('src');
+    const rendererParam = params.get('renderer');
+
+    const stateEl = document.getElementById('state');
+    const chunksEl = document.getElementById('chunks');
+    const rendererEl = document.getElementById('renderer');
+    const formatEl = document.getElementById('format');
+    const splatsEl = document.getElementById('splats');
+    const canvas = document.getElementById('canvas');
+    const fileInput = document.getElementById('file-input');
+    const dropOverlay = document.getElementById('drop-overlay');
+
+    function setState(text, cls) {
+      stateEl.textContent = text;
+      stateEl.classList.remove('err', 'ok');
+      if (cls) stateEl.classList.add(cls);
+    }
+    function setFormat(s)  { formatEl.textContent = s; }
+    function setSplats(n)  {
+      splatsEl.textContent =
+        n >= 1e6 ? `${(n/1e6).toFixed(2)}M` :
+        n >= 1e3 ? `${(n/1e3).toFixed(1)}k` : String(n);
+    }
+
+    function resizeCanvas() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    /* ------------------------------------------------------------------ */
+    /*  Mode A — `?src=` with the manifest-aware CatetusViewer.        */
+    /*    The legacy CatetusViewer expects a glTF + chunked tileset    */
+    /*    manifest. Format-loader URLs (a single .ply / .splat / .sog /   */
+    /*    .glb) take Mode B (single-chunk WebGPURenderer + new loaders).  */
+    /* ------------------------------------------------------------------ */
+
+    function isManifestUrl(u) {
+      const lc = u.toLowerCase().split('?')[0];
+      return lc.endsWith('.json') || lc.endsWith('/');
+    }
+
+    async function loadViaManifest(url) {
+      const viewer = new CatetusViewer({
+        canvas,
+        src: url,
+        renderer: rendererParam === 'webgl2' || rendererParam === 'webgpu'
+          ? rendererParam : 'auto',
+        cameraPath: 'orbit-8',
+        stats: true,
+      });
+      rendererEl.textContent = rendererParam ?? 'auto';
+      let total = 0, loaded = 0;
+      viewer.on('loadStart', () => setState('loading'));
+      viewer.on('manifestLoaded', (e) => {
+        total = e.chunkCount;
+        chunksEl.textContent = `0 / ${total}`;
+      });
+      viewer.on('chunkLoaded', () => {
+        loaded += 1;
+        chunksEl.textContent = `${loaded} / ${total}`;
+      });
+      viewer.on('firstRender', () => setState('rendering', 'ok'));
+      viewer.on('complete', () => setState('complete', 'ok'));
+      viewer.on('error', (e) => setState(`error: ${e.code}`, 'err'));
+      try { await viewer.load(); } catch { /* surfaced via event */ }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Mode B — format loaders (PLY / .splat / SOG / .glb).              */
+    /* ------------------------------------------------------------------ */
+
+    let renderer = null;
+    let camState = null;
+    let controls = null;
+    let currentBbox = null;
+
+    async function ensureRenderer() {
+      if (renderer) return renderer;
+      renderer = new WebGPURenderer({ useComputeDecode: true });
+      await renderer.init({ canvas, clearColor: [0, 0, 0, 1] });
+      // Debug hook for experiments/webgpu-quality-regression: dump per-instance
+      // sorted vertex buffer via renderer._debugReadInstances(n).
+      window.__viewerRendererInstance = renderer;
+      rendererEl.textContent = 'webgpu (compute)';
+      // Lazy-init the orbit camera + controls once the canvas is wired.
+      camState = defaultCamera();
+      controls = new OrbitControls({
+        canvas,
+        cam: camState,
+        getFrameBbox: () => currentBbox,
+      });
+      return renderer;
+    }
+
+    // CameraState (yaw/pitch/distance) → CameraPose (position/target/up) for
+    // the WebGPU renderer. Mirrors viewer-app's viewProjMatrix derivation.
+    function poseFromState(cam) {
+      const vp = viewProjMatrix(cam, canvas.width / Math.max(canvas.height, 1));
+      const cp = Math.cos(cam.pitch);
+      const upSign = cp >= 0 ? 1 : -1;
+      return {
+        position: vp.eye,
+        target: cam.target,
+        up: [0, upSign, 0],
+        fovY: cam.fovYRad,
+        near: cam.near,
+        far: cam.far,
+        aspect: canvas.width / Math.max(canvas.height, 1),
+      };
+    }
+
+    let rafHandle = null;
+    let lastFrame = performance.now();
+    function startRenderLoop() {
+      let lastDraw = performance.now();
+      let frames = 0;
+      const tick = (now) => {
+        if (!camState) return;
+        const dt = Math.min(now - lastFrame, 100);
+        lastFrame = now;
+        controls.update(dt);
+        const camera = poseFromState(camState);
+        renderer.renderFrame(camera).catch((e) => {
+          setState(`render error: ${e.message}`, 'err');
+        });
+        frames += 1;
+        if (now - lastDraw >= 500) {
+          const fps = (frames * 1000) / (now - lastDraw);
+          chunksEl.textContent = `1 chunk · ${fps.toFixed(0)} fps`;
+          frames = 0; lastDraw = now;
+        }
+        rafHandle = requestAnimationFrame(tick);
+      };
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+      lastFrame = performance.now();
+      rafHandle = requestAnimationFrame(tick);
+    }
+
+    // viewer-app's saved preset view (Mip-NeRF 360 / COLMAP world coords —
+    // empirically lands inside the bonsai). User can hit F to bbox-fit instead.
+    const PRESET_VIEW = {
+      target: [45.009692362719996, -24.41910971646988, 95.39478152255184],
+      yaw: 0.4436210937499999,
+      pitch: 2.8957812500000006,
+      roll: 0,
+      distance: 110.27689233804765,
+      fovYRad: 0.8726646259971648,
+      near: 0.11027689233804765,
+      far: 110276.89233804765,
+    };
+    function applyPresetView(cam) {
+      cam.target = [...PRESET_VIEW.target];
+      cam.yaw = PRESET_VIEW.yaw;
+      cam.pitch = PRESET_VIEW.pitch;
+      cam.roll = PRESET_VIEW.roll;
+      cam.distance = PRESET_VIEW.distance;
+      cam.fovYRad = PRESET_VIEW.fovYRad;
+      cam.near = PRESET_VIEW.near;
+      cam.far = PRESET_VIEW.far;
+    }
+
+    let isFirstScene = true;
+    async function applyScene(scene) {
+      await ensureRenderer();
+      const { descriptor, bytes } = splatSceneToSoaChunk(scene, `scene:${scene.meta.source}`);
+      renderer.uploadChunk(descriptor, bytes);
+      setFormat(scene.meta.format + (scene.meta.extra?.v5tail ? ' + v5tail' : ''));
+      setSplats(scene.count);
+      currentBbox = scene.bbox;
+      // First-scene UX matches viewer-app: jump to the saved preset (good
+      // viewpoint for Mip-NeRF 360 / COLMAP scenes). User can press F to
+      // bbox-fit the current scene instead. Subsequent loads keep the
+      // current camera so visual A/B compare works without re-navigating.
+      if (isFirstScene) {
+        applyPresetView(camState);
+        controls.setHome(camState);
+        isFirstScene = false;
+      }
+      setState(`loaded ${scene.meta.source}`, 'ok');
+      startRenderLoop();
+    }
+
+    async function readFilesToBytes(files) {
+      const arr = Array.from(files);
+      return Promise.all(arr.map(async (f) => ({
+        name: f.name,
+        bytes: new Uint8Array(await f.arrayBuffer()),
+      })));
+    }
+
+    async function loadFiles(files) {
+      setState(`loading ${files.length} file(s)…`);
+      try {
+        const bag = await readFilesToBytes(files);
+        const scene = await loadFromFiles(bag);
+        await applyScene(scene);
+      } catch (e) {
+        setState(e.message, 'err');
+        console.error(e);
+      }
+    }
+
+    async function loadUrl(url) {
+      setState(`fetching ${url}…`);
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`fetch ${url}: HTTP ${res.status}`);
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const scene = await loadFromUrl(url, bytes);
+        await applyScene(scene);
+      } catch (e) {
+        setState(e.message, 'err');
+        console.error(e);
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Drag-drop                                                         */
+    /* ------------------------------------------------------------------ */
+
+    let dragCounter = 0;
+    window.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dragCounter += 1;
+      dropOverlay.classList.add('active');
+    });
+    window.addEventListener('dragover', (e) => { e.preventDefault(); });
+    window.addEventListener('dragleave', () => {
+      dragCounter -= 1;
+      if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove('active'); }
+    });
+    window.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dragCounter = 0;
+      dropOverlay.classList.remove('active');
+      if (!e.dataTransfer) return;
+      const files = e.dataTransfer.files;
+      if (files.length === 0) return;
+      await loadFiles(files);
+    });
+
+    /* ------------------------------------------------------------------ */
+    /*  File picker                                                       */
+    /* ------------------------------------------------------------------ */
+
+    fileInput.addEventListener('change', async () => {
+      if (!fileInput.files) return;
+      await loadFiles(fileInput.files);
+      fileInput.value = '';
+    });
+
+    /* ------------------------------------------------------------------ */
+    /*  ?src= bootstrap                                                   */
+    /* ------------------------------------------------------------------ */
+
+    if (src) {
+      if (isManifestUrl(src)) {
+        loadViaManifest(src);
+      } else {
+        loadUrl(src);
+      }
+    } else {
+      setState('idle (drop a file, pick one, or use ?src=)');
+    }
+  </script>
+</body>
+</html>

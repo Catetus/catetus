@@ -1,0 +1,23 @@
+[package]
+name = "catetus-viewer-mobile"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Shared CPU render core for the Catetus native mobile viewers (iOS + Android). Decodes .glb (KHR_gaussian_splatting), depth-sorts, projects to NDC. No platform graphics APIs."
+publish = false
+
+# Both rlib (for tests + Rust callers) and staticlib/cdylib (for Swift/Kotlin).
+[lib]
+name = "catetus_viewer_mobile"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+catetus-core = { workspace = true }
+catetus-gltf = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []

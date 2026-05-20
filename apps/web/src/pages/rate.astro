@@ -1,0 +1,709 @@
+---
+// /rate — fidelity-ml v0.4 human pairwise rating collection.
+//
+// Per the v2 plan §3c v0.3 (Q4-Q6): fidelity-ml v0.4 is an MLP trained on
+// real human-rating data once the live site has collected it. v0.3 today
+// is fit on a synthetic-corruption corpus (1176 pairs) and inherits the
+// collapse modes of its label generator. v0.4 needs real pairwise
+// comparisons from human raters to break out of that — this page is
+// the collection apparatus that gates the v0.4 training.
+//
+// The rater is shown:
+//   - a reference frame (lossless-repack render of one orbit position)
+//   - two candidate frames (the same orbit position rendered through
+//     two *different* presets, e.g. web-mobile vs size-min)
+// and is asked: "which candidate looks closer to the reference?"
+//
+// The page POSTs to /v1/ratings on the API. The API computes a one-way
+// respondent hash (SHA-256 of IP + User-Agent) for rate limiting; no PII
+// is stored. See the in-page privacy note + docs/fidelity-ml-v0.4-collection.md
+// for the full design.
+import Base from "../layouts/Base.astro";
+import manifest from "../data/rate-frames.json" with { type: "json" };
+
+const title = "Rate splat fidelity — Catetus";
+const description =
+  "Help train fidelity-ml v0.4. Compare two Gaussian-Splat renders against a reference and tell us which looks closer.";
+
+const githubUrl = "https://github.com/Catetus/catetus";
+
+// Same-origin API proxy, matches the convention in TryIt.astro.
+const apiBase = import.meta.env.PUBLIC_API_BASE ?? "/api";
+
+interface ManifestScene {
+  scene_id: string;
+  reference_preset: string;
+  candidate_presets: string[];
+  frame_indices: number[];
+}
+
+const scenes: ManifestScene[] = manifest.scenes ?? [];
+const referencePreset: string = manifest.reference_preset ?? "lossless-repack";
+const sceneCount = scenes.length;
+
+// Cap dataset size displayed up-front so the rater knows what they're
+// signing up for; same number is the v0.4 minimum-sample target.
+const v04_min_samples_per_scene = 1000;
+const v04_ideal_samples_per_scene = 10000;
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      catetus
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/vs-splat-transform">vs splat-transform</a>
+      <a href="/rate" aria-current="page">Rate</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <header class="rate-hero">
+    <h1>Rate splat fidelity</h1>
+    <p class="rate-subtitle">
+      Help train <strong>fidelity-ml v0.4</strong>. Below you'll see a
+      reference render and two compressed candidates of the same scene.
+      Pick the candidate that looks closer to the reference, or hit
+      <em>tie</em> if you genuinely can't tell. Skip the pair if it's
+      ambiguous or rendered badly — skipped pairs are dropped, not
+      forced into the training set.
+    </p>
+    <p class="rate-subtitle rate-stats">
+      <span><strong>{sceneCount}</strong> scenes available</span>
+      <span class="dotsep" aria-hidden="true">·</span>
+      <span>Reference preset: <code>{referencePreset}</code></span>
+      <span class="dotsep" aria-hidden="true">·</span>
+      <span>Target: <strong>{v04_min_samples_per_scene.toLocaleString()}</strong> ratings/scene minimum</span>
+    </p>
+  </header>
+
+  <section
+    id="rater"
+    class="rate-section"
+    aria-labelledby="rater-title"
+    data-rater
+    data-api-base={apiBase}
+    data-manifest={JSON.stringify(scenes)}
+    data-reference-preset={referencePreset}
+  >
+    <h2 id="rater-title" class="section-title sr-only">Rating panel</h2>
+
+    {scenes.length === 0 ? (
+      <div class="rate-empty">
+        <p>
+          No rendered orbit frames are available in this build yet.
+          The collection page is wired and ready — once the bench
+          render step ships frames into <code>benches/reports/frames/</code>
+          they'll appear here automatically.
+        </p>
+      </div>
+    ) : (
+      <div class="rate-region region-idle" data-rater-state="loading">
+        <p class="rate-loading">Picking a pair…</p>
+      </div>
+    )}
+
+    <div class="rate-region region-pair" hidden data-rater-state="pair">
+      <div class="prompt">
+        <span class="prompt-headline">Which of these looks closer to the reference?</span>
+        <span class="prompt-scene" data-scene-label></span>
+      </div>
+
+      <div class="frame-grid">
+        <figure class="frame frame-reference">
+          <img alt="Reference render (lossless-repack)" data-ref-img loading="lazy" />
+          <figcaption>
+            <span class="frame-tag tag-reference">Reference</span>
+            <code data-ref-preset></code>
+          </figcaption>
+        </figure>
+        <figure class="frame frame-candidate" data-side="left">
+          <img alt="Candidate render (left)" data-left-img loading="lazy" />
+          <figcaption>
+            <span class="frame-tag">Candidate A</span>
+          </figcaption>
+        </figure>
+        <figure class="frame frame-candidate" data-side="right">
+          <img alt="Candidate render (right)" data-right-img loading="lazy" />
+          <figcaption>
+            <span class="frame-tag">Candidate B</span>
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="vote-row" role="group" aria-label="Cast your vote">
+        <button type="button" class="vote-btn" data-vote="left">
+          <span class="vote-kbd" aria-hidden="true">A</span>
+          <span class="vote-label">Left looks closer</span>
+        </button>
+        <button type="button" class="vote-btn vote-btn-tie" data-vote="tie">
+          <span class="vote-kbd" aria-hidden="true">T</span>
+          <span class="vote-label">Tie / can't tell</span>
+        </button>
+        <button type="button" class="vote-btn" data-vote="right">
+          <span class="vote-kbd" aria-hidden="true">B</span>
+          <span class="vote-label">Right looks closer</span>
+        </button>
+      </div>
+      <div class="skip-row">
+        <button type="button" class="skip-btn" data-action="skip">
+          <span aria-hidden="true">⤳</span>&nbsp;Skip this pair — ambiguous or rendered badly
+        </button>
+      </div>
+
+      <p class="rate-status" data-rate-status aria-live="polite"></p>
+    </div>
+
+    <div class="rate-region region-capped" hidden data-rater-state="capped">
+      <h3>Thanks — you've hit the hourly cap</h3>
+      <p>
+        You've submitted the maximum 100 ratings this hour. The cap
+        exists to keep one browser from flooding the corpus; it
+        resets automatically. Come back in an hour, or share the
+        page with a friend.
+      </p>
+      <button type="button" class="vote-btn" data-action="reset">
+        Try again
+      </button>
+    </div>
+
+    <div class="rate-region region-error" hidden data-rater-state="error">
+      <h3>Something went wrong</h3>
+      <p data-error-body></p>
+      <button type="button" class="vote-btn" data-action="reset">
+        Try again
+      </button>
+    </div>
+  </section>
+
+  <section class="rate-section" aria-labelledby="privacy-title">
+    <h2 id="privacy-title" class="section-title">Privacy</h2>
+    <p class="methodology">
+      We do <strong>not</strong> collect personally identifying information.
+      No accounts, no cookies for tracking, no analytics tags attached to
+      your votes. Here's exactly what each rating row contains in our
+      database:
+    </p>
+    <ul class="methodology-list">
+      <li>
+        <code>scene_id</code>, <code>left_preset</code>,
+        <code>right_preset</code>, <code>winner</code> — the public
+        identifiers of what you compared and your verdict.
+      </li>
+      <li>
+        <code>respondent_hash</code> — a one-way SHA-256 of your IP
+        address concatenated with your User-Agent string. Neither the
+        raw IP nor the UA is stored. The hash is non-reversible: we
+        can use it to detect a single browser flooding the page (and
+        cap them at 100 ratings/hour), but we cannot recover who you
+        are or where you came from from a row in our table.
+      </li>
+      <li>
+        <code>created_at</code> — server-side RFC-3339 timestamp.
+      </li>
+    </ul>
+    <p class="methodology">
+      Source: see
+      <a href={`${githubUrl}/blob/main/apps/api/migrations/0003_ratings.sql`}>
+        <code>apps/api/migrations/0003_ratings.sql</code>
+      </a>
+      and
+      <a href={`${githubUrl}/blob/main/docs/fidelity-ml-v0.4-collection.md`}>
+        <code>docs/fidelity-ml-v0.4-collection.md</code>
+      </a>.
+    </p>
+  </section>
+
+  <section class="rate-section" aria-labelledby="methodology-title">
+    <h2 id="methodology-title" class="section-title">Methodology</h2>
+    <p class="methodology">
+      Each pair shows one of <strong>{sceneCount}</strong> SplatBench scenes
+      rendered at a fixed orbit-8 camera position. The reference frame is
+      <code>lossless-repack</code> — the format-round-trip-only preset that
+      adds zero perceptible loss. The two candidates are different lossy
+      presets (e.g. <code>web-mobile</code> vs <code>size-min</code>). The
+      reference + the pair are all the same orbit position from the same
+      scene, so the only thing changing is the encoder.
+    </p>
+    <p class="methodology">
+      Aggregated ratings get fed through a Bradley-Terry model that
+      converts pairwise outcomes into per-frame absolute scalar scores;
+      those scores become the supervision signal for the v0.4 MLP. Per the
+      doc the training kicks off at <strong>{v04_min_samples_per_scene.toLocaleString()}</strong>
+      ratings per scene minimum; <strong>{v04_ideal_samples_per_scene.toLocaleString()}</strong>
+      is the desirable mark.
+    </p>
+  </section>
+
+  <footer class="site-footer">
+    <span>fidelity-ml v0.4 collection · {sceneCount} scenes · Apache-2.0</span>
+    <span>
+      <a href={`${githubUrl}/blob/main/docs/fidelity-ml-v0.4-collection.md`}>collection doc</a> ·
+      <a href={`${githubUrl}/blob/main/apps/api/migrations/0003_ratings.sql`}>schema</a>
+    </span>
+  </footer>
+</Base>
+
+<script is:inline define:vars={{ apiBase, scenes, referencePreset }}>
+  // Vanilla client. No framework. The Astro project is static-only
+  // (output: 'static') so any JS here must be is:inline and self-
+  // contained — no imports, no top-level await beyond fetch.
+  (() => {
+    const root = document.querySelector("[data-rater]");
+    if (!root) return;
+    const manifestScenes = scenes || [];
+    const refPreset = referencePreset || "lossless-repack";
+    if (manifestScenes.length === 0) return;
+
+    const regions = {
+      loading: root.querySelector('[data-rater-state="loading"]'),
+      pair: root.querySelector('[data-rater-state="pair"]'),
+      capped: root.querySelector('[data-rater-state="capped"]'),
+      error: root.querySelector('[data-rater-state="error"]'),
+    };
+    const refImg = root.querySelector("[data-ref-img]");
+    const leftImg = root.querySelector("[data-left-img]");
+    const rightImg = root.querySelector("[data-right-img]");
+    const refPresetCode = root.querySelector("[data-ref-preset]");
+    const sceneLabel = root.querySelector("[data-scene-label]");
+    const statusEl = root.querySelector("[data-rate-status]");
+    const errorBody = root.querySelector("[data-error-body]");
+
+    let current = null; // { scene_id, frame, left_preset, right_preset }
+
+    function showRegion(name) {
+      for (const [k, el] of Object.entries(regions)) {
+        if (!el) continue;
+        el.hidden = k !== name;
+      }
+    }
+
+    function frameUrl(scene_id, preset, frame_index) {
+      const padded = String(frame_index).padStart(4, "0");
+      return `/rate-frames/${scene_id}/${preset}/${padded}.png`;
+    }
+
+    function pickNextPair() {
+      // Uniform random over scenes; uniform over candidate-preset pairs
+      // and frame index. Bradley-Terry tolerates uneven sampling, but
+      // uniform-over-pairs is the lowest-variance starting distribution.
+      const scene = manifestScenes[Math.floor(Math.random() * manifestScenes.length)];
+      if (!scene || !scene.candidate_presets || scene.candidate_presets.length < 2) {
+        return null;
+      }
+      const shuffled = scene.candidate_presets.slice().sort(() => Math.random() - 0.5);
+      const leftPreset = shuffled[0];
+      const rightPreset = shuffled[1];
+      const frames = scene.frame_indices || [1];
+      const frame = frames[Math.floor(Math.random() * frames.length)];
+      return {
+        scene_id: scene.scene_id,
+        frame,
+        left_preset: leftPreset,
+        right_preset: rightPreset,
+      };
+    }
+
+    function renderPair(pair) {
+      current = pair;
+      refImg.src = frameUrl(pair.scene_id, refPreset, pair.frame);
+      leftImg.src = frameUrl(pair.scene_id, pair.left_preset, pair.frame);
+      rightImg.src = frameUrl(pair.scene_id, pair.right_preset, pair.frame);
+      refPresetCode.textContent = refPreset;
+      sceneLabel.textContent = `${pair.scene_id} · frame ${pair.frame}`;
+      statusEl.textContent = "";
+      showRegion("pair");
+    }
+
+    function nextPair() {
+      const pair = pickNextPair();
+      if (!pair) {
+        regions.loading.querySelector(".rate-loading").textContent =
+          "Not enough comparable presets in this scene set. Check back after the next bench rev.";
+        showRegion("loading");
+        return;
+      }
+      renderPair(pair);
+    }
+
+    async function submitVote(winner) {
+      if (!current) return;
+      const payload = {
+        scene_id: current.scene_id,
+        left_preset: current.left_preset,
+        right_preset: current.right_preset,
+        winner,
+      };
+      statusEl.textContent = "Recording…";
+      try {
+        const res = await fetch(`${apiBase}/v1/ratings`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (res.status === 429) {
+          showRegion("capped");
+          return;
+        }
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          errorBody.textContent = `HTTP ${res.status}: ${body || res.statusText}`;
+          showRegion("error");
+          return;
+        }
+        const body = await res.json().catch(() => ({}));
+        statusEl.textContent =
+          typeof body.remaining === "number"
+            ? `Logged. ${body.remaining} ratings left this hour.`
+            : "Logged.";
+        // Brief delay so the rater sees confirmation, then advance.
+        setTimeout(nextPair, 350);
+      } catch (e) {
+        errorBody.textContent = String(e && e.message ? e.message : e);
+        showRegion("error");
+      }
+    }
+
+    // Click handlers.
+    root.querySelectorAll("[data-vote]").forEach((btn) => {
+      btn.addEventListener("click", () => submitVote(btn.dataset.vote));
+    });
+    root.querySelectorAll('[data-action="skip"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        statusEl.textContent = "Skipped — picking next pair.";
+        nextPair();
+      });
+    });
+    root.querySelectorAll('[data-action="reset"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        showRegion("loading");
+        nextPair();
+      });
+    });
+
+    // Keyboard shortcuts: A / T / B for left / tie / right, S to skip.
+    document.addEventListener("keydown", (ev) => {
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (regions.pair.hidden) return;
+      const k = ev.key.toLowerCase();
+      if (k === "a" || k === "arrowleft") submitVote("left");
+      else if (k === "b" || k === "arrowright") submitVote("right");
+      else if (k === "t" || k === " ") {
+        ev.preventDefault();
+        submitVote("tie");
+      } else if (k === "s") {
+        nextPair();
+      }
+    });
+
+    // Boot.
+    nextPair();
+  })();
+</script>
+
+<style>
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 0 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .nav-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-weight: 600;
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .nav-brand .dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0.5rem rgba(125, 211, 252, 0.7);
+  }
+  .nav-links {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    font-size: 0.92rem;
+  }
+  .nav-links a {
+    color: var(--fg-muted);
+    text-decoration: none;
+  }
+  .nav-links a[aria-current="page"] {
+    color: var(--fg);
+  }
+
+  .rate-hero {
+    padding: 1rem 0 2rem;
+    max-width: 720px;
+  }
+  .rate-hero h1 {
+    font-size: clamp(2rem, 4vw, 3rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 1rem;
+  }
+  .rate-subtitle {
+    font-size: 1.025rem;
+    line-height: 1.6;
+    color: var(--fg-muted);
+    margin: 0 0 0.75rem;
+  }
+  .rate-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    color: var(--fg-dim);
+    font-size: 0.95rem;
+  }
+  .rate-stats code {
+    background: var(--bg-elev);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.3rem;
+    color: var(--accent);
+  }
+  .dotsep { color: var(--line-strong); }
+
+  .rate-section {
+    margin-top: 3rem;
+  }
+  .section-title {
+    font-family: var(--sans);
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0);
+    white-space: nowrap; border: 0;
+  }
+
+  .methodology {
+    color: var(--fg-muted);
+    line-height: 1.6;
+    max-width: 64ch;
+  }
+  .methodology code {
+    background: var(--bg-elev);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.3rem;
+    font-size: 0.88em;
+    color: var(--accent);
+  }
+  .methodology-list {
+    color: var(--fg-muted);
+    line-height: 1.7;
+    padding-left: 1.2rem;
+    max-width: 72ch;
+  }
+  .methodology-list li { margin: 0.4rem 0; }
+  .methodology-list code {
+    background: var(--bg-elev);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.3rem;
+    color: var(--accent);
+  }
+
+  .rate-empty {
+    border: 1px dashed var(--line-strong);
+    border-radius: 0.6rem;
+    padding: 2rem;
+    color: var(--fg-muted);
+    text-align: center;
+  }
+  .rate-empty code {
+    background: var(--bg-elev);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.3rem;
+    color: var(--accent);
+  }
+
+  .rate-region {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+  }
+  .rate-region[hidden] { display: none !important; }
+  .rate-loading {
+    color: var(--fg-muted);
+    margin: 0;
+    text-align: center;
+    font-size: 0.95rem;
+  }
+
+  .prompt {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .prompt-headline {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .prompt-scene {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--fg-dim);
+  }
+
+  .frame-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 880px) {
+    .frame-grid { grid-template-columns: 1fr; }
+  }
+  .frame {
+    margin: 0;
+    background: #000;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+  }
+  .frame img {
+    width: 100%;
+    height: auto;
+    display: block;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    background: #000;
+  }
+  .frame figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+    background: var(--bg-row-alt);
+    border-top: 1px solid var(--line);
+  }
+  .frame figcaption code {
+    color: var(--accent);
+    background: transparent;
+  }
+  .frame-tag {
+    font-weight: 600;
+    color: var(--fg);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+  }
+  .tag-reference {
+    color: var(--accent-warm);
+  }
+  .frame-reference {
+    outline: 2px solid var(--accent-warm-strong);
+    outline-offset: -2px;
+  }
+
+  .vote-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.75rem;
+  }
+  @media (max-width: 720px) {
+    .vote-row { grid-template-columns: 1fr; }
+  }
+  .vote-btn {
+    background: var(--bg-row);
+    border: 1px solid var(--line-strong);
+    color: var(--fg);
+    border-radius: 0.55rem;
+    padding: 0.95rem 1.2rem;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.7rem;
+    transition: background 100ms, border-color 100ms, transform 80ms;
+  }
+  .vote-btn:hover {
+    background: var(--bg-elev);
+    border-color: var(--accent);
+  }
+  .vote-btn:active {
+    transform: translateY(1px);
+  }
+  .vote-btn-tie {
+    color: var(--fg-muted);
+  }
+  .vote-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6rem;
+    height: 1.6rem;
+    padding: 0 0.45rem;
+    border-radius: 0.3rem;
+    background: var(--bg-elev);
+    border: 1px solid var(--line-strong);
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+  }
+  .skip-row {
+    display: flex;
+    justify-content: center;
+    margin-top: 0.9rem;
+  }
+  .skip-btn {
+    background: transparent;
+    border: 1px dashed var(--line-strong);
+    color: var(--fg-dim);
+    border-radius: 0.4rem;
+    padding: 0.55rem 1rem;
+    font: inherit;
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: color 100ms, border-color 100ms;
+  }
+  .skip-btn:hover {
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+  .rate-status {
+    text-align: center;
+    color: var(--fg-dim);
+    font-size: 0.88rem;
+    margin: 1rem 0 0;
+    min-height: 1.2em;
+  }
+
+  .site-footer {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 3rem 0 0;
+    color: var(--fg-dim);
+    font-size: 0.85rem;
+  }
+  .site-footer a {
+    color: var(--fg-muted);
+  }
+</style>

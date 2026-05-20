@@ -1,0 +1,35 @@
+[package]
+name = "catetus-license"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ed25519-signed license file format + verifier for the Catetus Pro on-prem tier."
+
+[lib]
+name = "catetus_license"
+path = "src/lib.rs"
+
+[dependencies]
+# Pure-Rust Ed25519. `pkcs8` lets the API serialize the signing key in
+# a standard format the Fly secret can hold; `rand_core` wires into the
+# `rand` crate version the rest of the workspace uses without dragging
+# a second RNG into the dep graph.
+ed25519-dalek = { version = "2.1", default-features = false, features = [
+    "std",
+    "pkcs8",
+    "rand_core",
+    "pem",
+] }
+# Time + serde — license file is plain JSON so a customer's ops team
+# can sanity-check it before installing.
+chrono = { version = "0.4", default-features = false, features = ["serde", "std", "clock"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+base64 = { workspace = true }
+rand = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

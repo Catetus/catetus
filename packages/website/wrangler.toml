@@ -1,0 +1,30 @@
+# Cloudflare Pages config for @catetus/website.
+#
+# Stealth — do not deploy without explicit approval. Replace __DOMAIN__ and
+# __CF_ACCOUNT_ID__ before going live. This file is only consumed by
+# `wrangler pages deploy` / Pages CI; it is ignored by the website at runtime.
+#
+# Pages-specific routing (SPA fallback under /viewer/, cache headers, robots,
+# etc.) lives in:
+#   packages/website/public/_routes.json
+#   packages/website/public/_headers
+#   packages/website/public/_redirects
+# Those files are picked up automatically from `dist/` at deploy time.
+#
+# Build is run by Pages CI using the composite script.
+
+name = "catetus-website"
+compatibility_date = "2026-05-01"
+pages_build_output_dir = "packages/website/dist"
+
+# Custom domain is attached in the Cloudflare dashboard, not here.
+# Placeholder kept so future scripting can grep for it.
+# domain = "__DOMAIN__"
+# account_id = "__CF_ACCOUNT_ID__"
+
+[build]
+command = "bash packages/website/build-composite.sh"
+
+[vars]
+# No runtime vars — pure static deploy. Add here if a feature flag is needed.
+# PLAUSIBLE_DOMAIN = "__DOMAIN__"

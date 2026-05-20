@@ -1,0 +1,28 @@
+[package]
+name = "catetus-mcp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Model Context Protocol server for Catetus — exposes analyze/list_presets/optimize over stdio so any MCP-compatible LLM client (Claude Desktop, Cursor, Cline, Zed, …) can drive the toolkit."
+
+[[bin]]
+name = "catetus-mcp"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"
+
+[dependencies]
+catetus-core      = { workspace = true }
+catetus-ply       = { workspace = true }
+catetus-spz       = { workspace = true }
+catetus-gltf      = { workspace = true }
+catetus-optimize  = { workspace = true }
+
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+anyhow      = { workspace = true }
+thiserror   = { workspace = true }
+tracing     = { workspace = true }
+tracing-subscriber = { workspace = true }

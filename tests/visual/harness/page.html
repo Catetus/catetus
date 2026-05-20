@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Catetus harness</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; }
+  /*
+   * Important: the canvas size is the size Playwright captures *from*. The
+   * Playwright viewport is 512x512 (see playwright.config.ts) — keep these
+   * in lockstep or your golden frames will not align.
+   */
+  #c { display: block; width: 512px; height: 512px; }
+  #status { position: fixed; bottom: 4px; left: 6px; color: #6cf;
+    font: 11px/1.3 ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+<canvas id="c" width="512" height="512"></canvas>
+<div id="status">init</div>
+<script type="module">
+  /**
+   * Harness page used by Playwright.
+   *
+   * URL params:
+   *   src      = path to a viewer-loadable asset (e.g. /fixtures/tiny/cube.gltf)
+   *   renderer = 'webgpu' | 'webgl2'  (the *forced* backend)
+   *   seed     = optional integer seed override (defaults to 0xC0FFEE)
+   *
+   * Side effects (Playwright reads these via page.evaluate):
+   *   window.__sf.ready   = true once viewer.complete has fired
+   *   window.__sf.error   = { code, message } on failure
+   *   window.__sf.frames  = [{ index, dataUrl }] for the 8 orbit-8 frames
+   *   window.__sf.warnings= [{ code, message }] collected during the run
+   *
+   * The harness imports the viewer from `/viewer/index.js`, which the static
+   * server in harness/server.mjs maps to `packages/viewer/dist/index.js`.
+   */
+  const params = new URLSearchParams(location.search);
+  const src = params.get('src');
+  const renderer = (params.get('renderer') || 'auto');
+  const seed = Number(params.get('seed') || 0xC0FFEE);
+  // Optional ?cameraBbox=<URL-encoded JSON>{min:[x,y,z], max:[x,y,z]} so the
+  // harness can pin every preset's camera to the input scene's bbox. Without
+  // this, a preset that prunes geometry (e.g. floater_proxy × size-min)
+  // shrinks its own bbox, reframes the camera, and the ΔE94 against the
+  // baseline measures the reframing rather than the visual delta.
+  // SPEC-0062 (compute decode): toggle the WGSL compute-decode + GPU radix
+  // sort path. Default off so existing visual baselines stay stable.
+  const useComputeDecode = params.get('useComputeDecode') === '1';
+  // Streaming-tile mode (queue #51): `src` points at a tileset.json, the
+  // viewer drives StreamingTileset rather than the flat manifest path.
+  const mode = params.get('mode') || 'flat';
+  const cameraPathParam = params.get('cameraPath');
+  const cameraBboxRaw = params.get('cameraBbox');
+  let cameraBbox = undefined;
+  if (cameraBboxRaw) {
+    try {
+      const parsed = JSON.parse(cameraBboxRaw);
+      if (
+        parsed &&
+        Array.isArray(parsed.min) && parsed.min.length === 3 &&
+        Array.isArray(parsed.max) && parsed.max.length === 3
+      ) {
+        cameraBbox = { min: parsed.min, max: parsed.max };
+      }
+    } catch {
+      // Bad JSON — fall back to the manifest bbox.
+    }
+  }
+  const status = document.getElementById('status');
+  const canvas = document.getElementById('c');
+
+  const sf = (window.__sf = { ready: false, frames: [], warnings: [], error: null });
+
+  function setStatus(s) { status.textContent = s; }
+
+  if (!src) {
+    sf.error = { code: 'no_src', message: 'missing ?src= query param' };
+    setStatus('error: no_src');
+  } else {
+    try {
+      const mod = await import('/viewer/index.js');
+      const { CatetusViewer } = mod;
+      // orbit-4 is supported as a custom camera path so the streaming
+      // visual spec can keep its golden count small (4 PNGs/test).
+      let cameraPath = 'orbit-8';
+      if (cameraPathParam === 'orbit-4') {
+        cameraPath = { type: 'custom', positions: [
+          [0, 0, 5], [5, 0, 0], [0, 0, -5], [-5, 0, 0],
+        ] };
+      }
+      const viewer = new CatetusViewer({
+        canvas,
+        src,
+        renderer,            // 'webgpu' or 'webgl2' — pinned by project
+        cameraPath,
+        deterministic: true,
+        seed,
+        ...(cameraBbox ? { cameraBbox } : {}),
+        ...(useComputeDecode ? { useComputeDecode: true } : {}),
+      });
+
+      viewer.on('warning', (e) => sf.warnings.push({ code: e.code, message: e.message }));
+      viewer.on('error', (e) => {
+        sf.error = { code: e.code, message: e.message };
+        setStatus(`error: ${e.code}`);
+      });
+
+      // Capture each frame from the viewer's per-frame `frameRendered` event.
+      // This runs after `renderFrame` has submitted the draw and before the
+      // next orbit pose overwrites the canvas backing store.
+      viewer.on('frameRendered', (e) => {
+        const url = canvas.toDataURL('image/png');
+        sf.frames.push({ index: e.index + 1, dataUrl: url });
+      });
+
+      viewer.on('complete', () => {
+        // Default trim to 8 frames (orbit-8). Streaming tests run orbit-4.
+        const max = cameraPathParam === 'orbit-4' ? 4 : 8;
+        sf.frames = sf.frames.slice(0, max);
+        sf.ready = true;
+        setStatus(`ready (${sf.frames.length} frames)`);
+      });
+
+      setStatus(`loading ${src} (${renderer}, mode=${mode})`);
+      if (mode === 'streaming') {
+        await viewer.loadTileset(src);
+      } else {
+        await viewer.load();
+      }
+    } catch (err) {
+      sf.error = { code: 'harness_exception', message: String(err && err.message || err) };
+      setStatus(`error: harness_exception`);
+    }
+  }
+</script>
+</body>
+</html>

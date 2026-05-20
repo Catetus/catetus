@@ -1,0 +1,87 @@
+<!doctype html>
+<!--
+  examples/decode.html — Smoke-test page for @catetus/qat-ply-wasm.
+  Loads a QAT PLY (defaults to case03_int8_5x32 from the conformance
+  fixtures), parses its header, dequantizes its quantized fields, and
+  logs the resulting fp32 array. Open via any static-file server, e.g.
+    python3 -m http.server 8080
+-->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>QAT-PLY WASM decode demo</title>
+  <style>
+    body { font: 14px/1.4 ui-monospace, monospace; padding: 1rem; }
+    pre  { background: #f4f4f4; padding: 0.75rem; overflow: auto; }
+    h1   { font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <h1>QAT-PLY v1 — WASM reference decoder</h1>
+  <p>Loads <code>../../conformance/fixtures/case03_int8_5x32.ply</code>
+     and decodes it in the browser.</p>
+  <pre id="out">loading...</pre>
+  <script type="module">
+    import createQatPlyModule from "../dist/qat_ply_decode.js";
+
+    const fixtureUrl = new URL(
+      "../../conformance/fixtures/case03_int8_5x32.ply",
+      import.meta.url
+    );
+
+    const log = (msg) => {
+      const el = document.getElementById("out");
+      el.textContent = (el.textContent === "loading..." ? "" : el.textContent + "\n") + msg;
+    };
+
+    function findEndHeader(bytes) {
+      const needle = new TextEncoder().encode("\nend_header\n");
+      outer: for (let i = 0; i + needle.length <= bytes.length; i++) {
+        for (let j = 0; j < needle.length; j++) {
+          if (bytes[i + j] !== needle[j]) continue outer;
+        }
+        return i + needle.length;
+      }
+      return -1;
+    }
+
+    try {
+      const mod = await createQatPlyModule();
+      const resp = await fetch(fixtureUrl);
+      const buf  = new Uint8Array(await resp.arrayBuffer());
+
+      const bodyOff = findEndHeader(buf);
+      if (bodyOff < 0) throw new Error("no end_header in fixture");
+      const headerStr = new TextDecoder().decode(buf.subarray(0, bodyOff));
+      const body = buf.subarray(bodyOff);
+
+      const hdr = mod.parseHeader(headerStr);
+      log("fields: " + hdr.fields.size());
+
+      const field = hdr.fields.get(0);
+      log("name=" + field.name + " dtype=int" + field.dtype + " channels=" + field.channels);
+
+      const scales = mod.base64DecodeFp32(
+        headerStr.substring(field.scaleB64Offset,
+                            field.scaleB64Offset + field.scaleB64Len),
+        field.channels
+      );
+      log("scales[0..3]=" + Array.from(scales).slice(0, 3).join(","));
+
+      const N = 5, C = 32;
+      const rowSize = 32;
+      const q = new Uint8Array(N * C);
+      for (let r = 0; r < N; r++) {
+        for (let c = 0; c < C; c++) {
+          q[r * C + c] = body[r * rowSize + c];
+        }
+      }
+      const out = mod.dequantInt8(q, scales, N, C);
+      log("out[0..7] = " + Array.from(out).slice(0, 8).map(v => v.toFixed(4)).join(", "));
+      log("total floats: " + out.length);
+    } catch (err) {
+      log("ERROR: " + err.message);
+    }
+  </script>
+</body>
+</html>

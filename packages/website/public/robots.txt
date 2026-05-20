@@ -1,0 +1,6 @@
+# Stealth mode. Block all crawlers until launch.
+# When stealth comes off, replace this file with an allow-all + Sitemap line.
+# See packages/website/DEPLOY.md → "Robots.txt strategy".
+
+User-agent: *
+Disallow: /

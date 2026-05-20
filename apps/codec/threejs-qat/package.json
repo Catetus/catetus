@@ -1,0 +1,34 @@
+{
+  "name": "@catetus/three-qat",
+  "version": "0.1.0",
+  "description": "Three.js loader for Catetus QAT-PLY quantized Gaussian splat scenes.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/cjs/index.cjs",
+  "module": "dist/esm/index.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "node scripts/build.mjs && tsc -p tsconfig.types.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "size": "node scripts/size.mjs"
+  },
+  "peerDependencies": { "three": ">=0.160.0" },
+  "devDependencies": {
+    "@types/three": "^0.160.0",
+    "esbuild": "^0.20.0",
+    "three": "^0.160.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  },
+  "publishConfig": { "access": "public" },
+  "keywords": ["three", "threejs", "gaussian-splatting", "catetus", "ply", "qat", "loader"]
+}

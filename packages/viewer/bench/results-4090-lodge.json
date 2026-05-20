@@ -1,0 +1,117 @@
+{
+  "error": "no_adapter",
+  "realScene": {
+    "error": "real_scene_bench_failed_sweet-corals-full",
+    "message": "scene bin load failed: sweet-corals-full (404)",
+    "results": []
+  },
+  "realSceneLodge": {
+    "results": [
+      {
+        "scene": "sweet-corals-full",
+        "manifestSource": "sweet-corals-full.ply",
+        "originalSplatCount": 119824300,
+        "numLevels": 6,
+        "viewport": [
+          1920,
+          1080
+        ],
+        "iterations": 20,
+        "levelBreakdown": [
+          {
+            "level": 0,
+            "splatCount": 119824300,
+            "perFrameMs": null,
+            "framesPerSecond": 0,
+            "viewFps": {
+              "front": 0,
+              "orbit45": 0,
+              "orbit90": 0
+            },
+            "uploadMs": -1,
+            "decodedBytes": 7668755200
+          },
+          {
+            "level": 1,
+            "splatCount": 54249901,
+            "perFrameMs": null,
+            "framesPerSecond": 0,
+            "viewFps": {
+              "front": 0,
+              "orbit45": 0,
+              "orbit90": 0
+            },
+            "uploadMs": -1,
+            "decodedBytes": 3471993664
+          },
+          {
+            "level": 2,
+            "splatCount": 27969743,
+            "perFrameMs": null,
+            "framesPerSecond": 0,
+            "viewFps": {
+              "front": 0,
+              "orbit45": 0,
+              "orbit90": 0
+            },
+            "uploadMs": -1,
+            "decodedBytes": 1790063552
+          },
+          {
+            "level": 3,
+            "splatCount": 13311543,
+            "perFrameMs": 769.175,
+            "framesPerSecond": 1.3000942568336205,
+            "viewFps": {
+              "front": 1.5264146047347646,
+              "orbit45": 1.3000942568336205,
+              "orbit90": 1.2581227550369731
+            },
+            "uploadMs": 20288.39999999851,
+            "decodedBytes": 851939840
+          },
+          {
+            "level": 4,
+            "splatCount": 7324095,
+            "perFrameMs": 168.864999999851,
+            "framesPerSecond": 5.921890267378571,
+            "viewFps": {
+              "front": 6.035185129306555,
+              "orbit45": 5.921890267378571,
+              "orbit90": 5.897791277164109
+            },
+            "uploadMs": 8974.19999999553,
+            "decodedBytes": 468750336
+          },
+          {
+            "level": 5,
+            "splatCount": 3201888,
+            "perFrameMs": 66.775,
+            "framesPerSecond": 14.975664545114189,
+            "viewFps": {
+              "front": 15.175658244193501,
+              "orbit45": 14.975664545114189,
+              "orbit90": 14.85001485004771
+            },
+            "uploadMs": 2729.7000000029802,
+            "decodedBytes": 204923136
+          }
+        ],
+        "selectedLevel": 3,
+        "selectedFps": 1.3000942568336205,
+        "baselineFps": null,
+        "speedup": null
+      }
+    ],
+    "sizes": {
+      "bytes_per_decoded_splat": 64,
+      "floats_per_instance": 12
+    },
+    "adapter": {},
+    "limits": {
+      "maxStorageBufferBindingSize": 2147483644,
+      "maxBufferSize": 2147483648
+    },
+    "timestamp": "2026-05-16T01:28:41.726Z"
+  }
+}

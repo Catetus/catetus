@@ -1,0 +1,184 @@
+{
+  "dilationSweep": {
+    "results": [
+      {
+        "scene": "bicycle_iter7000",
+        "splatCount": 3616103,
+        "viewport": [
+          1920,
+          1080
+        ],
+        "iterations": 20,
+        "baselineImageMean": 9.229242960611979,
+        "dilations": [
+          {
+            "dilation": 0.3,
+            "fpsCullOff": 18.618506795703325,
+            "fpsCullOn": 53.26231691078562,
+            "cullRate": 0.8186011294479167,
+            "survivors": 655957,
+            "perStageMsCullOff": {
+              "keygenOrProject": 10.477747,
+              "sortFull": 31.914175,
+              "projectGatherOrGather": 9.156297,
+              "totalGpuMs": 51.477282
+            },
+            "psnrVsBaseline": null
+          },
+          {
+            "dilation": 0.2,
+            "fpsCullOff": 18.489414810097674,
+            "fpsCullOn": 54.25935973933572,
+            "cullRate": 0.8217484402407785,
+            "survivors": 644576,
+            "perStageMsCullOff": {
+              "keygenOrProject": 10.569309,
+              "sortFull": 31.700218,
+              "projectGatherOrGather": 9.677752,
+              "totalGpuMs": 53.731801
+            },
+            "psnrVsBaseline": 29.098718254195628
+          },
+          {
+            "dilation": 0.1,
+            "fpsCullOff": 18.66890693555086,
+            "fpsCullOn": 55.38631957883541,
+            "cullRate": 0.8266183236484138,
+            "survivors": 626966,
+            "perStageMsCullOff": {
+              "keygenOrProject": 10.49082,
+              "sortFull": 31.861311,
+              "projectGatherOrGather": 9.131089,
+              "totalGpuMs": 52.289412
+            },
+            "psnrVsBaseline": 24.466181956108866
+          },
+          {
+            "dilation": 0.05,
+            "fpsCullOff": 18.46381093052527,
+            "fpsCullOn": 58.53087503734754,
+            "cullRate": 0.8469753212228744,
+            "survivors": 553353,
+            "perStageMsCullOff": {
+              "keygenOrProject": 10.462695,
+              "sortFull": 31.200169,
+              "projectGatherOrGather": 10.035979,
+              "totalGpuMs": 53.224875
+            },
+            "psnrVsBaseline": 22.716928098055863
+          },
+          {
+            "dilation": 0,
+            "fpsCullOff": 18.527095877721166,
+            "fpsCullOn": 94.69696969563343,
+            "cullRate": 0.9638041283669188,
+            "survivors": 130888,
+            "perStageMsCullOff": {
+              "keygenOrProject": 10.486601,
+              "sortFull": 32.051206,
+              "projectGatherOrGather": 9.25463,
+              "totalGpuMs": 51.7465
+            },
+            "psnrVsBaseline": 21.18017579902887
+          }
+        ]
+      },
+      {
+        "scene": "bonsai_iter7000",
+        "splatCount": 1157141,
+        "viewport": [
+          1920,
+          1080
+        ],
+        "iterations": 20,
+        "baselineImageMean": 28.352928161621094,
+        "dilations": [
+          {
+            "dilation": 0.3,
+            "fpsCullOff": 59.470710675519584,
+            "fpsCullOn": 68.37606837606837,
+            "cullRate": 0.3301879373386649,
+            "survivors": 775067,
+            "perStageMsCullOff": {
+              "keygenOrProject": 3.334875,
+              "sortFull": 9.638638,
+              "projectGatherOrGather": 2.893837,
+              "totalGpuMs": 15.861568
+            },
+            "psnrVsBaseline": null
+          },
+          {
+            "dilation": 0.2,
+            "fpsCullOff": 58.8235294117647,
+            "fpsCullOn": 68.58710562554462,
+            "cullRate": 0.3308369507259703,
+            "survivors": 774316,
+            "perStageMsCullOff": {
+              "keygenOrProject": 3.379875,
+              "sortFull": 9.652336,
+              "projectGatherOrGather": 2.9017,
+              "totalGpuMs": 15.958859
+            },
+            "psnrVsBaseline": 29.962977369314206
+          },
+          {
+            "dilation": 0.1,
+            "fpsCullOff": 58.89281507630225,
+            "fpsCullOn": 71.22507122582716,
+            "cullRate": 0.34193499322900145,
+            "survivors": 761474,
+            "perStageMsCullOff": {
+              "keygenOrProject": 3.37274,
+              "sortFull": 9.540773,
+              "projectGatherOrGather": 2.924305,
+              "totalGpuMs": 15.990003999999999
+            },
+            "psnrVsBaseline": 27.37899638585825
+          },
+          {
+            "dilation": 0.05,
+            "fpsCullOff": 58.68544600990287,
+            "fpsCullOn": 72.72727272727273,
+            "cullRate": 0.37135232439261945,
+            "survivors": 727434,
+            "perStageMsCullOff": {
+              "keygenOrProject": 3.343364,
+              "sortFull": 9.590877,
+              "projectGatherOrGather": 2.883679,
+              "totalGpuMs": 15.962817000000001
+            },
+            "psnrVsBaseline": 26.057798573517807
+          },
+          {
+            "dilation": 0,
+            "fpsCullOff": 58.5308750360713,
+            "fpsCullOn": 83.7520938033903,
+            "cullRate": 0.47926052226997407,
+            "survivors": 602569,
+            "perStageMsCullOff": {
+              "keygenOrProject": 3.358104,
+              "sortFull": 9.654419,
+              "projectGatherOrGather": 2.896545,
+              "totalGpuMs": 16.612345
+            },
+            "psnrVsBaseline": 24.662775587035885
+          }
+        ]
+      }
+    ],
+    "dilations": [
+      0.3,
+      0.2,
+      0.1,
+      0.05,
+      0
+    ],
+    "tau": 0.00392156862745098,
+    "adapter": {},
+    "limits": {
+      "maxStorageBufferBindingSize": 2147483644,
+      "maxBufferSize": 2147483648
+    },
+    "timestamp": "2026-05-15T20:37:09.218Z"
+  }
+}

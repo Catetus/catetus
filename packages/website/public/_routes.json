@@ -1,0 +1,6 @@
+{
+  "//": "Cloudflare Pages Functions routing. We have no Functions (pure static), so include nothing and exclude everything. Keeps Pages from spinning up a Worker per request.",
+  "version": 1,
+  "include": [],
+  "exclude": ["/*"]
+}

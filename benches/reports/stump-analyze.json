@@ -1,0 +1,66 @@
+{
+  "attributes": {
+    "color_dc": true,
+    "opacity": true,
+    "position": true,
+    "rotation": true,
+    "scale": true,
+    "sh_rest": true
+  },
+  "boundingBox": {
+    "max": [
+      124.3976058959961,
+      76.45986938476562,
+      78.59272766113281
+    ],
+    "min": [
+      -153.06971740722656,
+      -122.3902816772461,
+      -134.2523651123047
+    ]
+  },
+  "coordinateSystem": {
+    "handedness": "right",
+    "up": "Y"
+  },
+  "estimatedMemory": {
+    "ramMb": 217,
+    "vramMb": 399
+  },
+  "fileSize": 944270460,
+  "format": "ply",
+  "hash": "blake3:316a4c1c5fac8fc6070dc20b8a4709a513057b684be3a31c192aedebc8cb683c",
+  "opacityDistribution": {
+    "max": 1.0,
+    "mean": 0.3227941393852234,
+    "median": 0.22227893769741058,
+    "min": 0.0008545568562112749
+  },
+  "recommendations": [
+    {
+      "preset": "web-mobile",
+      "rationale": "input larger than 100MB; web-mobile preset recommended"
+    }
+  ],
+  "scaleDistribution": {
+    "max": [
+      0.6034234762191772,
+      0.6185250878334045,
+      0.6543811559677124
+    ],
+    "mean": [
+      0.0296024177223444,
+      0.02980021759867668,
+      0.02969345450401306
+    ],
+    "min": [
+      2.6829100079339696e-6,
+      5.883954145247117e-6,
+      0.000010363371984567493
+    ]
+  },
+  "schemaVersion": "1",
+  "shDegree": 3,
+  "splatCount": 3807536,
+  "warnings": []
+}

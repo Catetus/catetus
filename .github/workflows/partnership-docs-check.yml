@@ -1,0 +1,67 @@
+name: partnership-docs-check
+# Belt-and-suspenders backstop for the .githooks/pre-push guard.
+# Refuses any PR or push that adds/modifies files under:
+#   - docs/partnerships/**
+#   - docs/standards-outreach/**
+# Rationale: experiments/partnership-docs-audit/AUDIT.md (2026-05-15 leak).
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine diff base
+        id: base
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            # Push event.
+            before="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            zero='0000000000000000000000000000000000000000'
+            if [ -z "${before}" ] || [ "${before}" = "${zero}" ]; then
+              # First push of a branch (or branch creation): compare against
+              # the default branch tip if we can resolve it, otherwise the
+              # empty tree.
+              if git rev-parse --verify --quiet "origin/${{ github.event.repository.default_branch }}" >/dev/null; then
+                base="$(git rev-parse "origin/${{ github.event.repository.default_branch }}")"
+              else
+                base="$(git hash-object -t tree /dev/null)"
+              fi
+            else
+              base="${before}"
+            fi
+          fi
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "head=${head}" >> "$GITHUB_OUTPUT"
+          echo "Comparing ${base}..${head}"
+
+      - name: Check for protected paths
+        run: |
+          set -euo pipefail
+          base="${{ steps.base.outputs.base }}"
+          head="${{ steps.base.outputs.head }}"
+          # --diff-filter=AM: only Added / Modified. Deletions are fine
+          # (and in fact, deletions of leaked files are desirable).
+          changed="$(git diff --name-only --diff-filter=AM "${base}..${head}" || true)"
+          hits="$(printf '%s\n' "${changed}" | grep -E '^docs/(partnerships|standards-outreach)/' || true)"
+          if [ -n "${hits}" ]; then
+            echo "::error::Partnership/outreach docs MUST NOT be added or modified."
+            echo "Offending paths:"
+            printf '%s\n' "${hits}" | sed 's/^/  - /'
+            echo ""
+            echo "See docs/CONTRIBUTING.md and experiments/partnership-docs-audit/AUDIT.md."
+            exit 1
+          fi
+          echo "OK — no protected paths in diff."

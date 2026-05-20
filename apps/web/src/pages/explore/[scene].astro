@@ -1,0 +1,494 @@
+---
+// /explore/<scene-id> — per-scene page.
+//
+// Self-hosted SplatBench scenes get the live `@catetus/viewer` mounted
+// (only `bonsai` has a public gltf payload bundled today; others show
+// metadata + a CTA to run the optimizer). External scenes show metadata
+// and a deep-link to the upstream CDN URL — we don't try to load proprietary
+// .splat files in our viewer.
+//
+// SEO: per-scene <title>, <meta description>, OG card. Per-scene OG image
+// generation is a follow-up (Vercel Edge function); the alpha uses the
+// shared `/og-image.png`.
+import Base from "../../layouts/Base.astro";
+import index from "../../data/explore-index.json" with { type: "json" };
+
+export async function getStaticPaths() {
+  return index.scenes.map((s) => ({
+    params: { scene: s.id },
+    props: { scene: s },
+  }));
+}
+
+const { scene } = Astro.props as { scene: typeof index.scenes[number] };
+
+const title = `${scene.displayName} — Catetus Explore`;
+const description =
+  `${scene.displayName}: ${scene.splatCount?.toLocaleString() ?? "?"} splats, ${scene.licenseBucket} license, ${scene.profile} profile. ` +
+  (scene.khrConformance === "pass"
+    ? "Passes KHR-spz conformance."
+    : "Run through the Catetus optimizer for KHR-conformant output.");
+
+const githubUrl = "https://github.com/Catetus/catetus";
+const apiUrl = "https://catetus-api.fly.dev";
+
+function fmtSplats(n: number): string {
+  if (!n) return "—";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + "k";
+  return String(n);
+}
+function fmtBytes(n: number): string {
+  if (!n) return "—";
+  if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
+  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+  return n + " B";
+}
+
+const canEmbed = !!scene.viewerSrc;
+const fid = scene.fidelity;
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      catetus
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/explore" aria-current="page">Explore</a>
+      <a href="/vs-splat-transform">vs splat-transform</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <div class="breadcrumb">
+    <a href="/explore">← All scenes</a>
+  </div>
+
+  <header class="scene-hero">
+    <h1 class="scene-headline">{scene.displayName}</h1>
+    <div class="scene-badge-row">
+      <span class={`badge badge-${scene.khrConformance}`}>
+        KHR · {scene.khrConformance === "pass" ? "pass" : scene.khrConformance === "fail-expected" ? "needs optimize" : "unknown"}
+      </span>
+      <span class="badge badge-license">{scene.licenseBucket}</span>
+      <span class="badge">{scene.source === "splatbench" ? "SplatBench corpus" : "External CDN"}</span>
+      <span class="badge">{scene.profile}</span>
+    </div>
+  </header>
+
+  <section class="scene-layout">
+    <div class="scene-viewer-col">
+      {canEmbed ? (
+        <div class="viewer-stage" data-scene-stage>
+          <canvas
+            class="viewer-canvas"
+            data-scene-canvas
+            width="1280"
+            height="800"></canvas>
+          <div class="viewer-fade" data-scene-fade></div>
+          <div class="viewer-frame"></div>
+          <div class="viewer-caption">
+            <span class="live" data-scene-status>booting splat viewer…</span>
+            <span class="tabular">{fmtSplats(scene.splatCount)} splats · {scene.profile}</span>
+          </div>
+        </div>
+      ) : (
+        <div class="viewer-stage viewer-stage-static">
+          <div class={`thumb-bg scene-thumb-${scene.thumbHint}`} aria-hidden="true">
+            <span class="thumb-glyph">↗</span>
+          </div>
+          <div class="external-overlay">
+            <p class="external-msg">
+              This scene is hosted on an external CDN and has not been optimized through
+              Catetus yet. Our viewer is purpose-built for KHR-conformant
+              <code>.glb</code> output — the upstream <code>{scene.format}</code> file
+              would need to be repacked first.
+            </p>
+            <div class="external-ctas">
+              <a class="btn btn-primary" href={apiUrl} target="_blank" rel="noreferrer noopener">
+                Optimize this splat →
+              </a>
+              <a class="btn" href={scene.originUrl} target="_blank" rel="noreferrer noopener">
+                Open upstream ({scene.format}) ↗
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+
+    <aside class="scene-sidebar">
+      <dl class="scene-facts">
+        <div class="fact"><dt>Splat count</dt><dd class="tabular">{fmtSplats(scene.splatCount)}</dd></div>
+        <div class="fact"><dt>Original size</dt><dd class="tabular">{fmtBytes(scene.bytesIn)}</dd></div>
+        <div class="fact"><dt>Format</dt><dd class="tabular">{scene.format}</dd></div>
+        <div class="fact"><dt>Profile</dt><dd>{scene.profile}{scene.profileRaw && scene.profileRaw !== scene.profile ? ` (${scene.profileRaw})` : ""}</dd></div>
+        <div class="fact"><dt>License</dt><dd>{scene.license}</dd></div>
+        <div class="fact"><dt>Attribution</dt><dd class="attribution">{scene.attribution}</dd></div>
+        <div class="fact"><dt>Source</dt><dd>
+          <a href={scene.originUrl} target="_blank" rel="noreferrer noopener">{scene.source === "splatbench" ? "splatbench-v0" : "upstream CDN"} ↗</a>
+        </dd></div>
+        {fid && (
+          <div class="fact"><dt>Fidelity (ΔE94)</dt><dd class="tabular">{fid.meanDeltaE94?.toFixed(4) ?? "—"} · <span class={`badge badge-${fid.passed ? "pass" : "fail-expected"}`}>{fid.status}</span></dd></div>
+        )}
+      </dl>
+
+      <div class="sidebar-cta">
+        <a class="btn btn-primary" href={canEmbed ? "/#try" : apiUrl} target={canEmbed ? "_self" : "_blank"} rel="noreferrer noopener">
+          {canEmbed ? "Run your own splat →" : "Optimize this splat →"}
+        </a>
+      </div>
+    </aside>
+  </section>
+
+  <section class="scene-section">
+    <h2 class="section-title">About this scene</h2>
+    <p>
+      {scene.source === "splatbench" ? (
+        <>
+          This is part of the <a href="/bench">SplatBench v0</a> corpus — a reproducible
+          public benchmark for Gaussian-Splat encoders. Each scene has a BLAKE3 hash,
+          deterministic camera path, and per-preset fidelity metrics so claims like
+          "22× compression" can be verified independently.
+        </>
+      ) : (
+        <>
+          This scene is indexed for discoverability but hosted on an external CDN.
+          Catetus does not re-host third-party assets — we link out, you click through.
+          Run the upstream file through <a href={apiUrl}>the Catetus optimizer</a> to get
+          a KHR-conformant <code>.glb</code> that loads in any standards-compliant viewer.
+        </>
+      )}
+    </p>
+    {scene.notes && <p class="scene-notes">{scene.notes}</p>}
+  </section>
+
+  <footer class="site-footer">
+    <span>Explore · <a href="/explore">back to registry</a></span>
+    <span>
+      <a href={scene.originUrl} target="_blank" rel="noreferrer noopener">upstream source ↗</a> ·
+      Apache-2.0
+    </span>
+  </footer>
+</Base>
+
+{canEmbed && (
+  <script is:inline define:vars={{ src: scene.viewerSrc }}>
+    // Per-scene viewer bootstrap — same pattern as the hero, but pointed at
+    // this scene's gltf payload. Runs only when `viewerSrc` was set.
+    (function () {
+      const canvas = document.querySelector("[data-scene-canvas]");
+      const status = document.querySelector("[data-scene-status]");
+      const fade = document.querySelector("[data-scene-fade]");
+      if (!canvas) return;
+
+      function setStatus(text) {
+        if (status) status.textContent = text;
+      }
+      function sizeCanvas() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const rect = canvas.getBoundingClientRect();
+        const w = Math.max(1, Math.floor(rect.width * dpr));
+        const h = Math.max(1, Math.floor(rect.height * dpr));
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+        }
+      }
+      sizeCanvas();
+
+      const boot = () => {
+        sizeCanvas();
+        const viewerUrl = "/viewer/index.js";
+        import(/* @vite-ignore */ viewerUrl)
+          .then(async (mod) => {
+            const Viewer = mod.CatetusViewer;
+            if (!Viewer) throw new Error("viewer export missing");
+            const viewer = new Viewer({
+              canvas,
+              src,
+              cameraPath: "static",
+              budget: "web-mobile",
+              autoRotate: true,
+              autoRotateSpeed: 6,
+              autoRotateFraming: 0.85,
+            });
+            viewer.on("firstRender", () => {
+              setStatus("live · auto-orbit");
+              if (fade) fade.classList.add("ready");
+            });
+            viewer.on("error", (p) => {
+              const code = (p && p.code) || "unknown";
+              setStatus("viewer offline (" + code + ")");
+              if (fade) fade.classList.add("ready");
+            });
+            await viewer.load();
+          })
+          .catch((err) => {
+            console.warn("[explore-scene] viewer init failed:", err);
+            setStatus("static fallback");
+            if (fade) fade.classList.add("ready");
+          });
+      };
+
+      const ric = window.requestIdleCallback;
+      if (typeof ric === "function") {
+        ric(boot, { timeout: 800 });
+      } else {
+        window.setTimeout(boot, 50);
+      }
+      window.addEventListener("resize", sizeCanvas, { passive: true });
+    })();
+  </script>
+)}
+
+<style>
+  .breadcrumb { font-size: 13px; margin: -16px 0 12px; }
+  .breadcrumb a { color: var(--fg-dim); }
+  .breadcrumb a:hover { color: var(--accent); text-decoration: none; }
+
+  .scene-hero {
+    padding: 8px 0 24px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 36px;
+  }
+  .scene-headline {
+    font-size: clamp(28px, 4vw, 42px);
+    font-weight: 700;
+    letter-spacing: -0.8px;
+    margin: 0 0 14px;
+  }
+  .scene-badge-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .scene-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+    gap: 32px;
+    align-items: start;
+  }
+  @media (max-width: 880px) {
+    .scene-layout { grid-template-columns: 1fr; }
+  }
+
+  .viewer-stage {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    background: #06080b;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .viewer-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .viewer-frame {
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(125,211,252,0.08);
+  }
+  .viewer-fade {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-elev);
+    transition: opacity 400ms;
+    pointer-events: none;
+  }
+  .viewer-fade.ready { opacity: 0; }
+  .viewer-caption {
+    position: absolute;
+    bottom: 10px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-dim);
+    pointer-events: none;
+  }
+  .viewer-caption .live::before {
+    content: "● ";
+    color: var(--good);
+  }
+
+  .viewer-stage-static {
+    display: grid;
+    place-items: stretch;
+  }
+  .thumb-bg {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 80px;
+  }
+  .thumb-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(11,13,16,0.2) 0%, rgba(11,13,16,0.85) 100%);
+  }
+  .scene-thumb-indoor, .scene-thumb-indoor-kitchen, .scene-thumb-indoor-room { background: linear-gradient(135deg, #2b2418 0%, #0f0d09 100%); color: #c9a55a; }
+  .scene-thumb-outdoor, .scene-thumb-outdoor-foliage { background: linear-gradient(135deg, #14302a 0%, #061212 100%); color: #4ec27e; }
+  .scene-thumb-foliage { background: linear-gradient(135deg, #1a3a22 0%, #06180c 100%); color: #6ed68a; }
+  .scene-thumb-portrait { background: linear-gradient(135deg, #2a1828 0%, #100610 100%); color: #d488b6; }
+  .scene-thumb-product-scan { background: linear-gradient(135deg, #1d2230 0%, #080a10 100%); color: #7dd3fc; }
+  .scene-thumb-synthetic-probe { background: linear-gradient(135deg, #1e1a2e 0%, #08060f 100%); color: #b89af0; }
+
+  .thumb-glyph {
+    font-family: var(--mono);
+    opacity: 0.5;
+    position: relative;
+    z-index: 1;
+  }
+  .external-overlay {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 20px 22px 22px;
+    background: linear-gradient(180deg, transparent 0%, rgba(11,13,16,0.85) 35%, rgba(11,13,16,0.97) 100%);
+    z-index: 2;
+  }
+  .external-msg {
+    font-size: 13px;
+    color: var(--fg-muted);
+    margin: 0 0 14px;
+    line-height: 1.55;
+    max-width: 56ch;
+  }
+  .external-msg code {
+    font-size: 12px;
+    background: var(--bg-elev);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .external-ctas {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .scene-sidebar {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 22px;
+  }
+  .scene-facts {
+    margin: 0;
+    display: grid;
+    gap: 12px;
+  }
+  .scene-facts .fact { margin: 0; }
+  .scene-facts dt {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--fg-dim);
+    margin-bottom: 3px;
+  }
+  .scene-facts dd {
+    margin: 0;
+    font-size: 14px;
+    color: var(--fg);
+    line-height: 1.5;
+  }
+  .scene-facts dd.attribution {
+    font-size: 12px;
+    color: var(--fg-muted);
+    line-height: 1.5;
+  }
+  .scene-facts dd .badge { vertical-align: middle; }
+  .sidebar-cta {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+
+  .scene-section {
+    margin-top: 48px;
+    padding-top: 32px;
+    border-top: 1px solid var(--line);
+    color: var(--fg-muted);
+    max-width: 720px;
+    line-height: 1.6;
+  }
+  .scene-section .section-title {
+    color: var(--fg);
+    margin-bottom: 14px;
+    font-size: 22px;
+  }
+  .scene-section p { margin: 0 0 12px; }
+  .scene-section code {
+    font-size: 12px;
+    background: var(--bg-elev);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .scene-notes {
+    color: var(--fg-dim);
+    font-style: italic;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--mono);
+    background: var(--bg-row);
+    border: 1px solid var(--line-strong);
+    color: var(--fg-muted);
+  }
+  .badge-pass { color: var(--good); border-color: rgba(52,211,153,0.4); }
+  .badge-fail-expected { color: var(--accent-warm); border-color: rgba(251,146,60,0.4); }
+  .badge-unknown { color: var(--fg-dim); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 9px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    color: var(--fg);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: border-color 120ms, transform 120ms;
+  }
+  .btn:hover { border-color: var(--accent); text-decoration: none; transform: translateY(-1px); }
+  .btn-primary {
+    background: var(--accent-warm);
+    border-color: var(--accent-warm);
+    color: #1a0f00;
+  }
+  .btn-primary:hover {
+    background: var(--accent-warm-strong);
+    border-color: var(--accent-warm-strong);
+  }
+
+  .site-footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--fg-dim);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+</style>

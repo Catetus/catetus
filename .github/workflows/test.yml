@@ -1,0 +1,51 @@
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --all-targets
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # Build packages that other workspaces consume as `workspace:*` deps
+      # BEFORE lint/test runs. Without these, viewer-app's `tsc --noEmit`
+      # can't resolve @catetus/glb-polyfill type declarations (no dist/),
+      # and report-ui + visual can't resolve @catetus/viewer.
+      - run: pnpm -F @catetus/glb-polyfill run build
+      - run: pnpm -F @catetus/viewer run build
+      # Lint/test the JS workspaces, but skip catetus-visual: its `test`
+      # script is Playwright (covered by the visual workflow) and needs a
+      # built viewer + browsers + CLI binary.
+      - run: pnpm --filter='!catetus-visual' -r --if-present run lint
+      - run: pnpm --filter='!catetus-visual' -r --if-present run test
+
+  cli-smoke:
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p catetus-cli
+      - run: ./target/release/catetus analyze fixtures/tiny/basic_binary.ply
+      - run: ./target/release/catetus optimize fixtures/tiny/basic_binary.ply --preset web-mobile --out /tmp/scene.gltf
+      - run: ./target/release/catetus inspect /tmp/scene.gltf

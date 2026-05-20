@@ -1,0 +1,442 @@
+---
+// /compare — side-by-side viewer comparing presets on the same scene.
+// Two synced canvases, web-mobile on the left, size-min on the right.
+// User picks the scene; both viewers share an explicit `cameraBbox` so a
+// preset that prunes geometry can't escape the comparison by reframing the
+// auto-orbit camera. What you're seeing is *only* the difference the preset
+// choice made inside the same world-space frame.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import Base from "../layouts/Base.astro";
+
+const githubUrl = "https://github.com/Catetus/catetus";
+
+const COMPARE_ROOT = resolve(
+  process.cwd(),
+  "public",
+  "compare-scenes",
+);
+
+/**
+ * Read the POSITION accessor's min/max out of a baked scene.gltf at build
+ * time. We use this to compute a shared camera bbox per scene so the
+ * comparison can't be tilted by one preset auto-framing closer than the
+ * other.
+ */
+function readBbox(sceneId: string, preset: string): { min: [number, number, number]; max: [number, number, number] } | null {
+  try {
+    const j = JSON.parse(
+      readFileSync(resolve(COMPARE_ROOT, sceneId, preset, "scene.gltf"), "utf8"),
+    );
+    const acc = (j.accessors || []).find(
+      (a: any) =>
+        Array.isArray(a.min) && a.min.length === 3 &&
+        Array.isArray(a.max) && a.max.length === 3,
+    );
+    if (!acc) return null;
+    return {
+      min: [Number(acc.min[0]), Number(acc.min[1]), Number(acc.min[2])],
+      max: [Number(acc.max[0]), Number(acc.max[1]), Number(acc.max[2])],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Union of two bboxes (or null fallback to either). */
+function unionBbox(
+  a: ReturnType<typeof readBbox>,
+  b: ReturnType<typeof readBbox>,
+): ReturnType<typeof readBbox> {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    min: [
+      Math.min(a.min[0], b.min[0]),
+      Math.min(a.min[1], b.min[1]),
+      Math.min(a.min[2], b.min[2]),
+    ],
+    max: [
+      Math.max(a.max[0], b.max[0]),
+      Math.max(a.max[1], b.max[1]),
+      Math.max(a.max[2], b.max[2]),
+    ],
+  };
+}
+
+// Scenes baked into apps/web/public/compare-scenes/<scene>/<preset>/scene.gltf.
+// ML / ΔE94 numbers come from benches/reports/splatbench-v0.json (frozen at
+// build time; copy via scripts/sync-data.mjs).
+const rawScenes = [
+  {
+    id: "product",
+    label: "splatbench_product_proxy",
+    blurb:
+      "Clean reference — both presets pass cleanly. Visual difference is essentially nil.",
+    presets: {
+      "web-mobile": { ml: 0.9944, dE94: 0.0002, status: "pass", bytes: "112 KB" },
+      "size-min": { ml: 0.9928, dE94: 0.0004, status: "pass", bytes: "112 KB" },
+    },
+  },
+  {
+    id: "indoor",
+    label: "splatbench_indoor_proxy",
+    blurb:
+      "Moderate scene. size-min sheds a small amount of fidelity; both still pass at the 3% ΔE94 threshold.",
+    presets: {
+      "web-mobile": { ml: 0.9931, dE94: 0.0003, status: "pass", bytes: "1.2 MB" },
+      "size-min": { ml: 0.9856, dE94: 0.0010, status: "pass", bytes: "1.2 MB" },
+    },
+  },
+  {
+    id: "floater",
+    label: "splatbench_floater_proxy",
+    blurb:
+      "Noisy-capture stress test. The synthetic adds 50k low-opacity floaters at radius 20-80 around a clean ±2 cube. web-mobile keeps most of them (op-prune threshold 0.02); size-min nukes them all (threshold 0.05). With a shared camera bbox, both renders show the same cube + halo — the only visible difference is the haze density. Both pass the 3% ΔE94 threshold.",
+    presets: {
+      "web-mobile": { ml: 0.9266, dE94: 0.0007, status: "pass", bytes: "2.6 MB" },
+      "size-min": { ml: 0.8342, dE94: 0.0037, status: "pass", bytes: "2.5 MB" },
+    },
+  },
+];
+
+const scenes = rawScenes.map((s) => ({
+  ...s,
+  cameraBbox: unionBbox(
+    readBbox(s.id, "web-mobile"),
+    readBbox(s.id, "size-min"),
+  ),
+}));
+
+const title = "Catetus — Visual compare";
+const description =
+  "Side-by-side viewer comparing web-mobile vs size-min presets on identical scenes. Synced orbit, real WebGPU/WebGL2 splat rendering.";
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      catetus
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/#leaderboard">SplatBench</a>
+      <a href="/#try">Try it</a>
+      <a href={githubUrl} target="_blank" rel="noreferrer noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <section class="compare-section">
+    <div class="section-head">
+      <h2 class="section-title">Compare presets, side-by-side</h2>
+      <p class="section-sub">
+        Two real <code>@catetus/viewer</code> instances, identical orbit
+        camera, two different output presets. Pick a scene — what you see
+        on the right is the only thing the preset choice changed.
+      </p>
+    </div>
+
+    <div class="compare-controls">
+      <label class="compare-label" for="scene-select">Scene</label>
+      <select id="scene-select" data-scene-select>
+        {scenes.map((s) => (
+          <option value={s.id}>{s.label}</option>
+        ))}
+      </select>
+      <p class="compare-blurb" data-scene-blurb>{scenes[0].blurb}</p>
+    </div>
+
+    <div class="compare-grid">
+      <div class="compare-card">
+        <div class="compare-card-head">
+          <h3>web-mobile</h3>
+          <span class="ml-tag">default</span>
+        </div>
+        <div class="splat-stage compare-stage">
+          <canvas class="hero-canvas" data-compare-left></canvas>
+          <div class="splat-frame"></div>
+          <div class="splat-caption">
+            <span class="live" data-status-left>booting…</span>
+            <span class="tabular" data-meta-left></span>
+          </div>
+        </div>
+        <div class="compare-metrics" data-metrics-left></div>
+      </div>
+
+      <div class="compare-card">
+        <div class="compare-card-head">
+          <h3>size-min</h3>
+          <span class="ml-tag">aggressive</span>
+        </div>
+        <div class="splat-stage compare-stage">
+          <canvas class="hero-canvas" data-compare-right></canvas>
+          <div class="splat-frame"></div>
+          <div class="splat-caption">
+            <span class="live" data-status-right>booting…</span>
+            <span class="tabular" data-meta-right></span>
+          </div>
+        </div>
+        <div class="compare-metrics" data-metrics-right></div>
+      </div>
+    </div>
+
+    <p class="compare-footnote">
+      Tip: the floater scene is the noisy-capture stress probe — both presets
+      pass the 3% ΔE94 threshold, but <code>size-min</code>'s aggressive
+      opacity prune removes most of the low-opacity halo. Switch to it to see
+      what the prune actually changes visually.
+    </p>
+  </section>
+
+  <footer class="site-footer">
+    <span>
+      <a href="/">← back to catetus</a>
+    </span>
+    <span>
+      Viewer: WebGPU (Chromium/Edge) · WebGL2 fallback (Safari/Firefox)
+    </span>
+  </footer>
+</Base>
+
+<style>
+  .compare-section {
+    margin-top: 32px;
+  }
+  .compare-controls {
+    margin-bottom: 26px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .compare-label {
+    font-family: var(--mono);
+    color: var(--fg-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  #scene-select {
+    background: var(--bg-elev);
+    color: var(--fg);
+    border: 1px solid var(--line-strong);
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .compare-blurb {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 14px;
+    line-height: 1.55;
+    flex: 1 1 320px;
+  }
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 880px) {
+    .compare-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .compare-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .compare-card-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .compare-card-head h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--fg);
+  }
+  .compare-stage {
+    aspect-ratio: 4 / 3;
+  }
+  .compare-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-elev);
+  }
+  .compare-metric {
+    padding: 10px 12px;
+    border-right: 1px solid var(--line);
+  }
+  .compare-metric:last-child {
+    border-right: 0;
+  }
+  .compare-metric-label {
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  .compare-metric-value {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+  }
+  .compare-metric-value.fail {
+    color: var(--bad);
+  }
+  .compare-metric-value.pass {
+    color: var(--good);
+  }
+  .compare-footnote {
+    margin-top: 28px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(125, 211, 252, 0.04);
+    color: var(--fg-muted);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+</style>
+
+<script is:inline define:vars={{ scenes }}>
+  (function () {
+    const select = document.querySelector("[data-scene-select]");
+    const blurb = document.querySelector("[data-scene-blurb]");
+    const leftCanvas = document.querySelector("[data-compare-left]");
+    const rightCanvas = document.querySelector("[data-compare-right]");
+    const statusLeft = document.querySelector("[data-status-left]");
+    const statusRight = document.querySelector("[data-status-right]");
+    const metaLeft = document.querySelector("[data-meta-left]");
+    const metaRight = document.querySelector("[data-meta-right]");
+    const metricsLeft = document.querySelector("[data-metrics-left]");
+    const metricsRight = document.querySelector("[data-metrics-right]");
+
+    if (
+      !(select instanceof HTMLSelectElement) ||
+      !(blurb instanceof HTMLElement) ||
+      !(leftCanvas instanceof HTMLCanvasElement) ||
+      !(rightCanvas instanceof HTMLCanvasElement)
+    )
+      return;
+
+    let leftViewer = null;
+    let rightViewer = null;
+    let Viewer = null;
+
+    function fmt(v, digits) {
+      return (v * 100).toFixed(digits || 2) + "%";
+    }
+
+    function renderMetrics(el, metrics, status) {
+      el.innerHTML =
+        '<div class="compare-metric">' +
+        '<div class="compare-metric-label">ML Score</div>' +
+        '<div class="compare-metric-value">' + fmt(metrics.ml) + "</div>" +
+        "</div>" +
+        '<div class="compare-metric">' +
+        '<div class="compare-metric-label">ΔE94 mean</div>' +
+        '<div class="compare-metric-value">' + fmt(metrics.dE94) + "</div>" +
+        "</div>" +
+        '<div class="compare-metric">' +
+        '<div class="compare-metric-label">Status</div>' +
+        '<div class="compare-metric-value ' + status + '">' + status + "</div>" +
+        "</div>";
+    }
+
+    function sizeCanvas(c) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = c.getBoundingClientRect();
+      c.width = Math.max(1, Math.floor(rect.width * dpr));
+      c.height = Math.max(1, Math.floor(rect.height * dpr));
+    }
+
+    async function loadViewer() {
+      if (Viewer) return Viewer;
+      const mod = await import(/* @vite-ignore */ "/viewer/index.js");
+      Viewer = mod.CatetusViewer;
+      return Viewer;
+    }
+
+    async function spawn(canvas, sceneId, preset, statusEl, metaEl, cameraBbox) {
+      sizeCanvas(canvas);
+      try {
+        const ViewerCtor = await loadViewer();
+        const opts = {
+          canvas,
+          src: "/compare-scenes/" + sceneId + "/" + preset + "/scene.gltf",
+          cameraPath: "orbit-8",
+          budget: "web-mobile",
+          autoRotate: true,
+          autoRotateSpeed: 7,
+        };
+        if (cameraBbox) opts.cameraBbox = cameraBbox;
+        const v = new ViewerCtor(opts);
+        v.on("firstRender", function () {
+          if (statusEl) statusEl.textContent = preset + " · live";
+        });
+        v.on("error", function (p) {
+          const code = (p && p.code) ? p.code : "unknown";
+          if (statusEl) statusEl.textContent = "offline (" + code + ")";
+        });
+        await v.load();
+        return v;
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "viewer failed";
+        console.warn("[compare] viewer init failed for", sceneId, preset, err);
+        return null;
+      }
+    }
+
+    async function reload(sceneId) {
+      const scene = scenes.find(function (s) { return s.id === sceneId; });
+      if (!scene) return;
+      blurb.textContent = scene.blurb;
+
+      // Tear down any existing viewers cleanly before re-loading.
+      if (leftViewer && typeof leftViewer.destroy === "function") {
+        try { leftViewer.destroy(); } catch (_) {}
+      }
+      if (rightViewer && typeof rightViewer.destroy === "function") {
+        try { rightViewer.destroy(); } catch (_) {}
+      }
+      leftViewer = null;
+      rightViewer = null;
+      statusLeft.textContent = "loading…";
+      statusRight.textContent = "loading…";
+
+      metaLeft.textContent = "web-mobile · " + scene.presets["web-mobile"].bytes;
+      metaRight.textContent = "size-min · " + scene.presets["size-min"].bytes;
+      renderMetrics(metricsLeft, scene.presets["web-mobile"], scene.presets["web-mobile"].status);
+      renderMetrics(metricsRight, scene.presets["size-min"], scene.presets["size-min"].status);
+
+      // Kick off both loads in parallel so the orbits stay roughly in sync.
+      // Pass the shared camera bbox so a preset that prunes outliers (e.g.
+      // size-min × floater_proxy at ±2 vs web-mobile at ±79) can't escape
+      // the comparison by auto-framing closer than its peer.
+      const [l, r] = await Promise.all([
+        spawn(leftCanvas, sceneId, "web-mobile", statusLeft, metaLeft, scene.cameraBbox),
+        spawn(rightCanvas, sceneId, "size-min", statusRight, metaRight, scene.cameraBbox),
+      ]);
+      leftViewer = l;
+      rightViewer = r;
+    }
+
+    select.addEventListener("change", function () {
+      void reload(select.value);
+    });
+    void reload(select.value);
+  })();
+</script>

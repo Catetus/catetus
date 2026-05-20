@@ -1,0 +1,80 @@
+name: bench-regression-pr-comment
+
+# On every PR opened/synced against main, run the bench matrix in DRY mode
+# first (so the PR comment shows up fast and free), and if the PR is
+# labeled `run-bench` (manual opt-in to spend ~$42 on Modal), re-run the
+# matrix live and post a real table.
+#
+# Comparison baseline: benches/reports/splatbench-v0.json's
+# continuousBench.latestCells from main's HEAD. Any cell that regresses
+# >= 0.3 dB PSNR (or > 5% larger output) is highlighted with a warning.
+#
+# This workflow informs only — it does NOT block merge. The user is the
+# final auto-ship arbiter per CLAUDE.md project policy.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Build regression table from current main's continuousBench
+        id: tbl
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'JS' > /tmp/bench-comment.md
+          import { readFileSync, existsSync } from "node:fs";
+          const path = "benches/reports/splatbench-v0.json";
+          if (!existsSync(path)) {
+            console.log("_SplatBench v3 has no continuous data yet — first run pending._");
+            process.exit(0);
+          }
+          const r = JSON.parse(readFileSync(path, "utf8"));
+          const cont = r.continuousBench ?? { latestCells: {}, commits: [] };
+          const cells = cont.latestCells ?? {};
+          const keys = Object.keys(cells);
+          if (!keys.length) {
+            console.log("_SplatBench v3 has no continuous cells yet (likely awaiting first successful workflow run)._");
+            process.exit(0);
+          }
+          console.log("## SplatBench v3 — current main snapshot\n");
+          console.log("This PR will run the full (preset × scene) matrix on merge (or on the `run-bench` label).");
+          console.log(`Last bench commit: \`${cont.lastCommit?.slice(0,7) ?? "(unknown)"}\` (${cont.lastCommitAt ?? "n/a"})\n`);
+          console.log("| Preset | Scene | ΔPSNR (dB) | PLY save (%) | Output |");
+          console.log("|---|---|---:|---:|---|");
+          for (const k of keys.sort()) {
+            const c = cells[k];
+            const dp = c.delta_psnr_db == null ? "—" : c.delta_psnr_db.toFixed(2);
+            const sv = c.ply_save_pct == null ? "—" : (c.ply_save_pct * 100).toFixed(1);
+            const link = c.output_url ? `[ply](${c.output_url})` : "—";
+            console.log(`| \`${c.preset}\` | \`${c.scene}\` | ${dp} | ${sv} | ${link} |`);
+          }
+          if ((cont.lastRejections ?? []).length) {
+            console.log("\n### Last cells rejected by ≤0.3 dB drop rule");
+            for (const rj of cont.lastRejections) {
+              console.log(`- \`${rj.key}\` — ${rj.reason}`);
+            }
+          }
+          JS
+          {
+            echo "body<<EOF"
+            cat /tmp/bench-comment.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: splatbench-v3
+          message: ${{ steps.tbl.outputs.body }}

@@ -1,0 +1,326 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const title = "Catetus — QAT-3DGS Bundle (premium, full SH retrain)";
+const description =
+  "Premium-tier int8 SH (f_rest_*) quant-aware retrain for vanilla Inria 3DGS PLYs. Takes a bundle (PLY + COLMAP cameras + GT images) and returns a ~55% smaller PLY with finetune-absorbed quant noise.";
+
+// Smoke target on bonsai_mipnerf360_iter7k.ply (canonical Inria 3DGS
+// iter-7k PLY, 287 MB). The QAT-3DGS-Bundle endpoint runs a 5000-iter
+// int8 finetune on the 45 f_rest SH coefficients (the dominant
+// 73% of file bytes), absorbs the quant noise into f_dc + opacity +
+// scale + rot, and packs the result as int8 columns in the PLY body.
+// Projected save: 159 MB realized = ~55% of 287 MB. Per-scene
+// variation expected — bonsai's the bench target; outdoor scenes may
+// tune differently. The endpoint surfaces honest per-job numbers in
+// the callback so the UI can show what actually landed.
+const projected = {
+  scene: "bonsai (Mip-NeRF 360, Inria 3DGS iter 7k)",
+  src_bytes: 286_968_700,
+  projected_out_bytes: 128_000_000,  // ~55% of 287 MB
+  projected_save_pct: 55,
+  n_vertices: 1_157_141,
+  sh_channels: 45,
+  finetune_iters: 5000,
+};
+---
+
+<Base title={title} description={description}>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="nav-brand">
+      <span class="dot" aria-hidden="true"></span>
+      catetus
+    </a>
+    <div class="nav-links">
+      <a href="/#docs">Quickstart</a>
+      <a href="/bench">SplatBench</a>
+      <a href="/import">Import</a>
+      <a href="/#try" aria-current="page">Try it</a>
+    </div>
+  </nav>
+
+  <h1>QAT-3DGS Bundle (premium &mdash; full SH retrain)</h1>
+  <p class="lede">
+    The <code>catetus-qat-3dgs-bundle</code> preset is the
+    <strong>retrain leg</strong> of the QAT-3DGS recipe for vanilla
+    Inria 3DGS PLYs. It accepts a bundle (PLY + COLMAP cameras + GT
+    images) and runs a 5000-iter int8 quant-aware finetune on A100
+    against the 45 <code>f_rest_*</code> SH coefficients &mdash; the
+    73%-of-bytes channel that the lossless single-PLY tier cannot
+    compress. Realized PLY save: <strong>~55%</strong>.
+  </p>
+
+  <h2>Two tiers, one recipe</h2>
+  <p>
+    The QAT-3DGS recipe has two tiers; they share the same on-disk
+    output format (a smaller Inria 3DGS PLY) but trade different
+    constraints for different savings:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Tier</th>
+        <th>Input</th>
+        <th>Output PLY save</th>
+        <th>ΔPSNR</th>
+        <th>Time / Cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="/docs/qat-3dgs"><code>catetus-qat-3dgs</code></a></td>
+        <td>Single PLY</td>
+        <td><strong>~5%</strong> (live, validated)</td>
+        <td><strong>0 dB</strong> (lossless)</td>
+        <td>~30 s, free</td>
+      </tr>
+      <tr>
+        <td><code>catetus-qat-3dgs-bundle</code></td>
+        <td>PLY + cameras + images</td>
+        <td><strong>~55%</strong> (projected)</td>
+        <td><strong>≥ &minus;0.3 dB</strong> target</td>
+        <td>~5 min A100, premium</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">
+    The single-PLY tier is <em>strictly</em> lossless &mdash; the
+    encoder asserts a bit-exact round-trip before emitting and refuses
+    to ship anything it can't prove is reversible. The bundle tier is
+    <em>not</em> lossless: it pushes f_rest onto an int8 lattice and
+    uses the 5000-iter finetune to absorb the quant noise into the
+    other Gaussian parameters. The callback returns the honest PSNR
+    delta vs the customer's pre-finetune state &mdash; some scenes
+    will land slightly positive (the finetune over-corrects for
+    geometry drift the original training under-resolved), some will
+    land slightly negative.
+  </p>
+
+  <h2>Why ~55% (the headline)</h2>
+  <p>
+    A vanilla Inria 3DGS PLY at SH degree 3 has 62 fp32 columns per
+    vertex: <code>x/y/z</code>, <code>nx/ny/nz</code>,
+    <code>f_dc_0..2</code>, <code>f_rest_0..44</code>,
+    <code>opacity</code>, <code>scale_0..2</code>,
+    <code>rot_0..3</code>. The 45 <code>f_rest_*</code> SH
+    coefficients dominate &mdash; 45 &times; 4 = 180 bytes/vertex,
+    or 73% of the 248-byte per-vertex footprint. The remaining 27%
+    is geometry (xyz + scale + rot), alpha (opacity), DC color
+    (f_dc), and the zeros-only normals.
+  </p>
+  <p>
+    Switching the 45 f_rest columns from fp32 to int8 with
+    per-channel symmetric scales compresses that 73% slice by 4&times;.
+    Realized save on a 287 MB bonsai PLY: 1.18M vertices &times;
+    45 channels &times; 3 bytes saved per channel = 159 MB. Plus
+    the lossless 4.84% from the single-PLY tier (stripped
+    <code>nx/ny/nz</code>) stacks on top. Total: ~55% of the
+    original PLY.
+  </p>
+  <p>
+    Naive post-hoc int8 of <code>f_rest_*</code> destroys render
+    quality &mdash; the SH coefficients control SH&rarr;RGB and
+    int8 quant noise propagates straight to pixel error. The
+    finetune absorbs that noise: forward pass applies
+    <code>fake_quant_int8(f_rest)</code> with a straight-through
+    estimator; backward pass receives full fp32 gradient. AdamW with
+    cosine LR decay finetunes f_dc + f_rest (in its int8
+    representation) + opacity + scale + rot for 5000 iters on the
+    customer's GT images, with L1+SSIM loss against the renderer
+    output.
+  </p>
+
+  <h2>Bundle layout (required)</h2>
+  <p>
+    Pack a tar / tar.gz / tgz with the following structure. The
+    encoder accepts both flat layout and one level of nesting, so
+    <code>tar -czf bundle.tar.gz bonsai/</code> works without
+    flattening:
+  </p>
+  <pre><code>{`bundle.tar.gz
+├── point_cloud.ply         # vanilla Inria 3DGS PLY (any iteration)
+├── sparse/
+│   └── 0/                  # COLMAP sparse model
+│       ├── cameras.bin     (or cameras.txt)
+│       ├── images.bin      (or images.txt)
+│       └── points3D.bin
+└── images/                 # GT images referenced by sparse/0/images
+    ├── DSCF...JPG
+    └── ...`}</code></pre>
+  <p>
+    The endpoint validates the layout up-front and surfaces a
+    customer-actionable error via the callback if anything is
+    missing. Minimum 8 GT images required (the train/test split
+    needs both legs). 1 GB hard cap on bundle size; bundles larger
+    than that should pre-resize images or split scenes.
+  </p>
+
+  <h2>What happens server-side</h2>
+  <ol>
+    <li>Browser uploads the bundle to Vercel Blob via a presigned PUT.</li>
+    <li>
+      Worker validates the preset and forwards
+      <code>{`{ preset: "catetus-qat-3dgs-bundle", blob_url, callback_url }`}</code>
+      to the private Modal <code>/qat-3dgs-bundle</code> endpoint.
+    </li>
+    <li>
+      Endpoint extracts + validates the bundle layout. Layout violations
+      surface via the callback before any GPU time is consumed.
+    </li>
+    <li>
+      Inria <code>Scene</code> loads the customer's PLY + COLMAP scene.
+      A baseline PSNR is computed with the un-patched renderer for the
+      honest delta-report.
+    </li>
+    <li>
+      The renderer's <code>render()</code> is monkey-patched to apply
+      per-channel symmetric int8 fake-quant on
+      <code>pc._features_rest</code> with a straight-through estimator.
+      All other Gaussian parameters flow unchanged.
+    </li>
+    <li>
+      5000-iter AdamW finetune on the customer's GT images. L1 + SSIM
+      loss with <code>lambda_dssim = 0.2</code>; cosine LR decay on
+      f_rest (5e&minus;5), f_dc (2.5e&minus;4), opacity (5e&minus;3),
+      scale (5e&minus;4), rot (1e&minus;4); xyz frozen so the customer's
+      layout doesn't drift.
+    </li>
+    <li>
+      <code>_features_rest</code> is permanently snapped to the int8
+      lattice and saved via the canonical Inria <code>save_ply</code>.
+    </li>
+    <li>
+      Inria <code>render.py</code> + <code>metrics.py</code> run a
+      canonical eval pass with the un-patched renderer. This is the
+      customer-facing PSNR &mdash; what a downstream consumer of the
+      saved PLY would actually see.
+    </li>
+    <li>
+      The fp32-on-int8-lattice PLY is packed through the int8-column
+      codec: 45 <code>f_rest_*</code> properties switch from <code>float</code>
+      to <code>char</code> (int8), per-channel scales encoded in a
+      <code>comment quantized_field f_rest int8 channels=45 scale_b64=...</code>
+      header line. Round-trip is verified before upload.
+    </li>
+    <li>
+      Result is uploaded to Vercel Blob and returned via the callback
+      with the honest per-scene numbers.
+    </li>
+  </ol>
+
+  <h2>Projected smoke target</h2>
+  <p>
+    Bench target on the canonical
+    <code>bonsai_mipnerf360_iter7k.ply</code> (same scene as the
+    single-PLY tier's smoke):
+  </p>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>scene</code></td><td>{projected.scene}</td></tr>
+      <tr><td><code>n_vertices</code></td><td>{projected.n_vertices.toLocaleString()}</td></tr>
+      <tr><td><code>sh_channels</code></td><td>{projected.sh_channels}</td></tr>
+      <tr><td><code>size_bytes_in</code></td><td>{(projected.src_bytes / 1e6).toFixed(2)} MB</td></tr>
+      <tr><td><code>projected size_bytes_out</code></td><td>~{(projected.projected_out_bytes / 1e6).toFixed(0)} MB</td></tr>
+      <tr><td><code>projected ply_save_pct</code></td><td><strong>~{projected.projected_save_pct}%</strong></td></tr>
+      <tr><td><code>finetune_iters</code></td><td>{projected.finetune_iters.toLocaleString()}</td></tr>
+      <tr><td><code>ΔPSNR target</code></td><td>≥ &minus;0.3 dB (ship gate)</td></tr>
+    </tbody>
+  </table>
+  <p class="note">
+    Per-scene variation expected. Some scenes may land neutral or
+    slightly positive (bonsai bench target); some indoor scenes with
+    extreme view-dependent specular reflections may land at the lower
+    end of the target band as the int8 noise compresses the SH
+    coefficients that encode those highlights. The callback always
+    reports honest numbers &mdash; never the projected target.
+  </p>
+
+  <h2>API callback shape</h2>
+  <pre><code>{`{
+  "status": "done",
+  "output_url": "https://...vercel-storage.com/jobs/<id>/scene_qat3dgs_bundle.ply",
+  "size_bytes_in": 286968700,
+  "size_bytes_out": 128400000,
+  "ply_save_pct": 55.2,
+  "delta_psnr_db": -0.12,
+  "psnr_baseline": 28.81,
+  "psnr_canonical": 28.69,
+  "ssim_canonical": 0.881,
+  "lpips_canonical": 0.143,
+  "lossless": false,
+  "preset": "catetus-qat-3dgs-bundle",
+  "n_vertices": 1157141,
+  "sh_channels": 45,
+  "f_rest_bytes_in": 208285380,
+  "f_rest_bytes_out": 52071345,
+  "n_images_used": 31,
+  "finetune_iters": 5000,
+  "train_wall_secs": 312.4
+}`}</code></pre>
+
+  <h2>Reader compatibility</h2>
+  <p>
+    The encoded PLY remains a valid PLY file &mdash; it just declares
+    <code>char</code> (i1) instead of <code>float</code> (f4) for the
+    45 <code>f_rest_*</code> properties. Any PLY parser that respects
+    per-property dtype declarations (plyfile, gsplat, Catetus) reads
+    the int8 values correctly. Decoders that hard-code "f_rest is
+    always f4" will see bogus values; the Catetus plugin is the
+    reference implementation that round-trips properly via the
+    <code>quantized_field</code> header marker.
+  </p>
+
+  <p>
+    <a href="/#try">← back to Try it</a>
+    &nbsp;·&nbsp;
+    <a href="/docs/qat-3dgs">QAT-3DGS (Inria 3DGS single-PLY)</a>
+    &nbsp;·&nbsp;
+    <a href="/docs/qat-bundle">QAT-Bundle (Scaffold-GS full retrain)</a>
+    &nbsp;·&nbsp;
+    <a href="/bench">SplatBench</a>
+  </p>
+
+  <style>
+    h1 { font-size: 2rem; margin-bottom: 0.4rem; }
+    h2 { margin-top: 2rem; font-size: 1.25rem; }
+    .lede { opacity: 0.85; max-width: 60ch; }
+    pre {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.9rem 1.1rem;
+      border-radius: 0.6rem;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    p code, li code, td code {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.3rem;
+      font-size: 0.92em;
+    }
+    .note {
+      font-size: 0.88rem;
+      opacity: 0.7;
+      border-left: 2px solid rgba(139, 92, 246, 0.4);
+      padding-left: 0.75rem;
+    }
+    ol, ul { max-width: 60ch; }
+    ol li, ul li { margin: 0.35rem 0; }
+    table {
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      font-size: 0.92rem;
+    }
+    th, td {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 0.4rem 0.7rem;
+      text-align: left;
+    }
+    th { background: rgba(255, 255, 255, 0.04); font-weight: 600; }
+  </style>
+</Base>

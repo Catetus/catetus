@@ -1,0 +1,8 @@
+# Placeholder so the fixtures/ directory is tracked.
+#
+# Real fixtures (tiny PLY/glTF assets and `golden/frames/<asset>/<renderer>/`
+# PNGs) are populated by `pnpm fixtures:build` or downloaded by CI. Tests
+# resolve them relative to this directory, e.g.:
+#
+#   fixtures/tiny/cube.gltf
+#   fixtures/golden/frames/tiny_cube/chrome-webgpu/0001.png

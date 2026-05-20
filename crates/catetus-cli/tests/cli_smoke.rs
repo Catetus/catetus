@@ -1,0 +1,570 @@
+use assert_cmd::Command;
+use std::fs;
+use tempfile::tempdir;
+
+/// Build a tiny binary PLY (3 splats) on disk for CLI tests.
+fn write_tiny_ply(path: &std::path::Path) {
+    let mut buf = Vec::new();
+    let header = concat!(
+        "ply\n",
+        "format binary_little_endian 1.0\n",
+        "element vertex 3\n",
+        "property float x\n",
+        "property float y\n",
+        "property float z\n",
+        "property float scale_0\n",
+        "property float scale_1\n",
+        "property float scale_2\n",
+        "property float rot_0\n",
+        "property float rot_1\n",
+        "property float rot_2\n",
+        "property float rot_3\n",
+        "property float opacity\n",
+        "property float f_dc_0\n",
+        "property float f_dc_1\n",
+        "property float f_dc_2\n",
+        "end_header\n",
+    );
+    buf.extend_from_slice(header.as_bytes());
+    for i in 0..3u32 {
+        let f = i as f32;
+        let record = [
+            f,
+            f * 0.5,
+            -f,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.1,
+            0.2,
+            0.3,
+        ];
+        for v in record {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    fs::write(path, buf).unwrap();
+}
+
+#[test]
+fn analyze_emits_json() {
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("scene.ply");
+    write_tiny_ply(&ply);
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args(["analyze", ply.to_str().unwrap()])
+        .output()
+        .expect("run analyze");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("\"splatCount\": 3"));
+    assert!(stdout.contains("\"format\": \"ply\""));
+}
+
+#[test]
+fn optimize_writes_outputs() {
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("scene.ply");
+    write_tiny_ply(&ply);
+    let out_gltf = dir.path().join("opt.gltf");
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "optimize",
+            ply.to_str().unwrap(),
+            "--preset",
+            "lossless-repack",
+            "--out",
+            out_gltf.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run optimize");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out_gltf.exists());
+}
+
+#[test]
+fn convert_ply_to_ply_roundtrips() {
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("scene.ply");
+    write_tiny_ply(&ply);
+    let out_ply = dir.path().join("out.ply");
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "convert",
+            ply.to_str().unwrap(),
+            "--to",
+            "ply",
+            "--out",
+            out_ply.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run convert");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out_ply.exists());
+
+    // analyze the round-tripped file: 3 splats survive.
+    let analyze = Command::cargo_bin("catetus")
+        .unwrap()
+        .args(["analyze", out_ply.to_str().unwrap()])
+        .output()
+        .expect("run analyze");
+    assert!(analyze.status.success());
+    let stdout = String::from_utf8_lossy(&analyze.stdout);
+    assert!(stdout.contains("\"splatCount\": 3"));
+}
+
+#[test]
+fn convert_ply_to_glb_inspect_succeeds() {
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("scene.ply");
+    write_tiny_ply(&ply);
+    let out_glb = dir.path().join("out.glb");
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "convert",
+            ply.to_str().unwrap(),
+            "--to",
+            "glb",
+            "--out",
+            out_glb.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run convert");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out_glb.exists());
+
+    let inspect = Command::cargo_bin("catetus")
+        .unwrap()
+        .args(["inspect", out_glb.to_str().unwrap()])
+        .output()
+        .expect("run inspect");
+    assert!(
+        inspect.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&inspect.stdout);
+    assert!(stdout.contains("splatCount=3"));
+}
+
+#[test]
+fn diff_with_stub_helper_writes_json() {
+    let dir = tempdir().unwrap();
+    let before = dir.path().join("before.ply");
+    let after = dir.path().join("after.ply");
+    write_tiny_ply(&before);
+    write_tiny_ply(&after);
+    let out_dir = dir.path().join("out");
+    fs::create_dir_all(&out_dir).unwrap();
+
+    // A stub helper: just writes diff.json and exits 0. It must be a
+    // standalone Node script because the CLI spawns `node <helper>`.
+    let helper = dir.path().join("stub-helper.mjs");
+    let helper_src = r#"
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+let out = 'reports/diff';
+for (let i = 0; i < process.argv.length; i++) {
+  if (process.argv[i] === '--out') out = process.argv[i + 1];
+}
+mkdirSync(out, { recursive: true });
+writeFileSync(join(out, 'diff.json'), JSON.stringify({ status: 'stub' }));
+process.exit(0);
+"#;
+    fs::write(&helper, helper_src).unwrap();
+
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .env("CATETUS_DIFF_HELPER", &helper)
+        .args([
+            "diff",
+            before.to_str().unwrap(),
+            after.to_str().unwrap(),
+            "--out",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run diff");
+
+    // If `node` isn't on PATH, the CLI should still print a clear hint and
+    // exit non-zero — skip the rest of the test in that environment.
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("node not found") || stderr.contains("diff helper"),
+            "unexpected failure stderr={stderr}"
+        );
+        return;
+    }
+    let diff_json = out_dir.join("diff.json");
+    assert!(diff_json.exists(), "diff.json should exist");
+    let contents = fs::read_to_string(&diff_json).unwrap();
+    assert!(contents.contains("\"status\""));
+}
+
+#[test]
+fn diff_missing_input_errors() {
+    let dir = tempdir().unwrap();
+    let missing = dir.path().join("nope.ply");
+    let real = dir.path().join("real.ply");
+    write_tiny_ply(&real);
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "diff",
+            missing.to_str().unwrap(),
+            real.to_str().unwrap(),
+            "--out",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("run diff");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("before file does not exist"),
+        "stderr={stderr}"
+    );
+}
+
+#[test]
+fn optimize_target_glb_compress_spz_writes_self_contained_file() {
+    // End-to-end gate for the second Khronos extension shipped from this
+    // repo: `catetus optimize --target glb --compress spz` MUST produce
+    // a single .glb file with both KHR_gaussian_splatting and
+    // KHR_gaussian_splatting_compression_spz declared, an SPZ-magic blob
+    // embedded in the BIN chunk, and `catetus inspect` MUST succeed.
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("scene.ply");
+    write_tiny_ply(&ply);
+    let out_glb = dir.path().join("scene.optimized.glb");
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "optimize",
+            ply.to_str().unwrap(),
+            "--preset",
+            "lossless-repack",
+            "--target",
+            "glb",
+            "--compress",
+            "spz",
+            "--out",
+            out_glb.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run optimize --target glb --compress spz");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out_glb.exists(), "GLB output missing");
+
+    let bytes = fs::read(&out_glb).unwrap();
+    let raw = String::from_utf8_lossy(&bytes);
+    assert!(
+        raw.contains("KHR_gaussian_splatting_compression_spz"),
+        "SPZ extension not declared in GLB JSON chunk"
+    );
+
+    // Walk to the BIN chunk and confirm it begins with the SPZ magic.
+    // GLB header is 12 bytes; first chunk is JSON; second chunk is BIN.
+    assert!(&bytes[..4] == b"glTF");
+    let json_len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
+    let bin_chunk_header = 20 + json_len; // 12 GLB hdr + 8 JSON chunk hdr + JSON
+    let bin_start = bin_chunk_header + 8; // BIN chunk hdr
+    let magic = &bytes[bin_start..bin_start + 4];
+    assert_eq!(
+        magic,
+        [0x47u8, 0x4e, 0x53, 0x50],
+        "SPZ magic missing from BIN chunk"
+    );
+
+    // The CLI's `inspect` subcommand should accept the file (we read back
+    // through catetus-gltf's SPZ-aware decoder).
+    let inspect = Command::cargo_bin("catetus")
+        .unwrap()
+        .args(["inspect", out_glb.to_str().unwrap()])
+        .output()
+        .expect("run inspect");
+    assert!(
+        inspect.status.success(),
+        "inspect failed: stderr={}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+}
+
+#[test]
+fn optimize_compress_spz_roundtrips_bonsai_real_fixture() {
+    // Larger e2e: round-trip the existing `bonsai_real` benchmark scene
+    // through `catetus optimize --target glb --compress spz`. The PLY
+    // is ~274 MB and only present on developer machines + CI runners that
+    // pull the corpus; skip cleanly when missing.
+    let candidates = [
+        // Manifest's canonical name first; fall back to the per-version copy.
+        "benches/scenes/bonsai_mipnerf360_iter7k.ply",
+        "benches/scenes/real/bonsai_iter7000.ply",
+    ];
+    // Walk up from CARGO_MANIFEST_DIR to find the workspace root that owns
+    // benches/scenes. The CLI crate lives at crates/catetus-cli, so
+    // root is two levels up.
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest
+        .ancestors()
+        .nth(2)
+        .expect("workspace root")
+        .to_path_buf();
+    let mut input: Option<std::path::PathBuf> = None;
+    for c in &candidates {
+        let p = workspace_root.join(c);
+        if p.exists() {
+            input = Some(p);
+            break;
+        }
+    }
+    let Some(input) = input else {
+        eprintln!(
+            "bonsai_real fixture not on disk under {} — skipping",
+            workspace_root.display()
+        );
+        return;
+    };
+
+    let dir = tempdir().unwrap();
+    let out_glb = dir.path().join("bonsai.optimized.glb");
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "optimize",
+            input.to_str().unwrap(),
+            "--preset",
+            "lossless-repack",
+            "--target",
+            "glb",
+            "--compress",
+            "spz",
+            "--out",
+            out_glb.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run optimize on bonsai_real");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out_glb.exists(), "GLB output missing");
+
+    // GLB must declare both extensions, and inspect must succeed.
+    let bytes = fs::read(&out_glb).unwrap();
+    let raw = String::from_utf8_lossy(&bytes);
+    assert!(raw.contains("KHR_gaussian_splatting_compression_spz"));
+    assert!(raw.contains("KHR_gaussian_splatting"));
+
+    let inspect = Command::cargo_bin("catetus")
+        .unwrap()
+        .args(["inspect", out_glb.to_str().unwrap()])
+        .output()
+        .expect("run inspect");
+    assert!(
+        inspect.status.success(),
+        "inspect failed: stderr={}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+}
+
+#[test]
+fn inspect_rejects_bogus_file() {
+    let dir = tempdir().unwrap();
+    let bad = dir.path().join("nope.ply");
+    fs::write(&bad, b"not a ply").unwrap();
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args(["inspect", bad.to_str().unwrap()])
+        .output()
+        .expect("run inspect");
+    assert!(!out.status.success());
+}
+
+/// Build a slightly larger PLY (a 5×5×5 lattice = 125 splats) so the
+/// LODGE chunker has something to decimate across multiple levels.
+fn write_lattice_ply(path: &std::path::Path) {
+    let mut buf = Vec::new();
+    let header = concat!(
+        "ply\n",
+        "format binary_little_endian 1.0\n",
+        "element vertex 125\n",
+        "property float x\n",
+        "property float y\n",
+        "property float z\n",
+        "property float scale_0\n",
+        "property float scale_1\n",
+        "property float scale_2\n",
+        "property float rot_0\n",
+        "property float rot_1\n",
+        "property float rot_2\n",
+        "property float rot_3\n",
+        "property float opacity\n",
+        "property float f_dc_0\n",
+        "property float f_dc_1\n",
+        "property float f_dc_2\n",
+        "end_header\n",
+    );
+    buf.extend_from_slice(header.as_bytes());
+    for ix in 0..5u32 {
+        for iy in 0..5u32 {
+            for iz in 0..5u32 {
+                // Vary opacity / scale so the importance argmax has clear winners.
+                let op_logit = -1.0 + 0.05 * (ix as f32 + iy as f32 + iz as f32);
+                let sc_log = -3.0 + 0.02 * (ix as f32 + iy as f32);
+                let record = [
+                    ix as f32, iy as f32, iz as f32, sc_log, sc_log, sc_log, 1.0, 0.0, 0.0, 0.0,
+                    op_logit, 0.1, 0.2, 0.3,
+                ];
+                for v in record {
+                    buf.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+        }
+    }
+    fs::write(path, buf).unwrap();
+}
+
+#[test]
+fn lodge_build_emits_manifest_and_chunks() {
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("lattice.ply");
+    write_lattice_ply(&ply);
+    let out_dir = dir.path().join("lattice.lodge");
+
+    let out = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "lodge",
+            "build",
+            "--input",
+            ply.to_str().unwrap(),
+            "--output",
+            out_dir.to_str().unwrap(),
+            "--levels",
+            "3",
+            "--target-top",
+            "8",
+            "--coarsen-ratio",
+            "2.0",
+            "--chunk-target-splats",
+            "64",
+        ])
+        .output()
+        .expect("run lodge build");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let manifest = out_dir.join("manifest.json");
+    assert!(manifest.exists(), "manifest.json must be emitted");
+    // Each level dir must exist with at least one chunk.
+    let json: serde_json::Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    let levels = json["levels"].as_array().unwrap();
+    assert!(!levels.is_empty());
+    for lvl in levels {
+        let chunks = lvl["chunks"].as_array().unwrap();
+        assert!(!chunks.is_empty(), "every level needs at least one chunk");
+        for chunk in chunks {
+            let path = chunk["path"].as_str().unwrap();
+            let p = out_dir.join(path);
+            assert!(p.exists(), "missing chunk file: {}", p.display());
+        }
+    }
+}
+
+#[test]
+fn lodge_unpack_roundtrips_level0_splat_count() {
+    let dir = tempdir().unwrap();
+    let ply = dir.path().join("lattice.ply");
+    write_lattice_ply(&ply);
+    let out_dir = dir.path().join("lattice.lodge");
+    let roundtrip = dir.path().join("roundtrip.ply");
+
+    let build = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "lodge",
+            "build",
+            "--input",
+            ply.to_str().unwrap(),
+            "--output",
+            out_dir.to_str().unwrap(),
+            "--levels",
+            "2",
+            "--target-top",
+            "8",
+        ])
+        .output()
+        .expect("run lodge build");
+    assert!(
+        build.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let unpack = Command::cargo_bin("catetus")
+        .unwrap()
+        .args([
+            "lodge",
+            "unpack",
+            "--input",
+            out_dir.to_str().unwrap(),
+            "--level",
+            "0",
+            "--output",
+            roundtrip.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run lodge unpack");
+    assert!(
+        unpack.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&unpack.stderr)
+    );
+
+    let analyze = Command::cargo_bin("catetus")
+        .unwrap()
+        .args(["analyze", roundtrip.to_str().unwrap()])
+        .output()
+        .expect("run analyze");
+    assert!(analyze.status.success());
+    let stdout = String::from_utf8_lossy(&analyze.stdout);
+    // Lattice has 5*5*5 = 125 splats; level 0 reassembly must preserve.
+    assert!(
+        stdout.contains("\"splatCount\": 125"),
+        "level-0 round-trip lost splats: {stdout}"
+    );
+}

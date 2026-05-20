@@ -1,0 +1,53 @@
+{
+  "name": "@catetus/cli",
+  "version": "0.1.0",
+  "description": "Deterministic Gaussian-splat optimizer, validator, and converter (Rust binary, fetched on install).",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/catetus/catetus",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/catetus/catetus.git",
+    "directory": "distrib/npm"
+  },
+  "bugs": {
+    "url": "https://github.com/catetus/catetus/issues"
+  },
+  "keywords": [
+    "gaussian-splatting",
+    "gaussian-splat",
+    "3d",
+    "glTF",
+    "ply",
+    "spz",
+    "openusd",
+    "rust"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "bin": {
+    "catetus": "bin/catetus.js",
+    "catetus-khr-validate": "bin/catetus-khr-validate.js",
+    "catetus-usd-validate": "bin/catetus-usd-validate.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "test": "node install.js --check-only"
+  },
+  "files": [
+    "install.js",
+    "shim.js",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ]
+}

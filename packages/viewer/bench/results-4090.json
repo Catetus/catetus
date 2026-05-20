@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "splatCount": 1000000,
+      "decodeMs": 250.40000000037253,
+      "perFrameMs": 14.469999999987582,
+      "perFrameMsBreakdown": {
+        "project": 2.893999999997517,
+        "sort": 10.128999999991306,
+        "gather": 1.4469999999987584
+      },
+      "framesPerSecond": 69.10850034560181,
+      "iterations": 30
+    },
+    {
+      "splatCount": 10000000,
+      "decodeMs": 858.3000000007451,
+      "perFrameMs": 154.63000000007452,
+      "perFrameMsBreakdown": {
+        "project": 30.926000000014906,
+        "sort": 108.24100000005215,
+        "gather": 15.463000000007453
+      },
+      "framesPerSecond": 6.467050378319331,
+      "iterations": 10
+    }
+  ],
+  "sizes": {
+    "bytes_per_decoded_splat": 64,
+    "floats_per_instance": 12
+  },
+  "adapter": {},
+  "limits": {
+    "maxStorageBufferBindingSize": 2147483644,
+    "maxBufferSize": 2147483648,
+    "maxComputeWorkgroupStorageSize": 32768
+  },
+  "timestamp": "2026-05-15T12:56:08.224Z"
+}

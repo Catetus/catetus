@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Stage 7 multi-draw render harness</title>
+<style>
+  html,body{margin:0;background:#000;color:#cfc;font:12px/1.4 ui-monospace,Menlo,monospace;overflow:hidden}
+  #status{position:fixed;top:8px;left:8px;background:rgba(0,0,0,0.7);padding:6px 10px;z-index:10;max-width:50vw;white-space:pre-wrap}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<div id="status">stage7 harness: booting…</div>
+<canvas id="c"></canvas>
+<script type="module">
+  // Resolve viewer modules from the running web app's /viewer/ public dir
+  // (which is the synced dist). If running standalone, point manifestUrl
+  // to a local lodge manifest served alongside this HTML.
+  const params = new URLSearchParams(location.search);
+  const manifestUrl = params.get('manifest') || './manifest.json';
+  const level = parseInt(params.get('level') || '1', 10);
+  const viewerBase = params.get('viewer') || '../../packages/viewer/dist';
+
+  const status = document.getElementById('status');
+  const canvas = document.getElementById('c');
+  const logLines = [];
+  function log(msg) {
+    console.log('[harness]', msg);
+    logLines.push(msg);
+    status.textContent = logLines.slice(-12).join('\n');
+  }
+  window.__sf = { ready: false, error: null, frames: 0, drawCalls: 0, numPages: 0, splatCount: 0 };
+  window.addEventListener('error', (e) => { window.__sf.error = String(e.message); log('window.error: ' + e.message); });
+
+  try {
+    log('importing viewer modules from ' + viewerBase);
+    const [lodgeMod, webgpuMod, mathMod] = await Promise.all([
+      import(viewerBase + '/lodge/index.js'),
+      import(viewerBase + '/webgpu/index.js'),
+      import(viewerBase + '/renderer/math.js'),
+    ]);
+    const { LodgeChunkLoader, parseLodgeManifest, sceneBboxCenter, sceneBboxRadius } = lodgeMod;
+    const { ComputeDecodePipeline } = webgpuMod;
+    const { buildViewProj } = mathMod;
+
+    log('requesting WebGPU…');
+    log('querying adapter (try 1: default)…');
+    let adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      log('try 2: high-performance…');
+      adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    }
+    if (!adapter) {
+      log('try 3: low-power…');
+      adapter = await navigator.gpu.requestAdapter({ powerPreference: 'low-power' });
+    }
+    if (!adapter) {
+      log('try 4: force-fallback…');
+      adapter = await navigator.gpu.requestAdapter({ forceFallbackAdapter: true });
+    }
+    if (!adapter) throw new Error('no_adapter');
+    const lim = adapter.limits;
+    const requiredLimits = {};
+    for (const k of ['maxBufferSize', 'maxStorageBufferBindingSize', 'maxComputeWorkgroupStorageSize', 'maxComputeInvocationsPerWorkgroup', 'maxStorageBuffersPerShaderStage']) {
+      if (lim[k] != null) requiredLimits[k] = lim[k];
+    }
+    const device = await adapter.requestDevice({ requiredLimits });
+    log('got device, fetching manifest from ' + manifestUrl);
+
+    const r = await fetch(manifestUrl);
+    if (!r.ok) throw new Error('manifest_http_' + r.status);
+    const manifest = parseLodgeManifest(await r.text());
+    log('manifest: ' + manifest.levels.length + ' levels, original ' + manifest.originalSplatCount + ' splats');
+
+    const lvlIdx = manifest.levels.findIndex(l => l.level === level);
+    if (lvlIdx < 0) throw new Error('level_' + level + '_not_in_manifest');
+    const lvl = manifest.levels[lvlIdx];
+    log('L' + level + ': ' + lvl.splatCount + ' splats across ' + lvl.chunks.length + ' chunks');
+
+    const numChunks = lvl.chunks.length;
+    const capacity = lvl.splatCount + numChunks * 3;
+    const pipeline = new ComputeDecodePipeline({ device, capacity, useFusedProject: true, useCull: false });
+    log('pipeline: capacity=' + capacity + ', splat pages=' + pipeline.pager.numPages + ', instance pages=' + pipeline.instancePages.length);
+    window.__sf.numPages = pipeline.instancePages.length;
+
+    // Setup canvas + offscreen render target.
+    const ctx = canvas.getContext('webgpu');
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    canvas.width = 1280; canvas.height = 720;
+    ctx.configure({ device, format, alphaMode: 'premultiplied' });
+    // Offscreen target with COPY_SRC so we can readback for PNG capture.
+    const rt = device.createTexture({
+      size: { width: canvas.width, height: canvas.height },
+      format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    // Staging buffer for readback (row-aligned to 256 B/WebGPU spec).
+    const bytesPerRow = Math.ceil(canvas.width * 4 / 256) * 256;
+    const stagingBuffer = device.createBuffer({
+      size: bytesPerRow * canvas.height,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+
+    // Minimal render pipeline (copy of scale.astro's)
+    const WGSL = `
+struct Instance { @location(0) clipPos : vec4<f32>, @location(1) cov : vec4<f32>, @location(2) color : vec4<f32> };
+struct Uniforms { viewportSize : vec2<f32>, _pad : vec2<f32> };
+@group(0) @binding(0) var<uniform> u : Uniforms;
+struct VsOut { @builtin(position) clip : vec4<f32>, @location(0) offset : vec2<f32>, @location(1) cov : vec3<f32>, @location(2) color : vec4<f32> };
+@vertex fn vs_main(@builtin(vertex_index) vid : u32, inst : Instance) -> VsOut {
+  let corners = array<vec2<f32>, 4>(vec2<f32>(-1.0,-1.0), vec2<f32>(1.0,-1.0), vec2<f32>(-1.0,1.0), vec2<f32>(1.0,1.0));
+  let c = corners[vid];
+  let radiusPx = max(inst.cov.w, 1.0);
+  let ndcOffset = c * radiusPx * 2.0 / u.viewportSize;
+  var out : VsOut;
+  out.clip = vec4<f32>(inst.clipPos.x + ndcOffset.x, inst.clipPos.y + ndcOffset.y, clamp(inst.clipPos.z, 0.0, 1.0), 1.0);
+  out.offset = c * radiusPx;
+  out.cov = inst.cov.xyz;
+  out.color = inst.color;
+  return out;
+}
+@fragment fn fs_main(in : VsOut) -> @location(0) vec4<f32> {
+  let c00 = in.cov.x; let c01 = in.cov.y; let c11 = in.cov.z;
+  let det = max(c00 * c11 - c01 * c01, 1e-6);
+  let inv00 = c11 / det; let inv01 = -c01 / det; let inv11 = c00 / det;
+  let d = in.offset;
+  let power = -0.5 * (d.x * d.x * inv00 + 2.0 * d.x * d.y * inv01 + d.y * d.y * inv11);
+  if (power > 0.0) { discard; }
+  let alpha = clamp(in.color.a * exp(power), 0.0, 0.999);
+  if (alpha < 1.0 / 255.0) { discard; }
+  return vec4<f32>(in.color.rgb * alpha, alpha);
+}`;
+    const module = device.createShaderModule({ code: WGSL });
+    const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } }] });
+    const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
+    const renderPipeline = device.createRenderPipeline({
+      layout,
+      vertex: { module, entryPoint: 'vs_main', buffers: [{ arrayStride: 48, stepMode: 'instance', attributes: [
+        { shaderLocation: 0, offset: 0, format: 'float32x4' },
+        { shaderLocation: 1, offset: 16, format: 'float32x4' },
+        { shaderLocation: 2, offset: 32, format: 'float32x4' },
+      ] }] },
+      fragment: { module, entryPoint: 'fs_main', targets: [{ format, blend: {
+        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      } }] },
+      primitive: { topology: 'triangle-strip', stripIndexFormat: undefined },
+    });
+    const uniformBuffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const bindGroup = device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: uniformBuffer } }] });
+
+    // Build camera + load level
+    const c0 = sceneBboxCenter(manifest);
+    const r0 = sceneBboxRadius(manifest);
+    const radius = Math.max(r0 * 1.4, 1.0);
+    function camPose(yaw) {
+      return {
+        position: [c0[0] + radius * Math.sin(yaw), c0[1], c0[2] + radius * Math.cos(yaw)],
+        target: c0, up: [0, 1, 0],
+        fovY: Math.PI / 3,
+        near: Math.max(r0 * 0.01, 0.05),
+        far: Math.max(r0 * 20, 100),
+        aspect: canvas.width / canvas.height,
+      };
+    }
+
+    log('streaming L' + level + ' (this may take a while)…');
+    // The local 4090 manifest has relative chunk paths; resolve against the
+    // manifest's parent dir so 'level_1/chunk_xxxx.ply' becomes
+    // http://host/lodge/level_1/chunk_xxxx.ply.
+    const manifestAbs = new URL(manifestUrl, location.href);
+    const parent = new URL('./', manifestAbs).href; // strips manifest.json
+    log('chunk baseUrl = ' + parent);
+    const loader = new LodgeChunkLoader(manifest, { baseUrl: parent, pipeline, memoryBudgetBytes: 32 * 1024 * 1024 * 1024 });
+    const t0 = performance.now();
+    await loader.loadLevel(lvlIdx, camPose(0).position);
+    const loadMs = performance.now() - t0;
+    log('loaded ' + pipeline.splatCount + ' splats in ' + loadMs.toFixed(0) + ' ms');
+    window.__sf.splatCount = pipeline.splatCount;
+
+    // Render 5 poses
+    const poses = [0, Math.PI * 0.25, Math.PI * 0.5, Math.PI, Math.PI * 1.5];
+    const frameCaptures = [];
+    for (let i = 0; i < poses.length; i++) {
+      const cam = camPose(poses[i]);
+      const aspect = canvas.width / canvas.height;
+      const { view, viewProj } = buildViewProj(cam, aspect);
+      const focalY = canvas.height / (2 * Math.tan(cam.fovY * 0.5));
+
+      const u = new Float32Array(4); u[0] = canvas.width; u[1] = canvas.height;
+      device.queue.writeBuffer(uniformBuffer, 0, u);
+
+      const enc = device.createCommandEncoder();
+      pipeline.encode(enc, view, viewProj, [focalY, focalY], [canvas.width, canvas.height]);
+      // Render to offscreen RT (so we can copy-to-buffer for readback).
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view: rt.createView(), clearValue: { r: 0.02, g: 0.04, b: 0.08, a: 1 }, loadOp: 'clear', storeOp: 'store' }],
+      });
+      pass.setPipeline(renderPipeline);
+      pass.setBindGroup(0, bindGroup);
+      // Stage 7 multi-draw
+      let drawCount = 0;
+      const total = pipeline.splatCount;
+      for (const page of pipeline.instancePages) {
+        const pageCount = Math.min(page.splatCount, total - page.splatStart);
+        if (pageCount <= 0) break;
+        pass.setVertexBuffer(0, page.buffer);
+        pass.draw(4, pageCount, 0, 0);
+        drawCount++;
+      }
+      pass.end();
+      // Blit rt -> stagingBuffer (for readback). Skip canvas blit because the canvas
+      // texture from getCurrentTexture() does not include COPY_DST usage.
+      enc.copyTextureToBuffer(
+        { texture: rt },
+        { buffer: stagingBuffer, bytesPerRow, rowsPerImage: canvas.height },
+        { width: canvas.width, height: canvas.height },
+      );
+      device.queue.submit([enc.finish()]);
+      await device.queue.onSubmittedWorkDone();
+
+      // Map staging, read pixels, encode PNG.
+      await stagingBuffer.mapAsync(GPUMapMode.READ);
+      const rawBytes = new Uint8Array(stagingBuffer.getMappedRange().slice(0));
+      stagingBuffer.unmap();
+
+      // The buffer is row-padded; pack into tight RGBA (and BGRA -> RGBA swizzle).
+      const W = canvas.width, H = canvas.height;
+      const tight = new Uint8ClampedArray(W * H * 4);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const src = y * bytesPerRow + x * 4;
+          const dst = (y * W + x) * 4;
+          tight[dst + 0] = rawBytes[src + 2]; // R <- B
+          tight[dst + 1] = rawBytes[src + 1]; // G
+          tight[dst + 2] = rawBytes[src + 0]; // B <- R
+          tight[dst + 3] = rawBytes[src + 3]; // A
+        }
+      }
+      // Encode PNG via OffscreenCanvas + convertToBlob (browser-native).
+      const off = new OffscreenCanvas(W, H);
+      const octx = off.getContext('2d');
+      octx.putImageData(new ImageData(tight, W, H), 0, 0);
+      const blob = await off.convertToBlob({ type: 'image/png' });
+      const reader = new FileReader();
+      const dataUrl = await new Promise((res, rej) => { reader.onload = () => res(reader.result); reader.onerror = rej; reader.readAsDataURL(blob); });
+
+      frameCaptures.push({ pose: i, yaw: poses[i], drawCount, dataUrl });
+      window.__sf.frames++;
+      window.__sf.drawCalls = drawCount;
+      const kb = Math.round(dataUrl.length / 1024);
+      log('pose ' + i + ': ' + drawCount + ' draws, ' + kb + ' KB png (readback)');
+    }
+
+    window.__sf.captures = frameCaptures;
+    window.__sf.ready = true;
+    log('DONE: ' + frameCaptures.length + ' poses, ' + window.__sf.drawCalls + ' draws/pose, ' + window.__sf.splatCount + ' splats');
+  } catch (err) {
+    window.__sf.error = String(err && err.stack || err);
+    log('FATAL: ' + window.__sf.error);
+  }
+</script>
+</body>
+</html>

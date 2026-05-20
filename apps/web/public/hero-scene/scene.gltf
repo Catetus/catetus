@@ -1,0 +1,156 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "catetus-gltf"
+  },
+  "extensionsUsed": [
+    "KHR_gaussian_splatting",
+    "KHR_mesh_quantization"
+  ],
+  "extensionsRequired": [
+    "KHR_gaussian_splatting"
+  ],
+  "buffers": [
+    {
+      "byteLength": 2628160,
+      "uri": "buffers/chunk_0000.bin"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 543756
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 543756,
+      "byteLength": 1450016
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 1993772,
+      "byteLength": 271878
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 2265652,
+      "byteLength": 90626
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 2356280,
+      "byteLength": 271878
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5123,
+      "count": 90626,
+      "type": "VEC3",
+      "normalized": true,
+      "min": [
+        -10.336652,
+        -5.0689435,
+        -3.936585
+      ],
+      "max": [
+        6.202403,
+        9.951706,
+        12.596495
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 90626,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5121,
+      "count": 90626,
+      "type": "VEC3",
+      "normalized": true,
+      "min": [
+        0.000006139421,
+        0.0000064355186,
+        7.821717e-7
+      ],
+      "max": [
+        0.5585535,
+        0.49614355,
+        0.50131637
+      ]
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5121,
+      "count": 90626,
+      "type": "SCALAR",
+      "normalized": true,
+      "min": [
+        0.0
+      ],
+      "max": [
+        1.0
+      ]
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5121,
+      "count": 90626,
+      "type": "VEC3",
+      "normalized": true,
+      "min": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "max": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "extensions": {
+            "KHR_gaussian_splatting": {
+              "attributes": {
+                "POSITION": 0,
+                "_COLOR_DC": 4,
+                "_OPACITY": 3,
+                "_ROTATION": 1,
+                "_SCALE": 2
+              },
+              "shDegree": 0
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "extensions": {
+    "KHR_gaussian_splatting": {
+      "bbox": {
+        "max": [
+          6.2024030685424805,
+          9.951705932617188,
+          12.596494674682617
+        ],
+        "min": [
+          -10.336651802062988,
+          -5.068943500518799,
+          -3.936584949493408
+        ]
+      },
+      "shDegree": 0,
+      "splatCount": 90626
+    }
+  }
+}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Catetus LODGE real-scene bench</title>
+<style>html,body{margin:0;background:#000;color:#cfc;font:12px/1.4 ui-monospace,Menlo,monospace}#log{padding:8px;white-space:pre-wrap}</style>
+</head>
+<body>
+<div id="log">lodge real-scene bench: booting…</div>
+<script type="module">
+  import { main } from '/dist-bench/bench/real-scene-lodge.bench.js';
+  const log = document.getElementById('log');
+  window.addEventListener('error', (e) => {
+    log.textContent += `\nerror: ${e.message}`;
+  });
+  (async () => {
+    try {
+      await main();
+      log.textContent += `\nlodge real-scene bench: done`;
+    } catch (err) {
+      log.textContent += `\nfatal: ${err && err.message || err}`;
+      window.__benchRealSceneLodge = { error: 'fatal', message: String(err) };
+    }
+  })();
+</script>
+</body>
+</html>

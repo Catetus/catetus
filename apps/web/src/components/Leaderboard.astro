@@ -1,0 +1,573 @@
+---
+import {
+  splatbench,
+  sortedScenes,
+  presetView,
+  ratioClass,
+  fmtBytes,
+  fmtMs,
+  fmtInt,
+  hasAnyFidelity,
+  hasAnyMlScore,
+  hasAnyRepack,
+  hasAnyQat,
+  isScaffoldGsRow,
+  fidelityFor,
+  encoderRunFor,
+  encoders as encoderReport,
+  type Preset,
+  type SplatBenchScene,
+} from "../lib/splatbench";
+
+// Default preset rendered server-side. Client-side toggle re-renders to size-min.
+const defaultPreset: Preset = "webMobile";
+const scenes: SplatBenchScene[] = splatbench.scenes;
+const ordered = sortedScenes(scenes, defaultPreset);
+const maxRatio = Math.max(...ordered.map((s) => presetView(s, defaultPreset).ratio));
+const showFidelity = hasAnyFidelity(scenes);
+const showMlScore = hasAnyMlScore(scenes);
+const showRepack = hasAnyRepack(scenes);
+const showQat = hasAnyQat(scenes);
+const qatAgg = splatbench.aggregates.qatScaffoldGs;
+
+// Show the splat-transform comparison column only if at least one scene
+// has a successful run. Keeps the table clean during the early days when
+// only a handful of scenes have third-party numbers.
+const showSplatTransform = encoderReport.scenes.some(
+  (s) => s.runs["splat-transform"]?.ok,
+);
+
+// Serialize once for the client island so we don't pay a fetch.
+const clientData = scenes.map((s) => {
+  const st = encoderRunFor(s.id, "splat-transform");
+  return {
+    id: s.id,
+    cls: s.class,
+    source: s.source,
+    splats: s.splatCount,
+    bytesIn: s.bytesIn,
+    analyzeMs: s.analyzeMs,
+    webMobile: {
+      spz: s.webMobileSpzBytes,
+      ratio: s.webMobileRatio,
+      fid: s.fidelity?.webMobile ?? null,
+    },
+    sizeMin: {
+      spz: s.sizeMinSpzBytes,
+      ratio: s.sizeMinRatio,
+      fid: s.fidelity?.sizeMin ?? null,
+    },
+    repack: s.repack ?? null,
+    kind: s.kind ?? null,
+    qat: s.qatScaffoldGs ?? null,
+    splatTransform:
+      st && st.ok
+        ? {
+            version: st.version,
+            ratio: st.ratio,
+            outputBytes: st.outputBytes,
+            wallSeconds: st.wallSeconds,
+          }
+        : null,
+  };
+});
+---
+
+<section id="leaderboard" aria-labelledby="leaderboard-title">
+  <h2 id="leaderboard-title" class="section-title">SplatBench · Leaderboard</h2>
+
+  <p class="methodology">
+    {splatbench.aggregates.scenesTotal} scenes — {splatbench.aggregates.scenesReal} real
+    (Mip-NeRF 360 + Dany Bittel <code>cluster_fly</code> LOD ladder, all CC-BY-4.0,
+    measured via the v2 ingest harness in <code>apps/bench-ingest</code>) and
+    {splatbench.aggregates.scenesSynthetic} deterministic synthetic probes for
+    per-class failure modes (texture, transparency, motion, depth, banding, foliage,
+    specular, lowlight, portrait, …) — run through the
+    full <code>analyze → optimize → pack</code> pipeline at each preset. Compression is
+    measured against the raw <code>.ply</code>; fidelity is mean CIE ΔE94 over 8
+    deterministic orbit frames rendered through <code>@catetus/viewer</code>, scaled
+    0–1 against the published <strong>3% perceptibility threshold</strong>. Every scene
+    is identified by a BLAKE3 hash of its canonical IR so runs reproduce byte-for-byte.
+  </p>
+
+  {showQat && qatAgg && (
+    <p class="qat-tagline">
+      <strong>QAT-PLY (Scaffold-GS lossless):</strong> {qatAgg.aggregateSavePct.toFixed(1)}% aggregate PLY
+      compression with PSNR <em>gain</em> on every scene tested ({qatAgg.scenesImproved}/{qatAgg.scenesTotal}).
+      Per-scene save range 33.8–40.5%, ΔPSNR range {qatAgg.psnrDeltaDbMin >= 0 ? "+" : ""}{qatAgg.psnrDeltaDbMin.toFixed(3)} dB
+      to {qatAgg.psnrDeltaDbMax >= 0 ? "+" : ""}{qatAgg.psnrDeltaDbMax.toFixed(3)} dB (mean {qatAgg.psnrDeltaDbMean >= 0 ? "+" : ""}{qatAgg.psnrDeltaDbMean.toFixed(3)} dB).
+      All six scenes strictly improve on PSNR, SSIM, and LPIPS — see the new column below.
+    </p>
+  )}
+
+  <div class="kpis">
+    <div class="kpi">
+      <div class="kpi-label">Scenes</div>
+      <div class="kpi-value">
+        {splatbench.aggregates.scenesTotal}
+        <span class="unit"
+          >({splatbench.aggregates.scenesReal} real + {splatbench.aggregates.scenesSynthetic} synthetic)</span
+        >
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">web-mobile median</div>
+      <div class="kpi-value">
+        {splatbench.aggregates.webMobileRatioMedian.toFixed(2)}<span class="unit">×</span>
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">size-min median</div>
+      <div class="kpi-value">
+        {splatbench.aggregates.sizeMinRatioMedian.toFixed(2)}<span class="unit">×</span>
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Best ratio</div>
+      <div class="kpi-value">
+        {splatbench.aggregates.sizeMinRatioMax.toFixed(2)}<span class="unit">× (size-min)</span>
+      </div>
+    </div>
+    {splatbench.aggregates.webMobileRatioOverall !== undefined && (
+      <div class="kpi">
+        <div class="kpi-label">Corpus total</div>
+        <div class="kpi-value">
+          {splatbench.aggregates.webMobileRatioOverall.toFixed(2)}<span class="unit">× across {splatbench.aggregates.scenesTotal} scenes</span>
+        </div>
+      </div>
+    )}
+  </div>
+
+  <div class="controls">
+    <label for="preset-select">Preset</label>
+    <select id="preset-select" data-preset-select>
+      <option value="webMobile" selected>web-mobile</option>
+      <option value="sizeMin">size-min</option>
+    </select>
+    <span class="preset-note" title="The CLI ships ~40 presets (web-mobile-sh3, wmv-vq45-no-prune-tight, hacpp-lzma, …). The leaderboard only carries SPZ-grade numbers for the two shipping defaults; experimental presets land under benches/encoders with their own per-scene rows.">
+      Only the two shipping SPZ presets are on the leaderboard — the CLI exposes ~40 more.
+      <a href="https://github.com/Catetus/catetus/blob/main/crates/catetus-optimize/src/presets.rs"
+         target="_blank" rel="noreferrer noopener">full preset list ↗</a>
+    </span>
+
+    <span class="filter-divider" aria-hidden="true"></span>
+    <span class="filter-label">Source</span>
+    <span class="filter-chips" role="group" aria-label="Filter by source">
+      <button type="button" class="chip is-active" data-source-chip="all">all</button>
+      <button type="button" class="chip" data-source-chip="real">real</button>
+      <button type="button" class="chip" data-source-chip="synthetic">synthetic</button>
+    </span>
+    <span class="filter-count tabular" data-filter-count></span>
+
+    {!showFidelity && (
+      <span class="fidelity-pending">
+        fidelity column lights up automatically when v0.1.1 publishes ΔE94/SSIM/PSNR
+      </span>
+    )}
+  </div>
+  {(showMlScore || showRepack) && (
+    <p class="leaderboard-note">
+      {showMlScore && (
+        <span>
+          <span class="ml-tag">pro</span> — splat-aware perceptual score
+          (catches floater + edge-loss artifacts ΔE94 misses).
+        </span>
+      )}
+      {showRepack && (
+        <span>
+          <span class="ml-tag">premium</span> — differentiable repack
+          PSNR delta vs naive opacity-prune at the same byte budget.
+          Negative cells (translucent volumes) are a known failure mode
+          where opacity-prune is structurally near-optimal; we publish them
+          honestly rather than tune them away.
+        </span>
+      )}
+      Values are published; both columns require <code>catetus-pro</code> to
+      reproduce.
+    </p>
+  )}
+
+  <div class="leaderboard-wrap">
+    <table class="leaderboard" data-leaderboard>
+      <thead>
+        <tr>
+          <th>Scene</th>
+          <th>Class</th>
+          <th>Source</th>
+          <th>Splats</th>
+          <th>Input</th>
+          <th>SPZ out</th>
+          <th>Ratio</th>
+          {showSplatTransform && (
+            <th>splat-transform <span class="ml-tag external">vs</span></th>
+          )}
+          {showQat && (
+            <th>QAT-PLY <span class="ml-tag qat">scaffold-gs</span></th>
+          )}
+          <th>Fidelity (ΔE94)</th>
+          {showMlScore && (
+            <th>ML Score <span class="ml-tag">pro</span></th>
+          )}
+          {showRepack && (
+            <th>Repack ΔPSNR <span class="ml-tag">premium</span></th>
+          )}
+          <th>analyze</th>
+        </tr>
+      </thead>
+      <tbody data-leaderboard-body>
+        {
+          ordered.map((s) => {
+            const view = presetView(s, defaultPreset);
+            const rc = ratioClass(view.ratio);
+            const w = Math.round((view.ratio / maxRatio) * 100);
+            return (
+              <tr>
+                <td><strong>{s.id}</strong></td>
+                <td>{s.class}</td>
+                <td>
+                  {s.source === "real" ? (
+                    <span class="badge badge-real">REAL</span>
+                  ) : (
+                    <span class="badge badge-synth">synth</span>
+                  )}
+                </td>
+                <td>{fmtInt(s.splatCount)}</td>
+                <td>{fmtBytes(s.bytesIn)}</td>
+                <td>{isScaffoldGsRow(s) ? <span class="fidelity-pending">—</span> : fmtBytes(view.spz)}</td>
+                <td>
+                  {isScaffoldGsRow(s) ? (
+                    <span class="fidelity-pending">—</span>
+                  ) : (
+                    <>
+                      <span class={`ratio ${rc}`}>{view.ratio.toFixed(2)}×</span>
+                      <span class="bar"><span class="bar-fill" style={`width:${w}%`} /></span>
+                    </>
+                  )}
+                </td>
+                {showSplatTransform && (
+                  <td>
+                    {(() => {
+                      const r = encoderRunFor(s.id, "splat-transform");
+                      if (!r) return <span class="fidelity-pending">—</span>;
+                      if (!r.ok) return <span class="fidelity-pending" title={r.stderr ?? ""}>fail</span>;
+                      if (isScaffoldGsRow(s)) {
+                        return <span class="fidelity-pending">—</span>;
+                      }
+                      const advantage = view.ratio / r.ratio;
+                      return (
+                        <span class="vs-cell" title={`splat-transform v${r.version} · ${(r.outputBytes / 1024).toFixed(1)} KB · ${r.wallSeconds.toFixed(1)}s`}>
+                          <span class="vs-ratio">{r.ratio.toFixed(2)}×</span>
+                          <span class={advantage >= 1 ? "vs-advantage-win" : "vs-advantage-loss"}>
+                            {advantage >= 1 ? "+" : ""}{((advantage - 1) * 100).toFixed(0)}%
+                          </span>
+                        </span>
+                      );
+                    })()}
+                  </td>
+                )}
+                {showQat && (
+                  <td>
+                    {(() => {
+                      const q = s.qatScaffoldGs;
+                      if (!q) return <span class="fidelity-pending">—</span>;
+                      const sizePct = (1 - q.plySaveFraction) * 100;
+                      const sign = q.psnrDeltaDb >= 0 ? "+" : "";
+                      return (
+                        <span class="qat-cell" title={`PLY save ${(q.plySaveFraction * 100).toFixed(2)}% · ΔSSIM ${q.ssimDelta >= 0 ? "+" : ""}${q.ssimDelta.toFixed(4)} · ΔLPIPS ${q.lpipsDelta >= 0 ? "+" : ""}${q.lpipsDelta.toFixed(4)}`}>
+                          <span class="qat-size">{sizePct.toFixed(1)}%</span>
+                          <span class="qat-psnr-win"> {sign}{q.psnrDeltaDb.toFixed(3)} dB</span>
+                        </span>
+                      );
+                    })()}
+                  </td>
+                )}
+                <td>
+                  {(() => {
+                    if (isScaffoldGsRow(s)) return <span class="fidelity-pending" title="Scaffold-GS rows are scored by the QAT-PLY column against training-time eval cameras, not the SPZ orbit-8 ΔE94 fidelity path.">—</span>;
+                    const fid = fidelityFor(s, defaultPreset);
+                    if (!fid) return <span class="fidelity-pending">pending</span>;
+                    const pct = fid.meanDeltaE94 * 100;
+                    return <span class={`fidelity-cell ${fid.status}`}>{pct.toFixed(2)}%</span>;
+                  })()}
+                </td>
+                {showMlScore && (
+                  <td>
+                    {(() => {
+                      const fid = fidelityFor(s, defaultPreset);
+                      if (!fid || fid.mlScore === undefined)
+                        return <span class="fidelity-pending">—</span>;
+                      return <span class="ml-cell">{(fid.mlScore * 100).toFixed(2)}%</span>;
+                    })()}
+                  </td>
+                )}
+                {showRepack && (
+                  <td>
+                    {(() => {
+                      if (!s.repack) return <span class="fidelity-pending">—</span>;
+                      const d = s.repack.psnrDeltaDb;
+                      const cls = d >= 0 ? "repack-win" : "repack-loss";
+                      const title = d < 0
+                        ? "Repack loses to opacity-prune on this scene. Translucent volumes are a structural failure mode for saliency-based hard-pruning."
+                        : undefined;
+                      return (
+                        <span class={cls} title={title}>{d >= 0 ? "+" : ""}{d.toFixed(2)} dB</span>
+                      );
+                    })()}
+                  </td>
+                )}
+                <td>{fmtMs(s.analyzeMs)}</td>
+              </tr>
+            );
+          })
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script is:inline define:vars={{ clientData, showMlScore, showRepack, showSplatTransform, showQat }}>
+  // Tiny client island: preset toggle re-renders the table body in place.
+  // No framework. Mirrors the renderer in benches/reports/splatbench-v0.html.
+  (function () {
+    /** @typedef {{meanDeltaE94:number, status:string, mlScore?:number}} Fid */
+    /** @typedef {{spz:number, ratio:number, fid:Fid|null}} View */
+    /** @typedef {{id:string, cls:string, source:"real"|"synthetic", splats:number, bytesIn:number, analyzeMs:number, webMobile:View, sizeMin:View}} Row */
+
+    /** @type {Row[]} */
+    const DATA = clientData;
+
+    const select = document.querySelector("[data-preset-select]");
+    const tbody = document.querySelector("[data-leaderboard-body]");
+    const chips = document.querySelectorAll("[data-source-chip]");
+    const countEl = document.querySelector("[data-filter-count]");
+    if (!(select instanceof HTMLSelectElement) || !(tbody instanceof HTMLElement)) return;
+
+    /** @type {"all"|"real"|"synthetic"} */
+    let sourceFilter = "all";
+
+    function fmtBytes(n) {
+      if (n < 1024) return n + " B";
+      if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+      if (n < 1073741824) return (n / 1048576).toFixed(1) + " MB";
+      return (n / 1073741824).toFixed(2) + " GB";
+    }
+    function fmtMs(ms) {
+      if (ms < 1000) return ms + " ms";
+      return (ms / 1000).toFixed(2) + " s";
+    }
+    function ratioClass(r) {
+      if (r >= 25) return "ratio-high";
+      if (r >= 21) return "ratio-mid";
+      return "ratio-low";
+    }
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+    function render() {
+      const preset = select.value === "sizeMin" ? "sizeMin" : "webMobile";
+      const filtered = DATA.filter(function (r) {
+        if (sourceFilter === "all") return true;
+        return r.source === sourceFilter;
+      });
+      const rows = filtered.slice().sort(function (a, b) {
+        return b[preset].ratio - a[preset].ratio;
+      });
+      const maxRatio = rows.length
+        ? Math.max.apply(
+            null,
+            rows.map(function (r) {
+              return r[preset].ratio;
+            }),
+          )
+        : 1;
+      if (countEl) {
+        countEl.textContent =
+          sourceFilter === "all"
+            ? rows.length + " scenes"
+            : rows.length + " of " + DATA.length + " scenes";
+      }
+      tbody.innerHTML = rows
+        .map(function (r) {
+          const v = r[preset];
+          const rc = ratioClass(v.ratio);
+          const w = Math.round((v.ratio / maxRatio) * 100);
+          const srcBadge =
+            r.source === "real"
+              ? '<span class="badge badge-real">REAL</span>'
+              : '<span class="badge badge-synth">synth</span>';
+          const isScaffold = r.kind === "scaffold-gs";
+          let fid;
+          if (isScaffold) {
+            fid = '<span class="fidelity-pending" title="Scaffold-GS rows are scored by the QAT-PLY column against training-time eval cameras.">—</span>';
+          } else if (v.fid && typeof v.fid.meanDeltaE94 === "number") {
+            const pct = v.fid.meanDeltaE94 * 100;
+            const fcls = v.fid.status || (pct < 2 ? "pass" : pct < 3 ? "borderline" : "fail");
+            fid = '<span class="fidelity-cell ' + fcls + '">' + pct.toFixed(2) + "%</span>";
+          } else {
+            fid = '<span class="fidelity-pending">pending</span>';
+          }
+          let stCell = "";
+          if (showSplatTransform) {
+            if (isScaffold) {
+              stCell = '<td><span class="fidelity-pending">—</span></td>';
+            } else if (r.splatTransform) {
+              const stRatio = r.splatTransform.ratio;
+              const advantage = v.ratio / stRatio;
+              const sign = advantage >= 1 ? "+" : "";
+              const advCls = advantage >= 1 ? "vs-advantage-win" : "vs-advantage-loss";
+              const title =
+                "splat-transform v" + r.splatTransform.version +
+                " · " + (r.splatTransform.outputBytes / 1024).toFixed(1) + " KB · " +
+                r.splatTransform.wallSeconds.toFixed(1) + "s";
+              stCell =
+                '<td><span class="vs-cell" title="' + escapeHtml(title) + '">' +
+                '<span class="vs-ratio">' + stRatio.toFixed(2) + '×</span>' +
+                '<span class="' + advCls + '">' + sign +
+                ((advantage - 1) * 100).toFixed(0) + '%</span>' +
+                '</span></td>';
+            } else {
+              stCell = '<td><span class="fidelity-pending">—</span></td>';
+            }
+          }
+          let qatCell = "";
+          if (showQat) {
+            if (r.qat) {
+              const q = r.qat;
+              const sizePct = (1 - q.plySaveFraction) * 100;
+              const psnrSign = q.psnrDeltaDb >= 0 ? "+" : "";
+              const ssimSign = q.ssimDelta >= 0 ? "+" : "";
+              const lpipsSign = q.lpipsDelta >= 0 ? "+" : "";
+              const title =
+                "PLY save " + (q.plySaveFraction * 100).toFixed(2) + "% · ΔSSIM " +
+                ssimSign + q.ssimDelta.toFixed(4) + " · ΔLPIPS " +
+                lpipsSign + q.lpipsDelta.toFixed(4);
+              qatCell =
+                '<td><span class="qat-cell" title="' + escapeHtml(title) + '">' +
+                '<span class="qat-size">' + sizePct.toFixed(1) + '%</span>' +
+                '<span class="qat-psnr-win"> ' + psnrSign + q.psnrDeltaDb.toFixed(3) + ' dB</span>' +
+                '</span></td>';
+            } else {
+              qatCell = '<td><span class="fidelity-pending">—</span></td>';
+            }
+          }
+          let mlCell = "";
+          if (showMlScore) {
+            if (v.fid && typeof v.fid.mlScore === "number") {
+              mlCell =
+                '<td><span class="ml-cell">' +
+                (v.fid.mlScore * 100).toFixed(2) +
+                "%</span></td>";
+            } else {
+              mlCell = '<td><span class="fidelity-pending">—</span></td>';
+            }
+          }
+          let repackCell = "";
+          if (showRepack) {
+            if (r.repack && typeof r.repack.psnrDeltaDb === "number") {
+              const d = r.repack.psnrDeltaDb;
+              const cls = d >= 0 ? "repack-win" : "repack-loss";
+              const title = d < 0
+                ? ' title="Repack loses to opacity-prune on this scene. Translucent volumes are a structural failure mode for saliency-based hard-pruning."'
+                : "";
+              repackCell =
+                '<td><span class="' + cls + '"' + title + '>' +
+                (d >= 0 ? "+" : "") +
+                d.toFixed(2) +
+                " dB</span></td>";
+            } else {
+              repackCell = '<td><span class="fidelity-pending">—</span></td>';
+            }
+          }
+          const spzOutCell = isScaffold
+            ? '<td><span class="fidelity-pending">—</span></td>'
+            : "<td>" + fmtBytes(v.spz) + "</td>";
+          const ratioCell = isScaffold
+            ? '<td><span class="fidelity-pending">—</span></td>'
+            : ('<td><span class="ratio ' + rc + '">' + v.ratio.toFixed(2) + "×</span>" +
+               '<span class="bar"><span class="bar-fill" style="width:' + w + '%"></span></span></td>');
+          return (
+            "<tr>" +
+            "<td><strong>" + escapeHtml(r.id) + "</strong></td>" +
+            "<td>" + escapeHtml(r.cls) + "</td>" +
+            "<td>" + srcBadge + "</td>" +
+            "<td>" + r.splats.toLocaleString() + "</td>" +
+            "<td>" + fmtBytes(r.bytesIn) + "</td>" +
+            spzOutCell +
+            ratioCell +
+            stCell +
+            qatCell +
+            "<td>" + fid + "</td>" +
+            mlCell +
+            repackCell +
+            "<td>" + fmtMs(r.analyzeMs) + "</td>" +
+            "</tr>"
+          );
+        })
+        .join("");
+    }
+    select.addEventListener("change", render);
+    chips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        const next = chip.getAttribute("data-source-chip");
+        if (next !== "all" && next !== "real" && next !== "synthetic") return;
+        sourceFilter = next;
+        chips.forEach(function (c) {
+          c.classList.toggle("is-active", c === chip);
+        });
+        render();
+      });
+    });
+    render();
+  })();
+</script>
+
+<style>
+  .qat-tagline {
+    max-width: 80ch;
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid #4ec27e;
+    background: rgba(78, 194, 126, 0.06);
+    color: var(--text, #e7eaef);
+    line-height: 1.55;
+    border-radius: 0 0.4rem 0.4rem 0;
+  }
+  .qat-tagline strong { color: #4ec27e; }
+  .qat-tagline em { font-style: italic; color: #4ec27e; }
+  .qat-cell {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    font-variant: tabular-nums;
+  }
+  .qat-size {
+    font-weight: 600;
+    color: var(--text, #e7eaef);
+  }
+  .qat-psnr-win {
+    color: #4ec27e;
+    font-size: 0.9em;
+  }
+  .ml-tag.qat {
+    color: #4ec27e;
+    border-color: rgba(78, 194, 126, 0.4);
+    background: rgba(78, 194, 126, 0.08);
+  }
+  .ml-tag.external {
+    color: var(--muted, #9aa2ad);
+  }
+  .preset-note {
+    font-size: 0.8rem;
+    color: var(--muted, #9aa2ad);
+    margin-left: 0.4rem;
+    line-height: 1.4;
+    max-width: 56ch;
+  }
+  .preset-note a {
+    color: var(--accent, #6ea0ff);
+    text-decoration: none;
+  }
+  .preset-note a:hover { text-decoration: underline; }
+</style>

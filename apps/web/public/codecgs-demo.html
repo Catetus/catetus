@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Catetus — CodecGS-Lite demo</title>
+  <style>
+    body {
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      margin: 0;
+      padding: 24px;
+      max-width: 980px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 { color: #e6edf3; margin-top: 0; }
+    h2 { color: #adbac7; margin-top: 28px; }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    pre, code {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    input[type=file] { color: #c9d1d9; }
+    button {
+      background: #238636; color: #fff; border: 0; border-radius: 6px;
+      padding: 8px 14px; cursor: pointer; font: inherit;
+    }
+    button:disabled { background: #30363d; cursor: not-allowed; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #30363d; }
+    th { background: #161b22; color: #adbac7; font-weight: 600; }
+    .ok { color: #56d364; }
+    .err { color: #ff7b72; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    canvas {
+      image-rendering: pixelated;
+      background: #000;
+      border: 1px solid #30363d;
+      max-width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <h1>Catetus — CodecGS-Lite demo</h1>
+  <div class="card">
+    <p>Loads a <code>.glb</code> with the <code>SF_codecgs_lite</code> extension,
+    extracts the H.264 video bitstream from each bufferView, decodes via
+    <code>WebCodecs.VideoDecoder</code>, and dequantizes the frames back into
+    splat attributes. Proof that the codec route is decodable in-browser.</p>
+    <p><strong>Test asset:</strong>
+      <a href="codecgs-bonsai.glb" style="color:#58a6ff">codecgs-bonsai.glb</a>
+      (preloaded below; pick a different file via the picker if you have one).
+    </p>
+    <p>
+      <input type="file" id="file" accept=".glb" />
+      <button id="loadDefault">Load preloaded bonsai.glb</button>
+    </p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Extension metadata</h2>
+    <pre id="ext-meta">(load a file to see metadata)</pre>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Channel decode</h2>
+    <table id="channels-table">
+      <thead>
+        <tr>
+          <th>channel</th><th>codec</th><th>bytes</th><th>WxH</th>
+          <th>nFrames</th><th>decode (ms)</th><th>status</th>
+        </tr>
+      </thead>
+      <tbody><tr><td colspan="7" style="color:#8b949e">(load a file)</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Reconstruction (first decoded frame, opacity channel)</h2>
+    <p class="mono" id="recon-meta" style="color:#8b949e">(decode a file first)</p>
+    <canvas id="opacity-canvas" width="1075" height="1075"></canvas>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Summary</h2>
+    <p id="summary" class="mono">(no data)</p>
+  </div>
+
+  <!-- Local mp4box.js (vendored from experiments/w2-codecgs/code/) -->
+  <script src="codecgs-mp4box.min.js"></script>
+  <script type="module" src="codecgs-demo.js"></script>
+</body>
+</html>

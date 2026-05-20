@@ -1,0 +1,6 @@
+# Binary scene assets — staged locally, never committed.
+*.ply
+*.zip
+*.tar
+*.tar.gz
+pretrained/

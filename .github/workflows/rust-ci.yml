@@ -1,0 +1,57 @@
+name: rust-ci
+
+# Fast-feedback Rust gate for the test-hero-fast branch and all PRs.
+# Runs fmt + clippy + workspace build. Tests are intentionally omitted from
+# this v1 gate (see docs/CI.md) — too many workspace tests currently fail
+# for unrelated reasons. The existing `test.yml` workflow still runs the
+# full `cargo test --workspace` on main / PR for visibility, but we don't
+# block the test-hero-fast pipeline on it.
+#
+# Action versions pinned to specific major releases. Heavy cache via
+# Swatinem/rust-cache keeps subsequent runs well under the 10-min budget
+# (typically 3-5 min once warm).
+
+on:
+  push:
+    branches: [main, test-hero-fast]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to keep queue depth low.
+concurrency:
+  group: rust-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fmt-clippy-build:
+    name: fmt + clippy + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: "-D warnings"
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins channel = stable + components: rustfmt, clippy
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Caches ~/.cargo/{registry,git} and ./target keyed on Cargo.lock.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-ci
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo build (workspace)
+        run: cargo build --workspace --all-targets --locked

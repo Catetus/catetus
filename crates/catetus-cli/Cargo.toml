@@ -1,0 +1,55 @@
+[package]
+name = "catetus-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The `catetus` command-line tool."
+
+[[bin]]
+name = "catetus"
+path = "src/main.rs"
+
+[dependencies]
+catetus-core = { workspace = true }
+catetus-ply = { workspace = true }
+catetus-spz = { workspace = true }
+catetus-gltf = { workspace = true }
+# `catetus-sog` (the SOG writer + .sog.v5tail emitter) was moved to the
+# private `catetus/catetus-private` repo on 2026-05-19 as part of the
+# open-core split (see RENAME_TO_CATETUS_PLAN.md Section 1.5). The CLI's
+# `--target sog`, `sog emit-v5tail`, and `sog apply-v5tail` subcommands now
+# return a hosted-only error pointing at api.catetus.com.
+catetus-usd = { workspace = true }
+catetus-optimize = { workspace = true }
+catetus-bench = { workspace = true }
+catetus-fidelity = { workspace = true }
+catetus-lodge    = { workspace = true }
+catetus-meson    = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde_json = { workspace = true }
+tiny_http = "0.12"
+# Pure-Rust zstd encoder for the optional `--compress` flag on `optimize`.
+# v0.13.x is API-stable, no system zstd required.
+zstd = { version = "0.13", default-features = false }
+
+
+# License verification + on-prem `serve` command. The CLI never holds
+# the signing key — it only verifies signatures against the embedded
+# public key.
+catetus-license = { workspace = true }
+# Talking to the Catetus API for `license refresh` and the
+# `/heartbeat` ping from `serve`. blocking variant keeps the CLI
+# free of a tokio runtime in the optimize path.
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], default-features = false }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { workspace = true }
+dirs = "5"
+
+[dev-dependencies]
+assert_cmd = "2"
+tempfile = "3"

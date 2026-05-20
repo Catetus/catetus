@@ -1,0 +1,32 @@
+# Cloudflare Pages headers. Mirrors packages/website/vercel.json → headers[].
+# Pages reads this file from the deployed dist/ root. Order matters: most
+# specific paths first, broad fallbacks last.
+
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/viewer/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/demos/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+  Access-Control-Allow-Origin: *
+
+# If SharedArrayBuffer is ever needed (it isn't today — sort-worker uses
+# Transferable ArrayBuffers), uncomment the COOP/COEP block below and audit
+# every cross-origin asset (demo CDN, fonts, analytics) for CORP headers.
+# /*
+#   Cross-Origin-Opener-Policy: same-origin
+#   Cross-Origin-Embedder-Policy: require-corp
+
+/*
+  X-Frame-Options: SAMEORIGIN
+  Permissions-Policy: interest-cohort=()

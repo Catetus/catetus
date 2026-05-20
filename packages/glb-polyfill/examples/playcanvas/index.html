@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>glb-polyfill — PlayCanvas example</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; top: 8px; left: 10px; color: #ccc; font: 13px monospace; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="app"></canvas>
+    <div id="hud">loading…</div>
+    <script type="importmap">
+      {
+        "imports": {
+          "playcanvas": "https://cdn.jsdelivr.net/npm/playcanvas@1.74.0/build/playcanvas.mjs/index.js"
+        }
+      }
+    </script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

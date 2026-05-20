@@ -1,0 +1,76 @@
+name: ts-ci
+
+# Fast-feedback TypeScript gate for the test-hero-fast branch and all PRs.
+# Runs pnpm install + workspace lint + workspace build. Tests are NOT run
+# here (see docs/CI.md) — the catetus-visual package is Playwright
+# (covered by visual.yml) and several other packages have flaky/slow tests
+# we don't want to gate fast iteration on. Existing test.yml still runs
+# the wider lint+test matrix on main/PR.
+#
+# pnpm version matches the repo's packageManager field (pnpm@9.0.0).
+# Heavy caching via actions/setup-node's pnpm cache keeps warm runs under
+# the 5-min budget (typically 2-3 min).
+
+on:
+  push:
+    branches: [main, test-hero-fast]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ts-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-build:
+    name: pnpm lint + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm must be installed before setup-node so cache: pnpm works.
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      # @catetus/viewer must be built first — report-ui / visual / web
+      # consume it via `workspace:*` and their `lint` (`tsc --noEmit`) reads
+      # its dist type graph.
+      - name: build viewer (dependency for downstream lint/build)
+        run: pnpm -F @catetus/viewer run build
+
+      # catetus-visual is excluded from this gate: its `lint` only does
+      # tsc --noEmit (cheap, harmless to keep) but its broader test/build
+      # surface is owned by .github/workflows/visual.yml.
+      - name: pnpm -r lint
+        run: pnpm --filter='!catetus-visual' -r --if-present run lint
+
+      - name: pnpm -r build
+        run: pnpm --filter='!catetus-visual' -r --if-present run build
+
+      # Gate the polyfill's vitest suite — the published JS decoder is the
+      # public interop surface (third parties consume it through npm) so
+      # silent test failures are an externalization risk. Other packages'
+      # tests remain owned by test.yml / visual.yml; this is a targeted gate.
+      - name: polyfill vitest
+        run: pnpm --filter @catetus/glb-polyfill run test
+
+      # Gate @catetus/viewer's vitest suite for the same reason: the viewer
+      # is the user-facing renderer + manifest reader and silent regressions
+      # here ship straight to users of the embed/standalone viewer.
+      - name: viewer vitest
+        run: pnpm --filter @catetus/viewer run test

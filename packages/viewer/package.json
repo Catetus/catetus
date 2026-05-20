@@ -1,0 +1,41 @@
+{
+  "name": "@catetus/viewer",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Browser viewer SDK for Catetus optimized glTF / SPZ gaussian-splat assets.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./preview-shell.html": "./src/index.html"
+  },
+  "files": [
+    "dist",
+    "src/index.html",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/embed-wgsl.mjs && tsc",
+    "lint": "node scripts/embed-wgsl.mjs && tsc --noEmit",
+    "test": "node scripts/embed-wgsl.mjs && vitest run",
+    "bench": "node scripts/embed-wgsl.mjs && node --experimental-vm-modules bench/run-bench.mjs",
+    "embed-wgsl": "node scripts/embed-wgsl.mjs"
+  },
+  "dependencies": {
+    "@catetus/glb-polyfill": "workspace:*",
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@webgpu/types": "^0.1.40",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
