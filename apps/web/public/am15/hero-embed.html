@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" dir="ltr"><head><meta charset="utf-8" />
+<title>Hero embed</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no" />
+<style>
+  body { margin:0; overflow:hidden; height:100vh; width:100vw; background:black; font:12px ui-monospace,monospace; color:#eee; }
+  canvas { width:100vw; height:100vh; display:block; touch-action:none; }
+  #info, .scene, .progress-track, h3, p, a, .cube-wrapper, #spinner, #quality { display:none !important; }
+</style>
+</head><body>
+<canvas id="canvas"></canvas>
+<div id="info" style="display:none"><span id="message"></span></div>
+<div id="progress" style="display:none"></div>
+<div class="scene" style="display:none"><span id="scene"></span></div>
+<div class="progress-track" style="display:none"><div></div></div>
+<div id="fps" style="display:none"></div>
+<div id="camid" style="display:none"></div>
+<div id="spinner" style="display:none"></div>
+<div id="quality" style="display:none"></div>
+<script>window.__noCarousel = true;</script>
+<script src="./main.js"></script>
+<script>
+// 4 user-picked waypoints. Closed Catmull-Rom spline through pos + look,
+// slerp on up. Constant time per segment.
+const waypoints = [
+  { pos: [-5.257, -0.897, -3.488], look: [-9.133, -1.937, -6.480], up: [-0.482, 0.815, 0.336] },
+  { pos: [-0.123, -4.716,  2.793], look: [-0.669, -9.478,  4.246], up: [-0.196, 0.314, 0.926] },
+  { pos: [ 4.555, -0.399, -0.885], look: [ 8.740, -1.993, -3.120], up: [ 0.544, 0.590, 0.598] },
+  { pos: [ 1.329,  2.683, -3.606], look: [ 2.062,  3.885, -8.380], up: [-0.078, 0.974, 0.232] },
+];
+const SEG_MS = 6000;  // 6s per segment → 24s full loop with 4 waypoints
+
+const v = {
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  scale:(a,k)=>[a[0]*k,a[1]*k,a[2]*k],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  len:a=>Math.hypot(...a),
+  norm:a=>{const l=Math.hypot(...a); return l>1e-9?[a[0]/l,a[1]/l,a[2]/l]:[0,1,0];},
+};
+
+// Closed Catmull-Rom: given 4 control points p0,p1,p2,p3 and t∈[0,1] returns point on segment p1→p2
+function catmull(p0, p1, p2, p3, t) {
+  const t2 = t*t, t3 = t2*t;
+  const out = [0,0,0];
+  for (let i = 0; i < 3; i++) {
+    out[i] = 0.5 * (
+      (2 * p1[i]) +
+      (-p0[i] + p2[i]) * t +
+      (2*p0[i] - 5*p1[i] + 4*p2[i] - p3[i]) * t2 +
+      (-p0[i] + 3*p1[i] - 3*p2[i] + p3[i]) * t3
+    );
+  }
+  return out;
+}
+
+// Slerp two unit vectors
+function slerp(a, b, t) {
+  let cosT = v.dot(a, b);
+  if (cosT < 0) { b = v.scale(b, -1); cosT = -cosT; }  // shortest path
+  if (cosT > 0.9995) return v.norm(v.add(v.scale(a, 1-t), v.scale(b, t)));
+  const theta = Math.acos(cosT);
+  const sinT = Math.sin(theta);
+  return v.add(
+    v.scale(a, Math.sin((1-t)*theta) / sinT),
+    v.scale(b, Math.sin(t*theta) / sinT),
+  );
+}
+
+// Cosine ease for smooth velocity at waypoints
+function ease(t) { return 0.5 - 0.5 * Math.cos(t * Math.PI); }
+
+function buildView(cam, look, up) {
+  const f = v.norm(v.sub(look, cam));
+  const r = v.norm(v.cross(f, up));
+  const u = v.cross(r, f);
+  return [r[0],u[0],-f[0],0, r[1],u[1],-f[1],0, r[2],u[2],-f[2],0,
+          -v.dot(r,cam),-v.dot(u,cam),v.dot(f,cam),1];
+}
+
+const N = waypoints.length;
+const TOTAL_MS = N * SEG_MS;
+const t0 = performance.now();
+
+function tick() {
+  const elapsed = (performance.now() - t0) % TOTAL_MS;
+  const phase = elapsed / SEG_MS;  // 0..N
+  const i = Math.floor(phase) % N;
+  const rawT = phase - Math.floor(phase);
+  const t = ease(rawT);
+
+  const i0 = (i - 1 + N) % N;
+  const i1 = i;
+  const i2 = (i + 1) % N;
+  const i3 = (i + 2) % N;
+
+  const cam  = catmull(waypoints[i0].pos,  waypoints[i1].pos,  waypoints[i2].pos,  waypoints[i3].pos,  t);
+  const look = catmull(waypoints[i0].look, waypoints[i1].look, waypoints[i2].look, waypoints[i3].look, t);
+  const up   = v.norm(slerp(waypoints[i1].up, waypoints[i2].up, t));
+
+  window.__heroOrbit = buildView(cam, look, up);
+  requestAnimationFrame(tick);
+}
+setTimeout(() => requestAnimationFrame(tick), 500);
+</script>
+</body></html>

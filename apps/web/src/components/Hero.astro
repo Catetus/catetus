@@ -1,18 +1,13 @@
 ---
-// Hero — split layout: headline + CTAs on the left, a live `@catetus/viewer`
-// instance on the right rendering a real ~30k-splat optimized scene
-// (`/hero-scene/scene.gltf`). The viewer ESM bundle is shipped as static
-// assets under `/viewer/` so it can be dynamically imported AFTER first paint
-// and never blocks the hero text. A static fallback image is shown if WebGL2
-// is unavailable or the viewer fails to initialize.
 import { splatbench } from "../lib/splatbench";
 
 const githubUrl = "https://github.com/Catetus/catetus";
 const version = splatbench.catetusVersion;
+const viewerSrc = "/am15/hero-embed.html?url=/hero-scene-v3/bonsai.splat&local=1";
 ---
 
-<section class="hero" aria-labelledby="hero-title">
-  <div>
+<section class="hero hero-wide" aria-labelledby="hero-title">
+  <div class="hero-text">
     <div class="hero-eyebrow">Catetus · v{version} · Apache-2.0</div>
     <h1 id="hero-title" class="hero-title">
       Make Gaussian Splats <span class="grad">production&#8209;ready.</span>
@@ -41,189 +36,76 @@ const version = splatbench.catetusVersion;
     </div>
   </div>
 
-  <div class="splat-stage" aria-hidden="true" data-hero-stage>
-    <canvas
-      id="hero-splat"
-      class="hero-canvas"
-      data-hero-canvas
-      width="1280"
-      height="1024"></canvas>
-    <div class="splat-fade" data-hero-fade></div>
+  <div class="splat-stage splat-stage-large" aria-hidden="true" data-hero-stage>
+    <iframe
+      class="hero-iframe"
+      src={viewerSrc}
+      loading="lazy"
+      title="3D Gaussian splat — bonsai scene"
+      sandbox="allow-scripts allow-same-origin"></iframe>
     <div class="splat-frame"></div>
     <div class="splat-caption">
-      <span class="live" data-hero-status>booting splat viewer…</span>
-      <span class="tabular" data-hero-meta>bonsai · 91k splats · 10 MB · hero preset</span>
+      <span class="live">live · 1.15M splats</span>
+      <span class="tabular">bonsai · 37 MB · antimatter15 viewer</span>
     </div>
   </div>
 </section>
 
-<script>
-  // Hero viewer bootstrap.
-  //
-  // The viewer SDK is shipped as a static ESM module at /viewer/index.js so we
-  // can dynamic-import it AFTER first paint. That keeps the hero headline
-  // path-to-pixels free of any GPU/wasm bring-up cost.
-  //
-  // Lifecycle:
-  //   1. Sync: size the canvas backing store to the visible CSS box × DPR.
-  //   2. Async-after-load: import the viewer, point it at the prebaked scene,
-  //      enable autoRotate. The 8-frame orbit-8 path lands a static first
-  //      frame quickly; autoRotate then takes over as a continuous yaw orbit.
-  //   3. On any failure: log + leave the canvas dark; the framed stage + live
-  //      caption still communicate "viewer area" even without splats.
-  (function () {
-    const canvas = document.querySelector<HTMLCanvasElement>("[data-hero-canvas]");
-    const status = document.querySelector<HTMLElement>("[data-hero-status]");
-    const fade = document.querySelector<HTMLElement>("[data-hero-fade]");
-    if (!canvas) return;
-
-    function setStatus(text: string): void {
-      if (status) status.textContent = text;
-    }
-
-    // Backing-store sizing. The viewer reads canvas.width/height to set the
-    // GPU framebuffer; we want a HiDPI-clean buffer but cap at 2x so a 5K
-    // monitor doesn't shred fillrate on the integrated GPU.
-    function sizeCanvas(): void {
-      if (!canvas) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const rect = canvas.getBoundingClientRect();
-      const w = Math.max(1, Math.floor(rect.width * dpr));
-      const h = Math.max(1, Math.floor(rect.height * dpr));
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-      }
-    }
-    sizeCanvas();
-
-    // Force WebGL2 for the hero. The WebGPU compute-decode path is fast
-    // (60 fps at 1M+ splats) but has a residual smearing regression on
-    // small scenes that makes the 91k bonsai render look noisy. The
-    // WebGL2 path uses the antimatter15-style CPU-sort + EWA splat
-    // pipeline which renders the bonsai crisply at ~27 fps — quality
-    // wins over speed for the public-facing hero. Re-enable WebGPU here
-    // once the smearing is reproduced + fixed.
-    const hasWebGPU: boolean = false;
-
-    // Defer viewer init until the page is at least visually settled. requestIdleCallback
-    // when available, otherwise a 50ms timeout. This makes sure the LCP element
-    // (the hero headline) renders before any GPU init happens.
-    const boot = (): void => {
-      sizeCanvas();
-      // The viewer is shipped as a static asset under /viewer/. The path is a
-      // runtime URL, not a module Astro can statically resolve, so we go
-      // through `import(/* @vite-ignore */ url)` to silence the bundler.
-      const viewerUrl = "/viewer/index.js";
-      import(/* @vite-ignore */ viewerUrl)
-        .then(async (mod) => {
-          const Viewer = (mod as { CatetusViewer: new (o: unknown) => {
-            on(ev: string, cb: (p: unknown) => void): () => void;
-            load(): Promise<void>;
-          } }).CatetusViewer;
-          if (!Viewer || !canvas) throw new Error("viewer export missing");
-          // Mirror the /scale wiring: prefer WebGPU + the Stage 7
-          // compute-decode pipeline (WGSL dequant + GPU radix sort +
-          // multi-draw across instance pages). That's the path that
-          // moves the per-frame upload + sort entirely onto the GPU and
-          // is what lets /scale render 3.2M-13M splats live. Without it,
-          // a 1M-splat hero asset chokes on the CPU sort + per-frame
-          // vertex-buffer upload.
-          //
-          // When WebGPU isn't available we fall back to the WebGL2
-          // renderer (`renderer: 'webgl2'`). useComputeDecode is silently
-          // ignored under WebGL2 per the SDK contract, so it's safe to
-          // pass unconditionally.
-          const viewer = new Viewer({
-            canvas,
-            src: "/hero-scene/scene.gltf",
-            renderer: hasWebGPU ? "webgpu" : "webgl2",
-            useComputeDecode: true,
-            // 'static' renders the canonical pose once and skips the
-            // 8-frame deterministic orbit (which is meant for headless
-            // regression tests, not live UI). autoRotate then takes over.
-            cameraPath: "static",
-            budget: "web-mobile",
-            autoRotate: true,
-            // Speed-adaptive: WebGPU compute-decode path can hold 60 fps
-            // at 1M+ splats so we cruise at 8 deg/s. WebGL2 fallback
-            // CPU-sorts every frame and visibly hitches above ~250k —
-            // slow it to 4 deg/s so dropped frames are less obvious.
-            autoRotateSpeed: hasWebGPU ? 8 : 4,
-            // The default orbit pulls the camera back 2.5× the bbox
-            // half-diagonal — perfect for visual-regression frames but a
-            // little airy as a hero. The bonsai_real bbox is padded by
-            // background floaters (FloaterPrune removed 0 in scene.json)
-            // so the actual subject lives in maybe 25% of the bbox volume;
-            // pull the framing in hard so the bonsai fills the canvas.
-            //
-            // 0.55 on WebGPU keeps the bonsai filling the frame without
-            // clipping inside the bbox — at 0.45 the camera ends up
-            // inside the leaf canopy on the fast path (which has full
-            // FP32 SoA splats vs the WebGL2 CPU-decoded subset). 0.45
-            // is fine on WebGL2 because CPU decode quietly drops splats
-            // whose projected radius blows up.
-            autoRotateFraming: 1.0,
-          });
-          viewer.on("firstRender", () => {
-            setStatus(
-              hasWebGPU
-                ? "live · auto-orbit · webgpu fast path"
-                : "live · auto-orbit · webgl2 (slow)",
-            );
-            if (fade) fade.classList.add("ready");
-          });
-          viewer.on("error", (p: unknown) => {
-            const code = (p as { code?: string }).code ?? "unknown";
-            // 'renderer_unavailable' is the specific code the SDK throws
-            // when 'webgpu' was forced but the adapter is missing. We
-            // retry once with the WebGL2 renderer so users on Safari ≤17
-            // or Firefox-no-WebGPU still get a viewer.
-            if (code === "renderer_unavailable" && hasWebGPU && canvas) {
-              setStatus("retrying on webgl2…");
-              const v2 = new Viewer({
-                canvas,
-                src: "/hero-scene/scene.gltf",
-                renderer: "webgl2",
-                cameraPath: "static",
-                budget: "web-mobile",
-                autoRotate: true,
-                autoRotateSpeed: 4,
-                autoRotateFraming: 0.45,
-              });
-              v2.on("firstRender", () => {
-                setStatus("live · auto-orbit · webgl2 (slow)");
-                if (fade) fade.classList.add("ready");
-              });
-              v2.on("error", (q: unknown) => {
-                const c2 = (q as { code?: string }).code ?? "unknown";
-                setStatus("viewer offline (" + c2 + ")");
-                if (fade) fade.classList.add("ready");
-              });
-              void v2.load();
-              return;
-            }
-            setStatus("viewer offline (" + code + ")");
-            if (fade) fade.classList.add("ready");
-          });
-          await viewer.load();
-        })
-        .catch((err) => {
-          console.warn("[hero] viewer init failed:", err);
-          setStatus("static fallback");
-          if (fade) fade.classList.add("ready");
-        });
-    };
-
-    const ric = (window as unknown as {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-    }).requestIdleCallback;
-    if (typeof ric === "function") {
-      ric(boot, { timeout: 600 });
-    } else {
-      window.setTimeout(boot, 50);
-    }
-
-    window.addEventListener("resize", sizeCanvas, { passive: true });
-  })();
-</script>
+<style>
+  /* Two-column layout. Text on the left, viewer on the right, with a max
+     width so the viewer doesn't dominate on ultra-wide screens. */
+  .hero-wide {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(0, 1fr);
+    gap: 48px;
+    align-items: center;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  @media (max-width: 1024px) {
+    .hero-wide { grid-template-columns: 1fr; gap: 24px; }
+  }
+  .splat-stage-large {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    width: 100%;
+    max-height: 640px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: #000;
+    isolation: isolate;
+  }
+  .hero-iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: #000;
+  }
+  .splat-stage-large .splat-frame {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: 12px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    z-index: 2;
+  }
+  .splat-stage-large .splat-caption {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font: 12px/1.4 ui-monospace, monospace;
+    color: rgba(220, 230, 240, 0.85);
+    background: rgba(0, 0, 0, 0.55);
+    padding: 6px 10px;
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 3;
+  }
+</style>

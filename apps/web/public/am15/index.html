@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+	<head>
+		<title>WebGL Gaussian Splat Viewer</title>
+		<meta charset="utf-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
+		/>
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta
+			name="apple-mobile-web-app-status-bar-style"
+			content="black-translucent"
+		/>
+		<style>
+			body {
+				overflow: hidden;
+				margin: 0;
+				height: 100vh;
+				width: 100vw;
+				font-family: sans-serif;
+				background: black;
+    			text-shadow: 0 0 3px black;
+			}
+			a, body {
+				color: white;
+			}
+			#info {
+				z-index: 100;
+				position: absolute;
+				top: 10px;
+				left: 15px;
+			}
+			h3 {
+				margin: 5px 0;
+			}
+			p {
+				margin: 5px 0;
+				font-size: small;
+			}
+
+			.cube-wrapper {
+				transform-style: preserve-3d;
+			}
+
+			.cube {
+				transform-style: preserve-3d;
+				transform: rotateX(45deg) rotateZ(45deg);
+				animation: rotation 2s infinite;
+			}
+
+			.cube-faces {
+				transform-style: preserve-3d;
+				height: 80px;
+				width: 80px;
+				position: relative;
+				transform-origin: 0 0;
+				transform: translateX(0) translateY(0) translateZ(-40px);
+			}
+
+			.cube-face {
+				position: absolute;
+				inset: 0;
+				background: #0017ff;
+				border: solid 1px #ffffff;
+			}
+			.cube-face.top {
+				transform: translateZ(80px);
+			}
+			.cube-face.front {
+				transform-origin: 0 50%;
+				transform: rotateY(-90deg);
+			}
+			.cube-face.back {
+				transform-origin: 0 50%;
+				transform: rotateY(-90deg) translateZ(-80px);
+			}
+			.cube-face.right {
+				transform-origin: 50% 0;
+				transform: rotateX(-90deg) translateY(-80px);
+			}
+			.cube-face.left {
+				transform-origin: 50% 0;
+				transform: rotateX(-90deg) translateY(-80px) translateZ(80px);
+			}
+
+			@keyframes rotation {
+				0% {
+					transform: rotateX(45deg) rotateY(0) rotateZ(45deg);
+					animation-timing-function: cubic-bezier(
+						0.17,
+						0.84,
+						0.44,
+						1
+					);
+				}
+				50% {
+					transform: rotateX(45deg) rotateY(0) rotateZ(225deg);
+					animation-timing-function: cubic-bezier(
+						0.76,
+						0.05,
+						0.86,
+						0.06
+					);
+				}
+				100% {
+					transform: rotateX(45deg) rotateY(0) rotateZ(405deg);
+					animation-timing-function: cubic-bezier(
+						0.17,
+						0.84,
+						0.44,
+						1
+					);
+				}
+			}
+
+			.scene,
+			#message {
+				position: absolute;
+				display: flex;
+				top: 0;
+				right: 0;
+				left: 0;
+				bottom: 0;
+				z-index: 2;
+				height: 100%;
+				width: 100%;
+				align-items: center;
+				justify-content: center;
+			}
+			#message {
+				font-weight: bold;
+				font-size: large;
+				color: red;
+				pointer-events: none;
+			}
+
+			details {
+				font-size: small;
+
+			}
+
+			#progress {
+				position: absolute;
+				top: 0;
+				height: 5px;
+				background: blue;
+				z-index: 99;
+				transition: width 0.1s ease-in-out;
+			}
+
+			#quality {
+				position: absolute;
+				bottom: 10px;
+				z-index: 999;
+				right: 10px;
+			}
+
+			#caminfo {
+				position: absolute;
+				top: 10px;
+				z-index: 999;
+				right: 10px;
+			}
+			#canvas {
+				display: block;
+				position: absolute;
+				top: 0;
+				left: 0;
+				width: 100%;
+				height: 100%;
+				touch-action: none;
+			}
+
+			#instructions {
+				background: rgba(0,0,0,0.6);
+				white-space: pre-wrap;
+				padding: 10px;
+				border-radius: 10px;
+				font-size: x-small;
+			}
+			body.nohf .nohf {
+				display: none;
+			}
+			body.nohf #progress, body.nohf .cube-face {
+				background: #ff9d0d;
+			}
+		</style>
+	</head>
+	<body>
+		<script>
+			if(location.host.includes('hf.space')) document.body.classList.add('nohf');
+		</script>
+		<div id="info">
+			<h3 class="nohf">WebGL 3D Gaussian Splat Viewer</h3>
+			<p>
+			<small class="nohf">
+				By <a href="https://twitter.com/antimatter15">Kevin Kwok</a>.
+				Code on
+				<a href="https://github.com/antimatter15/splat">Github</a
+				>.
+			</small>
+		</p>
+
+			<details>
+			<summary>Use mouse or arrow keys to navigate.</summary>
+
+<div id="instructions">movement (arrow keys)
+- left/right arrow keys to strafe side to side
+- up/down arrow keys to move forward/back
+- space to jump
+
+camera angle (wasd)
+- a/d to turn camera left/right
+- w/s to tilt camera up/down
+- q/e to roll camera counterclockwise/clockwise
+- i/k and j/l to orbit
+
+trackpad
+- scroll up/down/left/right to orbit
+- pinch to move forward/back
+- ctrl key + scroll to move forward/back
+- shift + scroll to move up/down or strafe
+
+mouse
+- click and drag to orbit
+- right click (or ctrl/cmd key) and drag up/down to move
+
+touch (mobile)
+- one finger to orbit
+- two finger pinch to move forward/back
+- two finger rotate to rotate camera clockwise/counterclockwise
+- two finger pan to move side-to-side and up-down
+
+gamepad
+- if you have a game controller connected it should work
+
+other
+- press 0-9 to switch to one of the pre-loaded camera views
+- press '-' or '+'key to cycle loaded cameras
+- press p to resume default animation
+- drag and drop .ply file to convert to .splat
+- drag and drop cameras.json to load cameras
+</div>
+
+		</details>
+			
+		</div>
+
+		<div id="progress"></div>
+
+		<div id="message"></div>
+		<div class="scene" id="spinner">
+			<div class="cube-wrapper">
+				<div class="cube">
+					<div class="cube-faces">
+						<div class="cube-face bottom"></div>
+						<div class="cube-face top"></div>
+						<div class="cube-face left"></div>
+						<div class="cube-face right"></div>
+						<div class="cube-face back"></div>
+						<div class="cube-face front"></div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<canvas id="canvas"></canvas>
+
+		<div id="quality">
+			<span id="fps"></span>
+		</div>
+		<div id="caminfo">
+			<span id="camid"></span>
+		</div>
+		<script src="main.js"></script>
+	
+<div id="hud" style="position:fixed;top:12px;right:12px;background:rgba(0,0,0,0.85);padding:12px 14px;border-radius:8px;min-width:340px;border:1px solid #333;z-index:1000;font:13px ui-monospace,monospace;color:#eee;">
+  <div style="font-size:12px;color:#7df;margin-bottom:6px;">Hero camera tuner</div>
+  <div style="margin:2px 0;"><span style="color:#fc7;min-width:90px;display:inline-block;">cam xyz</span><span id="hud-cam">…</span></div>
+  <div style="margin:2px 0;"><span style="color:#fc7;min-width:90px;display:inline-block;">look dir</span><span id="hud-dir">…</span></div>
+  <div style="margin:2px 0;"><span style="color:#fc7;min-width:90px;display:inline-block;">lookAt xyz</span><span id="hud-look">…</span></div>
+  <button onclick="copyHeroCode()" style="margin-top:8px;background:#1a3344;color:#7df;border:1px solid #2a5577;padding:4px 10px;border-radius:4px;cursor:pointer;font:11px ui-monospace;">Copy code for Hero.astro</button>
+  <pre id="hud-code" style="margin-top:6px;padding:6px;background:#0a0a0a;border:1px solid #222;border-radius:4px;white-space:pre;overflow-x:auto;color:#cdf;font-size:10px;max-width:320px;">drag to navigate, then click Copy</pre>
+</div>
+<script>
+function invert4(m) {
+  // Invert a 4x4 matrix (column-major), returns new array
+  const r = new Array(16);
+  const a00=m[0],a01=m[1],a02=m[2],a03=m[3];
+  const a10=m[4],a11=m[5],a12=m[6],a13=m[7];
+  const a20=m[8],a21=m[9],a22=m[10],a23=m[11];
+  const a30=m[12],a31=m[13],a32=m[14],a33=m[15];
+  const b00=a00*a11-a01*a10, b01=a00*a12-a02*a10, b02=a00*a13-a03*a10;
+  const b03=a01*a12-a02*a11, b04=a01*a13-a03*a11, b05=a02*a13-a03*a12;
+  const b06=a20*a31-a21*a30, b07=a20*a32-a22*a30, b08=a20*a33-a23*a30;
+  const b09=a21*a32-a22*a31, b10=a21*a33-a23*a31, b11=a22*a33-a23*a32;
+  const det=b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06;
+  if (!det) return null;
+  const id = 1/det;
+  r[0]=(a11*b11-a12*b10+a13*b09)*id;
+  r[1]=(a02*b10-a01*b11-a03*b09)*id;
+  r[2]=(a31*b05-a32*b04+a33*b03)*id;
+  r[3]=(a22*b04-a21*b05-a23*b03)*id;
+  r[4]=(a12*b08-a10*b11-a13*b07)*id;
+  r[5]=(a00*b11-a02*b08+a03*b07)*id;
+  r[6]=(a32*b02-a30*b05-a33*b01)*id;
+  r[7]=(a20*b05-a22*b02+a23*b01)*id;
+  r[8]=(a10*b10-a11*b08+a13*b06)*id;
+  r[9]=(a01*b08-a00*b10-a03*b06)*id;
+  r[10]=(a30*b04-a31*b02+a33*b00)*id;
+  r[11]=(a21*b02-a20*b04-a23*b00)*id;
+  r[12]=(a11*b07-a10*b09-a12*b06)*id;
+  r[13]=(a00*b09-a01*b07+a02*b06)*id;
+  r[14]=(a31*b01-a30*b03-a32*b00)*id;
+  r[15]=(a20*b03-a21*b01+a22*b00)*id;
+  return r;
+}
+const fmt = v => v.toFixed(2);
+function hudTick() {
+  const vm = window.viewMatrix;
+  if (vm) {
+    // Camera world position = inverse(viewMatrix) * [0,0,0,1]
+    const inv = invert4(vm);
+    if (inv) {
+      const cx = inv[12], cy = inv[13], cz = inv[14];
+      // Look direction = inverse(viewMatrix) * [0,0,-1,0]
+      // i.e. -row 3 of view (the -Z basis vector in world)
+      const fx = -inv[8], fy = -inv[9], fz = -inv[10];
+      const ux = inv[4],  uy = inv[5],  uz = inv[6];
+      const lx = cx + fx*5, ly = cy + fy*5, lz = cz + fz*5;
+      document.getElementById('hud-cam').textContent = `[${fmt(cx)}, ${fmt(cy)}, ${fmt(cz)}]`;
+      document.getElementById('hud-dir').textContent = `[${fmt(fx)}, ${fmt(fy)}, ${fmt(fz)}]  up:[${fmt(ux)}, ${fmt(uy)}, ${fmt(uz)}]`;
+      document.getElementById('hud-look').textContent = `[${fmt(lx)}, ${fmt(ly)}, ${fmt(lz)}]`;
+      window.__camPos = [cx, cy, cz];
+      window.__lookAt = [lx, ly, lz];
+      window.__upVec = [ux, uy, uz];
+    }
+  }
+  requestAnimationFrame(hudTick);
+}
+hudTick();
+window.copyHeroCode = function() {
+  const cam = window.__camPos || [0,0,0];
+  const look = window.__lookAt || [0,0,0];
+  const up = window.__upVec || [0,-1,0];
+  const code = `// from antimatter15 viewer state — pos, lookAt, up
+pos: [${cam.map(v=>v.toFixed(3)).join(', ')}],
+look: [${look.map(v=>v.toFixed(3)).join(', ')}],
+up: [${up.map(v=>v.toFixed(3)).join(', ')}],`;
+  document.getElementById('hud-code').textContent = code;
+  navigator.clipboard?.writeText(code).catch(()=>{});
+};
+</script>
+</body>
+</html>
