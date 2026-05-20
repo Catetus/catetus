@@ -1,0 +1,24 @@
+{
+  "schema": "catetus.splatbench-v3.cell/0.1",
+  "commit": "d16afec9f80f81ad9f8b26a84518cd9d2dd3d4d6",
+  "ref": "main",
+  "preset": "fcgs-instant",
+  "scene_id": "bicycle_mipnerf360_iter7k",
+  "scene_class": "outdoor-scene",
+  "scene_dataset": "mipnerf360",
+  "run_id": "sbv3-92f892e420478bf3",
+  "timestamp": "2026-05-20T20:50:21.065503+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}
