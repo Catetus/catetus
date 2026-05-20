@@ -97,14 +97,14 @@ const version = splatbench.catetusVersion;
     }
     sizeCanvas();
 
-    // Probe WebGPU once. We use this both to pick the fast (Stage 7
-    // compute-decode + GPU radix sort) renderer path that /scale uses,
-    // and to set a safe default rotation speed when we fall back to
-    // WebGL2 (which CPU-decodes + CPU-sorts every frame and chokes
-    // above ~250k splats).
-    const hasWebGPU: boolean =
-      typeof navigator !== "undefined" &&
-      typeof (navigator as Navigator & { gpu?: unknown }).gpu !== "undefined";
+    // Force WebGL2 for the hero. The WebGPU compute-decode path is fast
+    // (60 fps at 1M+ splats) but has a residual smearing regression on
+    // small scenes that makes the 91k bonsai render look noisy. The
+    // WebGL2 path uses the antimatter15-style CPU-sort + EWA splat
+    // pipeline which renders the bonsai crisply at ~27 fps — quality
+    // wins over speed for the public-facing hero. Re-enable WebGPU here
+    // once the smearing is reproduced + fixed.
+    const hasWebGPU: boolean = false;
 
     // Defer viewer init until the page is at least visually settled. requestIdleCallback
     // when available, otherwise a 50ms timeout. This makes sure the LCP element
