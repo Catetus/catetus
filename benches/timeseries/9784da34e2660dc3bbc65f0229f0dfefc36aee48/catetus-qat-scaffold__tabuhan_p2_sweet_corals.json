@@ -1,0 +1,24 @@
+{
+  "schema": "catetus.splatbench-v3.cell/0.1",
+  "commit": "9784da34e2660dc3bbc65f0229f0dfefc36aee48",
+  "ref": "main",
+  "preset": "catetus-qat-scaffold",
+  "scene_id": "tabuhan_p2_sweet_corals",
+  "scene_class": "underwater-coral",
+  "scene_dataset": "sweet-corals",
+  "run_id": "sbv3-d57591698fce0910",
+  "timestamp": "2026-05-20T23:38:37.611451+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}
