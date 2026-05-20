@@ -3,5 +3,13 @@
   "buildCommand": "pnpm -F @catetus/web run build",
   "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "apps/web/dist",
-  "framework": null
+  "framework": null,
+  "headers": [
+    {
+      "source": "/(.*).splat",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable, no-transform" }
+      ]
+    }
+  ]
 }
