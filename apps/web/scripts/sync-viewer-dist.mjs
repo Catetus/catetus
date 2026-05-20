@@ -38,8 +38,14 @@ if (!existsSync(DIST)) {
 }
 
 // Wipe + rebuild so renames in the source don't leave stale files behind.
+// Preserve /viewer/vendor/ — it holds importmap targets (fflate, fzstd) that
+// aren't part of the packages/viewer build output but are referenced by the
+// viewer's bare specifiers via the importmap in apps/web/src/layouts/Base.astro.
 if (existsSync(PUBLIC_VIEWER)) {
-  rmSync(PUBLIC_VIEWER, { recursive: true, force: true });
+  for (const name of readdirSync(PUBLIC_VIEWER)) {
+    if (name === 'vendor') continue;
+    rmSync(join(PUBLIC_VIEWER, name), { recursive: true, force: true });
+  }
 }
 mkdirSync(PUBLIC_VIEWER, { recursive: true });
 

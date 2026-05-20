@@ -33,6 +33,20 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? "https://catetus.com
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
+    <!--
+      Browser importmap for `@catetus/viewer` and its bare-spec dependencies.
+      The compiled viewer ESM in /viewer/ uses bare specifiers (`fflate`,
+      `fzstd`, `@catetus/glb-polyfill`) that browsers can't resolve on their
+      own; this importmap points each at a static asset served from our
+      origin. Must appear in <head> BEFORE any module import.
+    -->
+    <script type="importmap" set:html={`{
+      "imports": {
+        "fflate": "/viewer/vendor/fflate.js",
+        "fzstd": "/viewer/vendor/fzstd.js",
+        "@catetus/glb-polyfill": "/viewer/glb-polyfill/index.js"
+      }
+    }`} />
   </head>
   <body>
     <main class="page">
