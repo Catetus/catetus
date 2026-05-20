@@ -1,0 +1,2233 @@
+{
+  "generatedAt": "2026-05-20T19:33:15Z",
+  "spec": {
+    "repo": "KhronosGroup/glTF",
+    "path": "extensions/2.0/Khronos/KHR_gaussian_splatting",
+    "commitSha": "63770cc70a3709cf101a42cece0bdf602b37e2e7",
+    "commitDate": "2026-04-15",
+    "commitMessage": "Editorial review (#2567)",
+    "url": "https://github.com/KhronosGroup/glTF/tree/63770cc70a3709cf101a42cece0bdf602b37e2e7/extensions/2.0/Khronos/KHR_gaussian_splatting",
+    "status": "Release Candidate"
+  },
+  "crate": {
+    "name": "catetus-khr-conformance",
+    "version": "0.2.0"
+  },
+  "clauses": [
+    {
+      "id": "EXT_USED",
+      "description": "Root extensionsUsed array MUST list \"KHR_gaussian_splatting\"."
+    },
+    {
+      "id": "ASSET_VERSION",
+      "description": "asset.version MUST be \"2.0\" per glTF 2.0."
+    },
+    {
+      "id": "PRIM_EXT",
+      "description": "At least one primitive's extensions block MUST declare KHR_gaussian_splatting."
+    },
+    {
+      "id": "PRIM_MODE_POINTS",
+      "description": "Primitive carrying KHR_gaussian_splatting MUST set mode to POINTS (0)."
+    },
+    {
+      "id": "EXT_KERNEL",
+      "description": "The extension object MUST declare a string `kernel`."
+    },
+    {
+      "id": "EXT_COLOR_SPACE",
+      "description": "The extension object MUST declare a string `colorSpace`."
+    },
+    {
+      "id": "EXT_PROJECTION",
+      "description": "If `projection` is present it MUST be a string (default \"perspective\")."
+    },
+    {
+      "id": "EXT_SORTING",
+      "description": "If `sortingMethod` is present it MUST be a string (default \"cameraDistance\")."
+    },
+    {
+      "id": "ATTR_POSITION",
+      "description": "Primitive attributes MUST declare a POSITION accessor."
+    },
+    {
+      "id": "ATTR_ROTATION",
+      "description": "Attributes MUST declare KHR_gaussian_splatting:ROTATION."
+    },
+    {
+      "id": "ATTR_SCALE",
+      "description": "Attributes MUST declare KHR_gaussian_splatting:SCALE."
+    },
+    {
+      "id": "ATTR_OPACITY",
+      "description": "Attributes MUST declare KHR_gaussian_splatting:OPACITY."
+    },
+    {
+      "id": "ATTR_SH_DC",
+      "description": "Attributes MUST declare KHR_gaussian_splatting:SH_DEGREE_0_COEF_0."
+    },
+    {
+      "id": "ACC_POSITION",
+      "description": "POSITION accessor MUST be VEC3 (FLOAT or normalized integer)."
+    },
+    {
+      "id": "ACC_ROTATION",
+      "description": "ROTATION accessor MUST be VEC4 (FLOAT or normalized signed byte/short)."
+    },
+    {
+      "id": "ACC_SCALE",
+      "description": "SCALE accessor MUST be VEC3 (FLOAT or unsigned-integer normalized variants)."
+    },
+    {
+      "id": "ACC_OPACITY",
+      "description": "OPACITY accessor MUST be SCALAR (FLOAT or normalized UByte/UShort)."
+    },
+    {
+      "id": "ACC_SH_COEF",
+      "description": "Every SH_DEGREE_l_COEF_n accessor MUST be VEC3 FLOAT."
+    },
+    {
+      "id": "ACC_POSITION_MINMAX",
+      "description": "POSITION accessor MUST provide both min and max arrays."
+    },
+    {
+      "id": "SH_DEGREES_FULL",
+      "description": "SH degrees MUST be fully defined; using degree l requires degrees 0..l-1."
+    },
+    {
+      "id": "ACC_COUNTS_AGREE",
+      "description": "All per-splat accessors MUST share the same count."
+    },
+    {
+      "id": "BUFFERVIEW_BOUNDS",
+      "description": "Every accessor's bufferView byte footprint MUST fit inside its parent buffer."
+    },
+    {
+      "id": "ATTRS_KNOWN_ONLY",
+      "description": "All KHR_gaussian_splatting:* attribute keys MUST be defined by the spec."
+    },
+    {
+      "id": "SPZ_DECLARED",
+      "description": ""
+    },
+    {
+      "id": "SPZ_CONSISTENT",
+      "description": ""
+    },
+    {
+      "id": "SPZ_EXT_PRESENT",
+      "description": ""
+    },
+    {
+      "id": "SPZ_VERSION",
+      "description": ""
+    },
+    {
+      "id": "SPZ_BUFFERVIEW",
+      "description": ""
+    },
+    {
+      "id": "SPZ_BLOB_MAGIC",
+      "description": ""
+    },
+    {
+      "id": "SPZ_DECODED_COUNT",
+      "description": ""
+    }
+  ],
+  "fixtures": [
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/01_valid_baseline.glb",
+      "container": "glb",
+      "pass": 23,
+      "fail": 0,
+      "skip": 7,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "01_valid_baseline.glb",
+      "expected_pass": true
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/02_valid_baseline.gltf",
+      "container": "gltf",
+      "pass": 23,
+      "fail": 0,
+      "skip": 7,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "02_valid_baseline.gltf",
+      "expected_pass": true
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/03_valid_quantized.glb",
+      "container": "glb",
+      "pass": 23,
+      "fail": 0,
+      "skip": 7,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "03_valid_quantized.glb",
+      "expected_pass": true
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/04_valid_with_sh.glb",
+      "container": "glb",
+      "pass": 23,
+      "fail": 0,
+      "skip": 7,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "04_valid_with_sh.glb",
+      "expected_pass": true
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/05_valid_spz_stub.glb",
+      "container": "glb",
+      "pass": 30,
+      "fail": 0,
+      "skip": 0,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "pass",
+          "detail": null
+        }
+      ],
+      "fixture": "05_valid_spz_stub.glb",
+      "expected_pass": true
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/06_invalid_missing_ext_used.glb",
+      "container": "glb",
+      "pass": 22,
+      "fail": 1,
+      "skip": 7,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "fail",
+          "detail": "KHR_gaussian_splatting not in extensionsUsed"
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "06_invalid_missing_ext_used.glb",
+      "expected_pass": false
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/07_invalid_no_rotation.gltf",
+      "container": "gltf",
+      "pass": 21,
+      "fail": 1,
+      "skip": 8,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "fail",
+          "detail": "attribute KHR_gaussian_splatting:ROTATION missing"
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "skip",
+          "detail": "KHR_gaussian_splatting:ROTATION accessor absent"
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "07_invalid_no_rotation.gltf",
+      "expected_pass": false
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/08_invalid_rotation_vec3.gltf",
+      "container": "gltf",
+      "pass": 22,
+      "fail": 1,
+      "skip": 7,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "fail",
+          "detail": "KHR_gaussian_splatting:ROTATION.type=\"VEC3\", want one of [\"VEC4\"]"
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "08_invalid_rotation_vec3.gltf",
+      "expected_pass": false
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/09_invalid_position_no_minmax.gltf",
+      "container": "gltf",
+      "pass": 22,
+      "fail": 1,
+      "skip": 7,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "fail",
+          "detail": "POSITION accessor missing min and/or max"
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "09_invalid_position_no_minmax.gltf",
+      "expected_pass": false
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/10_invalid_count_mismatch.gltf",
+      "container": "gltf",
+      "pass": 21,
+      "fail": 2,
+      "skip": 7,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "fail",
+          "detail": "counts disagree: [(\"POSITION\", 4), (\"KHR_gaussian_splatting:ROTATION\", 4), (\"KHR_gaussian_splatting:SCALE\", 4), (\"KHR_gaussian_splatting:OPACITY\", 7), (\"KHR_gaussian_splatting:SH_DEGREE_0_COEF_0\", 4)]"
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "fail",
+          "detail": "accessor 3 needs 28 bytes but bufferView 3 has 16"
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "skip",
+          "detail": "SPZ not present in asset"
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "skip",
+          "detail": "SPZ extension not declared"
+        }
+      ],
+      "fixture": "10_invalid_count_mismatch.gltf",
+      "expected_pass": false
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/11_valid_spz_compressed.glb",
+      "container": "glb",
+      "pass": 30,
+      "fail": 0,
+      "skip": 0,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "pass",
+          "detail": null
+        }
+      ],
+      "fixture": "11_valid_spz_compressed.glb",
+      "expected_pass": false
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/12_invalid_spz_missing_ext_used.glb",
+      "container": "glb",
+      "pass": 29,
+      "fail": 1,
+      "skip": 0,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "fail",
+          "detail": "primitive declares SPZ but extensionsUsed omits it"
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "pass",
+          "detail": null
+        }
+      ],
+      "fixture": "12_invalid_spz_missing_ext_used.glb",
+      "expected_pass": false
+    },
+    {
+      "source": "crates/catetus-khr-conformance/fixtures/13_invalid_spz_wrong_magic.glb",
+      "container": "glb",
+      "pass": 29,
+      "fail": 1,
+      "skip": 0,
+      "clauses": [
+        {
+          "id": "EXT_USED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ASSET_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_EXT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "PRIM_MODE_POINTS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_KERNEL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_COLOR_SPACE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_PROJECTION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "EXT_SORTING",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTR_SH_DC",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_ROTATION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SCALE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_OPACITY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_SH_COEF",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_POSITION_MINMAX",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SH_DEGREES_FULL",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ACC_COUNTS_AGREE",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "BUFFERVIEW_BOUNDS",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "ATTRS_KNOWN_ONLY",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_DECLARED",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_CONSISTENT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_EXT_PRESENT",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_VERSION",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_BUFFERVIEW",
+          "status": "pass",
+          "detail": null
+        },
+        {
+          "id": "SPZ_BLOB_MAGIC",
+          "status": "fail",
+          "detail": "SPZ blob magic=[00, 00, 00, 00], want [47, 4e, 53, 50] (0x5053_4e47 LE)"
+        },
+        {
+          "id": "SPZ_DECODED_COUNT",
+          "status": "pass",
+          "detail": null
+        }
+      ],
+      "fixture": "13_invalid_spz_wrong_magic.glb",
+      "expected_pass": false
+    }
+  ]
+}

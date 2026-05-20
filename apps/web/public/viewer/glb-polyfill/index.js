@@ -22,7 +22,7 @@ export { decodeV5TailBytes, applyV5TailToScene } from './v5tail.js';
 /* ------------------------------------------------------------------ */
 const SH_COEFS_PER_DEGREE = [1, 3, 5, 7];
 /**
- * Phase 5 back-compat: GLB files encoded before the 2026-05-19 Catetus →
+ * Phase 5 back-compat: GLB files encoded before the 2026-05-19 SplatForge →
  * Catetus rename use `SF_*` extension keys; the current encoder writes `CT_*`.
  * For one minor version cycle the decoder accepts both — when we see an
  * `SF_*` key we rewrite it to `CT_*` (idempotent, no-op if `CT_*` is already
