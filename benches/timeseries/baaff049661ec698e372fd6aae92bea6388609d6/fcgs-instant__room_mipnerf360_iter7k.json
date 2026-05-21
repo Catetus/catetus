@@ -1,0 +1,24 @@
+{
+  "schema": "catetus.splatbench-v3.cell/0.1",
+  "commit": "baaff049661ec698e372fd6aae92bea6388609d6",
+  "ref": "main",
+  "preset": "fcgs-instant",
+  "scene_id": "room_mipnerf360_iter7k",
+  "scene_class": "indoor-real-estate",
+  "scene_dataset": "mipnerf360",
+  "run_id": "sbv3-14e03a77caf6d76b",
+  "timestamp": "2026-05-21T00:43:11.689407+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}
