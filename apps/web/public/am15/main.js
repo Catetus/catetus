@@ -758,8 +758,15 @@ async function main() {
         throw new Error(req.status + " Unable to load " + req.url);
 
     const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-    const reader = req.body.getReader();
-    let splatData = new Uint8Array(req.headers.get("content-length"));
+    // Vercel's CDN auto-Brotli-compresses responses and strips Content-Length;
+    // the original code allocated the buffer to that header value (which is
+    // null under Brotli → buffer length 0 → no splats parsed → black canvas).
+    // Download the whole body up-front via arrayBuffer() so we know the
+    // decompressed size. Loses progressive paint (the reader-loop chunks
+    // postMessage path is replaced by a single postMessage when ready), which
+    // is fine for the 37 MB hero — it's a one-time download + ~24 s autorotate.
+    const splatData = new Uint8Array(await req.arrayBuffer());
+    const reader = { read: async () => ({ done: true, value: undefined }) };
 
     const downsample =
         splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
