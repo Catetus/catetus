@@ -758,19 +758,24 @@ async function main() {
         throw new Error(req.status + " Unable to load " + req.url);
 
     const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-    // Vercel's CDN auto-Brotli-compresses responses and strips Content-Length;
-    // the original code allocated the buffer to that header value (which is
-    // null under Brotli → buffer length 0 → no splats parsed → black canvas).
-    // Download the whole body up-front via arrayBuffer() so we know the
-    // decompressed size. Loses progressive paint (the reader-loop chunks
-    // postMessage path is replaced by a single postMessage when ready), which
-    // is fine for the 37 MB hero — it's a one-time download + ~24 s autorotate.
-    const splatData = new Uint8Array(await req.arrayBuffer());
-    const reader = { read: async () => ({ done: true, value: undefined }) };
+    const reader = req.body.getReader();
+    // Pre-allocate the splat buffer. The original code sized it to
+    // Content-Length, but Vercel's CDN auto-Brotli-compresses responses and
+    // strips that header — which used to allocate a 0-byte buffer and
+    // produce a black canvas. Fall back to a generous 200 MB upper bound
+    // (any reasonable hero asset fits; unused tail is harmless because
+    // bytesRead tracks actual data). Preserves the chunked-reader paint
+    // behaviour so splats materialise as bytes arrive (~500 ms to first
+    // visible splat instead of waiting for the full 37 MB download).
+    const declared = parseInt(req.headers.get("content-length"), 10);
+    const bufSize = Number.isFinite(declared) && declared > 0
+        ? declared
+        : 200 * 1024 * 1024;
+    let splatData = new Uint8Array(bufSize);
 
     const downsample =
-        splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
-    console.log(splatData.length / rowLength, downsample);
+        bufSize / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
+    console.log(bufSize / rowLength, downsample);
 
     const worker = new Worker(
         URL.createObjectURL(
@@ -1453,9 +1458,7 @@ async function main() {
         selectFile(e.dataTransfer.files[0]);
     });
 
-    // Pre-set to the full splatData length because the arrayBuffer() patch
-    // above bypasses the chunked reader (which would have incremented this).
-    let bytesRead = splatData.length;
+    let bytesRead = 0;
     let lastVertexCount = -1;
     let stopLoading = false;
 
