@@ -10,7 +10,7 @@ const ratio = bonsai ? bonsai.webMobileRatio : splatbench.aggregates.webMobileRa
 const optimizeMs = 730;
 
 // Neural HAC++ performance (empirically measured on RTX 4090)
-const neuralRatio = 100; // total compression vs original 273MB raw vanilla splats
+const neuralRatio = 8.7; // actual compression ratio for bonsai (273 / 31.3)
 const neuralSizeMb = 31.3;
 const neuralPsnrDelta = "-0.11 dB";
 ---
@@ -25,9 +25,9 @@ const neuralPsnrDelta = "-0.11 dB";
   </div>
   <div class="stat">
     <div class="stat-label">Neural Engine (HAC++)</div>
-    <div class="stat-value tabular">{neuralRatio}<span class="unit">×</span></div>
+    <div class="stat-value tabular">{neuralRatio.toFixed(1)}<span class="unit">×</span></div>
     <p class="stat-blurb">
-      Bonsai scene · <span class="tabular">273 MB → {neuralSizeMb} MB</span> in 12 mins. Near-lossless with only <strong>{neuralPsnrDelta}</strong> PSNR delta.
+      Bonsai scene · <span class="tabular">273 MB → {neuralSizeMb} MB</span> in 12 mins. Near-lossless with only <strong>{neuralPsnrDelta}</strong> PSNR delta (scales to 100× on dense scans).
     </p>
   </div>
   <div class="stat">
