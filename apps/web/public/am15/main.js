@@ -1453,7 +1453,9 @@ async function main() {
         selectFile(e.dataTransfer.files[0]);
     });
 
-    let bytesRead = 0;
+    // Pre-set to the full splatData length because the arrayBuffer() patch
+    // above bypasses the chunked reader (which would have incremented this).
+    let bytesRead = splatData.length;
     let lastVertexCount = -1;
     let stopLoading = false;
 
