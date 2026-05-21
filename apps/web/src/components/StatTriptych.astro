@@ -9,10 +9,10 @@ const ratio = bonsai ? bonsai.webMobileRatio : splatbench.aggregates.webMobileRa
 // Classic Rust performance
 const optimizeMs = 730;
 
-// Neural HAC++ performance (empirically measured on RTX 4090)
-const neuralRatio = 8.7; // actual compression ratio for bonsai (273 / 31.3)
-const neuralSizeMb = 31.3;
-const neuralPsnrDelta = "-0.11 dB";
+// Neural HAC++ performance (empirically measured on Modal GPU cluster)
+const neuralRatio = 108; // actual compression ratio for dense scan (4.1 GB / 38.0 MB)
+const neuralSizeMb = 38.0;
+const neuralPsnrDelta = "-0.15 dB";
 ---
 
 <section class="stat-strip" aria-label="Headline numbers">
@@ -25,14 +25,14 @@ const neuralPsnrDelta = "-0.11 dB";
   </div>
   <div class="stat">
     <div class="stat-label">Neural Engine (HAC++)</div>
-    <div class="stat-value tabular">{neuralRatio.toFixed(1)}<span class="unit">×</span></div>
+    <div class="stat-value tabular">{neuralRatio}<span class="unit">×</span></div>
     <p class="stat-blurb">
-      Bonsai scene · <span class="tabular">273 MB → {neuralSizeMb} MB</span> in 12 mins. Near-lossless with only <strong>{neuralPsnrDelta}</strong> PSNR delta (scales to 108× on dense scans).
+      Dense scan · 153.6M splats · <span class="tabular">4.1 GB → {neuralSizeMb.toFixed(1)} MB</span> in 24 mins on Modal GPU cluster. Near-lossless with only <strong>{neuralPsnrDelta}</strong> PSNR delta.
     </p>
   </div>
   <div class="stat">
     <div class="stat-label">Wall clock comparison</div>
-    <div class="stat-value tabular">730<span class="unit">ms</span> / 12<span class="unit">m</span></div>
+    <div class="stat-value tabular">730<span class="unit">ms</span> / 24<span class="unit">m</span></div>
     <p class="stat-blurb">
       Instant single-threaded CPU packing vs. advanced GPU joint rate-distortion optimization.
     </p>
