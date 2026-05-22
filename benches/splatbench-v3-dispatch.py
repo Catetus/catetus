@@ -83,13 +83,14 @@ def dispatch_modal(preset: str, scene: dict, run_id: str) -> dict:
     # their own preset-specific encoders; this dispatcher only needs to know
     # how to invoke them and parse the result envelope.
     PRESET_TO_MODAL = {
-        "web-mobile":               ("catetus-worker",       "run_optimize"),
-        "size-min":                 ("catetus-worker",       "run_optimize"),
-        "hacpp-lzma":               ("catetus-hacpp-lzma",   "encode"),
-        "fcgs-instant":             ("catetus-fcgs",         "encode"),
-        "catetus-qat-scaffold":  ("catetus-qat-scaffold", "encode"),
-        "catetus-qat-bundle":    ("catetus-qat-bundle",   "encode"),
-        "catetus-qat-3dgs":      ("catetus-qat-3dgs",     "encode"),
+        "web-mobile": ("catetus-worker", "run_optimize"),
+        "size-min": ("catetus-worker", "run_optimize"),
+        # Deployed combined app: splatforge-hacpp-lzma / hacpp_encode
+        "hacpp-lzma": ("splatforge-hacpp-lzma", "hacpp_encode"),
+        "fcgs-instant": ("catetus-fcgs", "encode"),
+        "catetus-qat-scaffold": ("splatforge-hacpp-lzma", "qat_encode"),
+        "catetus-qat-bundle": ("splatforge-hacpp-lzma", "qat_bundle_encode"),
+        "catetus-qat-3dgs": ("splatforge-hacpp-lzma", "qat_3dgs_encode"),
     }
     if preset not in PRESET_TO_MODAL:
         return {"ok": False, "error": f"unknown-preset:{preset}"}

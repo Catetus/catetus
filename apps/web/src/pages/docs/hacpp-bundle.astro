@@ -71,15 +71,9 @@ tar -cf bundle.tar \
     render-PSNR vs. Scaffold-GS native).
   </p>
   <p class="note">
-    If the sample link returns 404, the bundle has not yet been
-    published to the public CDN; the layout above is still correct and
-    the encoder is the source of truth — see
-    <a
-      href="https://github.com/city-super/Scaffold-GS"
-      target="_blank"
-      rel="noreferrer noopener"
-      >Scaffold-GS upstream training instructions</a
-    > for producing a checkpoint of your own.
+    The sample is served from Vercel Blob via
+    <code>/samples/bonsai_scaffold_bundle.tar</code> (rewritten on deploy).
+    Direct blob URL is also valid for API <code>source_url</code> jobs.
   </p>
 
   <h2>What happens server-side</h2>

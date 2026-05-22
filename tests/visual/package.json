@@ -12,8 +12,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@catetus/viewer": "workspace:*",
     "@catetus/report-ui": "workspace:*",
+    "@catetus/viewer": "workspace:*",
     "pixelmatch": "^6.0.0",
     "playwright-core": "^1.45.0",
     "pngjs": "^7.0.0"
@@ -23,6 +23,7 @@
     "@types/node": "^20.11.0",
     "@types/pixelmatch": "^5.2.6",
     "@types/pngjs": "^6.0.5",
+    "playwright": "^1.60.0",
     "typescript": "^5.4.0"
   }
 }

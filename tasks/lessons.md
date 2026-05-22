@@ -28,3 +28,53 @@ touching any code:
 
 **Reference:** `experiments/v5-2-phase-d/RESULT.md` (refuted hypothesis,
 honest fix paths documented but not implemented).
+
+## 2026-05-20 — Find/replace passes must skip back-compat tables
+
+**Mistake pattern:** Bulk `SplatForge → Catetus` / `SF_ → CT_` rewrite
+during the public-flip scrub turned the LEFT-side keys of the
+`LEGACY_EXTENSION_REMAP` table in `packages/glb-polyfill/src/index.ts`
+into `CT_*` — i.e. self-mappings. The normalization loop then
+`delete`d each `CT_*` key after copying its value onto itself, so a
+fresh `CT_*`-only GLB came out of the polyfill with zero extensions.
+Tests passed locally because the test fixtures still had the old `SF_*`
+extension names at the time the regex ran.
+
+**Rule:** Before any project-wide find/replace pass, grep for the
+OLD identifier in any file that contains the word `legacy`, `compat`,
+`alias`, `remap`, `deprecated`, `migration`, or `back-compat`. Every
+hit in those files is a candidate for being *intentionally* the old
+name — review by hand and exclude from the bulk pass.
+
+**Belt-and-braces:** after a rename pass, run the test suite against a
+fresh fixture file that uses ONLY the new names. The old-name fixtures
+will keep passing because the legacy path falls through to the
+identity case.
+
+**Reference:** caught in the post-orphan-branch Cursor audit, fixed by
+reverting just the left-side keys of `LEGACY_EXTENSION_REMAP` to `SF_*`.
+
+## 2026-05-20 — Vercel CDN auto-Brotli strips Content-Length
+
+**Mistake pattern:** Vendored antimatter15 viewer sized its splat
+buffer with `new Uint8Array(req.headers.get("content-length"))`. Works
+on origin; on Vercel the CDN auto-Brotli-compresses the `.splat`
+response and strips Content-Length (because the on-the-wire length no
+longer matches the decompressed length). `headers.get(...)` returns
+`null`, `Number(null)` is 0, `new Uint8Array(0)` is a 0-byte buffer,
+no splats parse, hero canvas is black. The `no-transform` cache
+header in `vercel.json` is ignored by Vercel's CDN.
+
+**Rule:** Any progressive-fetch path that allocates a buffer from
+Content-Length needs a fallback for `null` / `0`. Pre-allocate a
+reasonable upper bound (200 MB for hero scenes) and track bytes-
+written separately. Don't trust Content-Length on responses that go
+through a CDN that can transcode.
+
+**Diagnostic shortcut:** if a `fetch()` returns 200 + a body that
+parses to zero records, check `response.headers.get('content-length')`
+first — if it's `null` and the response is `Content-Encoding: br` or
+`gzip`, that's the bug.
+
+**Reference:** `apps/web/public/am15/main.js` ~L763 (fix landed
+2026-05-20 in the hero-restore chain).

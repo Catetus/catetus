@@ -20,7 +20,7 @@ export async function getStaticPaths() {
   }));
 }
 
-const { scene } = Astro.props as { scene: typeof index.scenes[number] };
+const { scene } = Astro.props as { scene: typeof index.scenes[number] & { isStreaming?: boolean } };
 
 const title = `${scene.displayName} — Catetus Explore`;
 const description =
@@ -47,6 +47,7 @@ function fmtBytes(n: number): string {
 }
 
 const canEmbed = !!scene.viewerSrc;
+const isStreaming = scene.isStreaming === true || scene.format === 'tileset';
 const fid = scene.fidelity;
 ---
 
@@ -84,18 +85,84 @@ const fid = scene.fidelity;
   <section class="scene-layout">
     <div class="scene-viewer-col">
       {canEmbed ? (
-        <div class="viewer-stage" data-scene-stage>
-          <canvas
-            class="viewer-canvas"
-            data-scene-canvas
-            width="1280"
-            height="800"></canvas>
-          <div class="viewer-fade" data-scene-fade></div>
-          <div class="viewer-frame"></div>
-          <div class="viewer-caption">
-            <span class="live" data-scene-status>booting splat viewer…</span>
-            <span class="tabular">{fmtSplats(scene.splatCount)} splats · {scene.profile}</span>
+        <div class:list={["viewer-stage-container", { "streaming-mode": isStreaming }]}>
+          <div class="viewer-stage" data-scene-stage>
+            <canvas
+              class="viewer-canvas"
+              data-scene-canvas
+              width="1280"
+              height="800"></canvas>
+            <div class="viewer-fade" data-scene-fade></div>
+            <div class="viewer-frame"></div>
+            <div class="viewer-caption">
+              <span class="live" data-scene-status>booting splat viewer…</span>
+              <span class="tabular">{fmtSplats(scene.splatCount)} splats · {scene.profile}</span>
+            </div>
           </div>
+          {isStreaming && (
+            <div class="streaming-control-panel">
+              <h3 class="panel-title">LOD Streaming Controls</h3>
+              <div class="panel-section">
+                <div class="slider-header">
+                  <label for="sse-slider">Screen Space Error (SSE)</label>
+                  <span id="sse-value" class="slider-value">16</span>
+                </div>
+                <input
+                  type="range"
+                  id="sse-slider"
+                  min="1"
+                  max="32"
+                  step="1"
+                  value="16"
+                  class="slider-input"
+                />
+                <span class="slider-hint">Lower = sharper quality (more tiles), Higher = coarse performance</span>
+              </div>
+              
+              <div class="panel-section">
+                <div class="slider-header">
+                  <label for="budget-slider">GPU Memory Budget</label>
+                  <span id="budget-value" class="slider-value">512 MB</span>
+                </div>
+                <input
+                  type="range"
+                  id="budget-slider"
+                  min="32"
+                  max="512"
+                  step="32"
+                  value="512"
+                  class="slider-input"
+                />
+                <span class="slider-hint">LRU cache resident size limit</span>
+              </div>
+
+              <div class="panel-section diagnostics">
+                <h4 class="diagnostics-title">Live Diagnostics</h4>
+                <dl class="diagnostics-grid">
+                  <div class="diag-item">
+                    <dt>Resident Tiles</dt>
+                    <dd id="metric-tiles">—</dd>
+                  </div>
+                  <div class="diag-item">
+                    <dt>Resident Bytes</dt>
+                    <dd id="metric-bytes">—</dd>
+                  </div>
+                  <div class="diag-item">
+                    <dt>Active Fetches</dt>
+                    <dd id="metric-fetching">—</dd>
+                  </div>
+                  <div class="diag-item">
+                    <dt>Cache Hit Rate</dt>
+                    <dd id="metric-hitrate">—</dd>
+                  </div>
+                  <div class="diag-item">
+                    <dt>Cache Evictions</dt>
+                    <dd id="metric-evictions">—</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div class="viewer-stage viewer-stage-static">
@@ -178,7 +245,7 @@ const fid = scene.fidelity;
 </Base>
 
 {canEmbed && (
-  <script is:inline define:vars={{ src: scene.viewerSrc }}>
+  <script is:inline define:vars={{ src: scene.viewerSrc, isStreaming: scene.isStreaming === true || scene.format === 'tileset' }}>
     // Per-scene viewer bootstrap — same pattern as the hero, but pointed at
     // this scene's gltf payload. Runs only when `viewerSrc` was set.
     (function () {
@@ -227,7 +294,74 @@ const fid = scene.fidelity;
               setStatus("viewer offline (" + code + ")");
               if (fade) fade.classList.add("ready");
             });
-            await viewer.load();
+            
+            if (isStreaming) {
+              await viewer.loadTileset(src, {
+                maximumScreenSpaceError: 16,
+                maxBytes: 512 * 1024 * 1024,
+              });
+
+              // Wire up controls
+              const sseSlider = document.getElementById("sse-slider");
+              const sseValue = document.getElementById("sse-value");
+              const budgetSlider = document.getElementById("budget-slider");
+              const budgetValue = document.getElementById("budget-value");
+
+              if (sseSlider) {
+                sseSlider.addEventListener("input", (e) => {
+                  const val = parseInt(e.target.value);
+                  if (sseValue) sseValue.textContent = val;
+                  if (viewer.streamingTileset) {
+                    viewer.streamingTileset.opts.maximumScreenSpaceError = val;
+                  }
+                });
+              }
+
+              if (budgetSlider) {
+                budgetSlider.addEventListener("input", (e) => {
+                  const val = parseInt(e.target.value);
+                  if (budgetValue) budgetValue.textContent = val + " MB";
+                  if (viewer.streamingTileset) {
+                    const streamer = viewer.streamingTileset.streamer;
+                    streamer.maxBytes = val * 1024 * 1024;
+                    if (typeof streamer.maybeEvict === "function") {
+                      streamer.maybeEvict();
+                    }
+                  }
+                });
+              }
+
+              // Live Diagnostics Polling Loop
+              const metricTiles = document.getElementById("metric-tiles");
+              const metricBytes = document.getElementById("metric-bytes");
+              const metricFetching = document.getElementById("metric-fetching");
+              const metricHitrate = document.getElementById("metric-hitrate");
+              const metricEvictions = document.getElementById("metric-evictions");
+
+              const updateStats = () => {
+                if (!canvas.isConnected) return;
+                const streamer = viewer.streamingTileset && viewer.streamingTileset.streamer;
+                if (streamer) {
+                  const stats = streamer.stats();
+                  if (metricTiles) metricTiles.textContent = stats.residentTiles;
+                  if (metricBytes) {
+                    const mb = (stats.residentBytes / (1024 * 1024)).toFixed(2);
+                    metricBytes.textContent = mb + " MB";
+                  }
+                  if (metricFetching) metricFetching.textContent = stats.inFlight;
+                  if (metricEvictions) metricEvictions.textContent = stats.evictions;
+                  if (metricHitrate) {
+                    const total = stats.cacheHits + stats.cacheMisses;
+                    const rate = total > 0 ? ((stats.cacheHits / total) * 100).toFixed(1) : "0.0";
+                    metricHitrate.textContent = rate + "%";
+                  }
+                }
+                requestAnimationFrame(updateStats);
+              };
+              requestAnimationFrame(updateStats);
+            } else {
+              await viewer.load();
+            }
           })
           .catch((err) => {
             console.warn("[explore-scene] viewer init failed:", err);
@@ -490,5 +624,123 @@ const fid = scene.fidelity;
     justify-content: space-between;
     gap: 16px;
     flex-wrap: wrap;
+  }
+
+  /* Streaming control panel premium styles */
+  .viewer-stage-container.streaming-mode {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
+    align-items: stretch;
+  }
+  @media (max-width: 1024px) {
+    .viewer-stage-container.streaming-mode {
+      grid-template-columns: 1fr;
+    }
+  }
+  .streaming-control-panel {
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    color: var(--fg);
+  }
+  .panel-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--accent-warm);
+    letter-spacing: -0.3px;
+  }
+  .panel-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--fg-muted);
+  }
+  .slider-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .slider-input {
+    width: 100%;
+    accent-color: var(--accent-warm);
+    background: var(--bg-elev);
+    height: 6px;
+    border-radius: 3px;
+    outline: none;
+    -webkit-appearance: none;
+  }
+  .slider-input::-webkit-slider-runnable-track {
+    background: var(--line);
+    height: 6px;
+    border-radius: 3px;
+  }
+  .slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    background: var(--accent-warm);
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    margin-top: -5px;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(251, 146, 60, 0.3);
+    transition: transform 100ms;
+  }
+  .slider-input::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+  }
+  .slider-hint {
+    font-size: 10px;
+    color: var(--fg-dim);
+    line-height: 1.4;
+  }
+  .diagnostics {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    margin-top: auto;
+  }
+  .diagnostics-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-dim);
+    margin: 0 0 10px 0;
+  }
+  .diagnostics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin: 0;
+  }
+  .diag-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .diag-item dt {
+    font-size: 10px;
+    color: var(--fg-dim);
+  }
+  .diag-item dd {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
   }
 </style>

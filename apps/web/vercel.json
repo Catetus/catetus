@@ -16,6 +16,10 @@
     {
       "source": "/viewer/",
       "destination": "/viewer/index.html"
+    },
+    {
+      "source": "/samples/bonsai_scaffold_bundle.tar",
+      "destination": "https://xmcqr5nqjygbqjqw.public.blob.vercel-storage.com/samples/bonsai_scaffold_bundle-HDwle9QJTjNjvg1cLYVaf5cuRqdKaS.tar"
     }
   ]
 }

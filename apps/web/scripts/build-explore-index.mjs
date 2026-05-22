@@ -141,10 +141,31 @@ function main() {
   const splatbenchEntries = buildSplatbenchEntries(splatbench);
   const externalEntries = buildExternalEntries(external);
 
+  const geospatialTilesetEntry = {
+    id: "geospatial_sample_tileset",
+    source: "splatbench",
+    displayName: "geospatial sample tileset (Streaming LOD)",
+    license: "CC-BY",
+    licenseBucket: "CC-BY",
+    attribution: "Catetus geospatial multi-LOD benchmark fixture.",
+    profile: "outdoor",
+    profileRaw: "outdoor-geospatial",
+    splatCount: 450000,
+    bytesIn: 30720,
+    format: "tileset",
+    originUrl: "crates/catetus-optimize/tests/fixtures/geospatial-sample/",
+    selfHosted: true,
+    khrConformance: "pass",
+    fidelity: null,
+    thumbHint: "outdoor",
+    viewerSrc: "/tilesets/geospatial-sample/tileset.json",
+    isStreaming: true
+  };
+
   // Sort: self-hosted first (best UX — viewer works inline), then by license
   // openness (CC0 > CC-BY > research-open > other), then by splat count desc.
   const licenseOrder = { 'CC0': 0, 'CC-BY': 1, 'CC-BY-SA': 2, 'Apache-2.0': 3, 'MIT': 4, 'research-open': 5, 'other': 6, 'unknown': 7 };
-  const all = [...splatbenchEntries, ...externalEntries].sort((a, b) => {
+  const all = [geospatialTilesetEntry, ...splatbenchEntries, ...externalEntries].sort((a, b) => {
     if (a.selfHosted !== b.selfHosted) return a.selfHosted ? -1 : 1;
     const la = licenseOrder[a.licenseBucket] ?? 99;
     const lb = licenseOrder[b.licenseBucket] ?? 99;
