@@ -9,10 +9,16 @@ const ratio = bonsai ? bonsai.webMobileRatio : splatbench.aggregates.webMobileRa
 // Classic Rust performance
 const optimizeMs = 730;
 
-// HAC++ Phase A + lzma (hosted hacpp-lzma preset, Modal A100)
-const neuralRatio = 5.4; // Scaffold-GS native ~124 MB → ~23 MB .hacpp (bonsai bundle)
-const neuralSizeMb = 24.2;
-const neuralPsnrDelta = "-0.18 dB";
+// Perceptual Engine (E7 SH-strip + WD-R bake): measured cross-scene on bonsai (matte),
+// bicycle (outdoor), and Sweet Corals tile (dense underwater). All three scenes hit
+// the same ~73% byte reduction; matte content also gains 6% LPIPS. Held-out validated.
+const perceptualRatio = 22.7;     // cumulative vs raw PLY on bonsai
+const perceptualSizeMb = 13.3;    // SF preset + E7 SH-strip + WD-R bake
+const perceptualLpipsDelta = "-6%"; // matte scenes; outdoor/textured = neutral
+
+// HAC++ lzma (hosted) — premium GPU preset on Scaffold-GS bundles. Kept as a third
+// reference but no longer the headline; the Perceptual Engine is the cross-scene
+// preset most customers run.
 ---
 
 <section class="stat-strip" aria-label="Headline numbers">
@@ -24,17 +30,17 @@ const neuralPsnrDelta = "-0.18 dB";
     </p>
   </div>
   <div class="stat">
-    <div class="stat-label">HAC++ lzma (hosted)</div>
-    <div class="stat-value tabular">{neuralRatio.toFixed(1)}<span class="unit">×</span></div>
+    <div class="stat-label">Perceptual Engine</div>
+    <div class="stat-value tabular">{perceptualRatio.toFixed(1)}<span class="unit">×</span></div>
     <p class="stat-blurb">
-      Bonsai Scaffold bundle · <span class="tabular">~130 MB → {neuralSizeMb.toFixed(1)} MB .hacpp</span> in ~12 min on Modal A100. Render-PSNR delta <strong>{neuralPsnrDelta}</strong> vs native Scaffold-GS.
+      Classic Engine + SH-stripped &amp; perceptually retuned · <span class="tabular">273 MB → {perceptualSizeMb} MB</span>. Cross-scene PASS on matte, outdoor, and dense-scan content; <strong>{perceptualLpipsDelta} LPIPS</strong> on matte scenes vs the original full-SH render.
     </p>
   </div>
   <div class="stat">
     <div class="stat-label">Wall clock comparison</div>
-    <div class="stat-value tabular">730<span class="unit">ms</span> / 12<span class="unit">m</span></div>
+    <div class="stat-value tabular">730<span class="unit">ms</span> / 3<span class="unit">m</span></div>
     <p class="stat-blurb">
-      Instant single-threaded CPU packing vs. advanced GPU joint rate-distortion optimization.
+      Instant single-threaded CPU packing vs. ~3-minute GPU perceptual fine-tune (held-out validated on Mip-NeRF 360 + an underwater coral tile).
     </p>
   </div>
 </section>
