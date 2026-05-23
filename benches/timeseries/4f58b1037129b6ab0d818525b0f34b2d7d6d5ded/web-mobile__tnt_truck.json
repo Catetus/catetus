@@ -1,0 +1,24 @@
+{
+  "schema": "catetus.splatbench-v3.cell/0.1",
+  "commit": "4f58b1037129b6ab0d818525b0f34b2d7d6d5ded",
+  "ref": "main",
+  "preset": "web-mobile",
+  "scene_id": "tnt_truck",
+  "scene_class": "outdoor-object",
+  "scene_dataset": "tanks-and-temples",
+  "run_id": "sbv3-6f4ff9fab7309d3a",
+  "timestamp": "2026-05-23T06:49:33.272227+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}
