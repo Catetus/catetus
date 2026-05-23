@@ -9,12 +9,15 @@ const ratio = bonsai ? bonsai.webMobileRatio : splatbench.aggregates.webMobileRa
 // Classic Rust performance
 const optimizeMs = 730;
 
-// Perceptual Engine (E7 SH-strip + WD-R bake): measured cross-scene on bonsai (matte),
-// bicycle (outdoor), and Sweet Corals tile (dense underwater). All three scenes hit
-// the same ~73% byte reduction; matte content also gains 6% LPIPS. Held-out validated.
-const perceptualRatio = 22.7;     // cumulative vs raw PLY on bonsai
-const perceptualSizeMb = 13.3;    // SF preset + E7 SH-strip + WD-R bake
-const perceptualLpipsDelta = "-6%"; // matte scenes; outdoor/textured = neutral
+// Perceptual Engine (E7 SH-strip + WD-R bake + QAT pre-train + CAMCOV + opacity cull +
+// 1-bit DC/opa shave): STACK-2 composed pipeline measured on bonsai (Mip-NeRF 360, 37
+// held-out test cams, llffhold=8). 265.30 MB vanilla raw -> 9.376 MB; PSNR 26.49 dB
+// (+0.13 dB over SF-vanilla-SH3 baseline); LPIPS 0.204 (-7.2% vs SF-vanilla-SH3).
+// Cross-scene replication for bicycle/counter/kitchen/room is the #1 follow-up.
+// See research/wd-r-spike/STACK2_findings.md.
+const perceptualRatio = 28.3;     // cumulative vs raw PLY (vanilla bonsai 30k)
+const perceptualSizeMb = 9.4;     // composed STACK-2 pipeline
+const perceptualLpipsDelta = "-7%"; // vs SF preset baseline at iso-quality
 
 // HAC++ lzma (hosted) — premium GPU preset on Scaffold-GS bundles. Kept as a third
 // reference but no longer the headline; the Perceptual Engine is the cross-scene
