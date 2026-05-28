@@ -27,6 +27,11 @@ use clap::{Parser, Subcommand};
 mod license;
 use license::{cmd_license_install, cmd_license_refresh, cmd_license_status, cmd_serve};
 
+mod encode_api;
+use encode_api::{
+    apply_v5tail_via_api, resolve_api_url, run_encode_to_disk, EncodeTarget as ApiEncodeTarget,
+};
+
 #[derive(Parser, Debug)]
 #[command(name = "catetus", version, about = "Gaussian Splat optimization CLI")]
 struct Cli {
@@ -143,6 +148,19 @@ enum Command {
         /// effect when the preset doesn't include `VQPaletteShRest`.
         #[arg(long, value_name = "NPZ_PATH")]
         jacobian_sidecar: Option<PathBuf>,
+        /// Compute the per-splat SH-rest rendering-Jacobian internally
+        /// (no external `.npz` required) and feed it into the same
+        /// `VQPaletteShRest` render-space weighted Lloyd-Max path as
+        /// `--jacobian-sidecar`. This is the **T2.1.R tier** — on bonsai
+        /// the canonical `wmv-vq45-no-prune-tight` preset gains +6.24 dB
+        /// over SuperSplat at the same byte budget (see
+        /// `experiments/3tier-leaderboard/RESULT.md`).
+        ///
+        /// Uses the closed-form CPU proxy from `catetus-jacobian`
+        /// (`α * area_2d(scale) * ||sh_rest||₂`); pure Rust, no GPU,
+        /// no Python. Mutually exclusive with `--jacobian-sidecar`.
+        #[arg(long, conflicts_with = "jacobian_sidecar")]
+        auto_jacobian: bool,
         /// Emit a V5.2 joint-tail residual sidecar next to the output.
         ///
         /// * With `--target glb`: writes `<out>.v5tail`, stamps the GLB's
@@ -165,6 +183,13 @@ enum Command {
         /// selection).
         #[arg(long, value_name = "GT_PLY")]
         emit_v5_tail: Option<PathBuf>,
+        /// Base URL for the hosted Catetus encode API. Used by
+        /// `--target sog` (which short-circuits the local pipeline and
+        /// POSTs the raw input PLY to `<api-url>/v1/encode?target=sog`).
+        /// Defaults to `https://api.catetus.com` or the `CATETUS_API_URL`
+        /// environment variable when set. Only consulted on the SOG path.
+        #[arg(long, value_name = "URL")]
+        api_url: Option<String>,
     },
     /// Emit a V5.2 joint-tail residual sidecar (`.sog.v5tail`) next to an
     /// existing `.sog` file. The sidecar is byte-compatible with the
@@ -200,6 +225,10 @@ enum Command {
         /// Used by the bit-depth retune experiment.
         #[arg(long, value_name = "JSON")]
         dump_residual_stats: Option<PathBuf>,
+        /// Base URL for the hosted Catetus encode API. Defaults to
+        /// `https://api.catetus.com` (override via `CATETUS_API_URL`).
+        #[arg(long, value_name = "URL")]
+        api_url: Option<String>,
     },
     /// Apply a `.sog.v5tail` sidecar to a `.sog` and write the
     /// reconstructed scene as a PLY. Used both for round-trip verification
@@ -220,6 +249,10 @@ enum Command {
         /// render-based bench.
         #[arg(long, value_name = "GT_PLY")]
         gt: Option<PathBuf>,
+        /// Base URL for the hosted Catetus decode API. Defaults to
+        /// `https://api.catetus.com` (override via `CATETUS_API_URL`).
+        #[arg(long, value_name = "URL")]
+        api_url: Option<String>,
     },
     /// Serve a tiny static preview viewer.
     Preview {
@@ -595,7 +628,9 @@ fn dispatch(cli: Cli) -> Result<()> {
             progress,
             rd_prune,
             jacobian_sidecar,
+            auto_jacobian,
             emit_v5_tail,
+            api_url,
         } => cmd_optimize(
             &input,
             &preset,
@@ -608,7 +643,9 @@ fn dispatch(cli: Cli) -> Result<()> {
             progress,
             rd_prune,
             jacobian_sidecar.as_deref(),
+            auto_jacobian,
             emit_v5_tail.as_deref(),
+            api_url.as_deref(),
         ),
         Command::SogEmitV5Tail {
             sog,
@@ -617,6 +654,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             profile,
             jacobian_sidecar,
             dump_residual_stats,
+            api_url,
         } => cmd_sog_emit_v5tail(
             &sog,
             &gt,
@@ -624,13 +662,21 @@ fn dispatch(cli: Cli) -> Result<()> {
             profile.as_deref(),
             jacobian_sidecar.as_deref(),
             dump_residual_stats.as_deref(),
+            api_url.as_deref(),
         ),
         Command::SogApplyV5Tail {
             sog,
             sidecar,
             out,
             gt,
-        } => cmd_sog_apply_v5tail(&sog, sidecar.as_deref(), &out, gt.as_deref()),
+            api_url,
+        } => cmd_sog_apply_v5tail(
+            &sog,
+            sidecar.as_deref(),
+            &out,
+            gt.as_deref(),
+            api_url.as_deref(),
+        ),
         Command::Preview { input, port } => cmd_preview(&input, port),
         Command::Diff {
             before,
@@ -1432,10 +1478,104 @@ fn cmd_optimize(
     progress: bool,
     rd_prune: Option<f32>,
     jacobian_sidecar: Option<&Path>,
+    auto_jacobian: bool,
     emit_v5_tail: Option<&Path>,
+    api_url: Option<&str>,
 ) -> Result<()> {
     if out.is_some() && output_dir.is_some() {
         return Err(anyhow!("--out and --output-dir are mutually exclusive"));
+    }
+    // `--target sog` is hosted-only since the 2026-05-19 open-core split:
+    // the SOG encoder lives in the private `catetus-sog` crate. Short-
+    // circuit here BEFORE running the local optimize pipeline (the
+    // pipeline would only produce an in-memory SplatScene that the SOG
+    // writer would then need to serialize — and the SOG writer is the
+    // part that's gone). Instead we POST the raw input PLY to the
+    // hosted `/v1/encode` route and let the private worker run the
+    // equivalent pipeline.
+    if matches!(target, Some("sog")) {
+        if compress.is_some() {
+            return Err(anyhow!(
+                "--compress is not supported with --target sog \
+                 (SOG entries are WebP-compressed already)"
+            ));
+        }
+        if lossless.is_some() {
+            return Err(anyhow!(
+                "--lossless is not supported with --target sog \
+                 (no GLB BIN chunk to wrap)"
+            ));
+        }
+        if output_dir.is_some() {
+            return Err(anyhow!(
+                "--output-dir is only supported with --preset geospatial"
+            ));
+        }
+        let out_path = out
+            .map(PathBuf::from)
+            .unwrap_or_else(|| input.with_extension("optimized.sog"));
+        let v5tail = emit_v5_tail.is_some();
+        // Default the sidecar to `<out>.v5tail` so a user invoking
+        // `--emit-v5-tail` doesn't need a separate flag to pick the
+        // output path. Mirrors the GLB branch's behaviour.
+        let sidecar_path = if v5tail {
+            let mut p = out_path.clone();
+            let new_ext = match p.extension().and_then(|s| s.to_str()) {
+                Some(ext) => format!("{ext}.v5tail"),
+                None => "v5tail".to_string(),
+            };
+            p.set_extension(new_ext);
+            Some(p)
+        } else {
+            None
+        };
+        if progress {
+            emit_progress(0.00, "hosted-sog-encode-upload");
+        }
+        let resolved_api = resolve_api_url(api_url);
+        // Pipeline knobs (--preset, --rd-prune, --jacobian-sidecar) are
+        // driven server-side; the hosted route uses its own default
+        // profile. Surface a one-line note when a local user supplied
+        // non-default knobs so they don't quietly assume those flags
+        // ride through.
+        if jacobian_sidecar.is_some() || rd_prune.is_some() || preset_name != "web-mobile" {
+            eprintln!(
+                "catetus: note: --target sog runs on the hosted encoder; \
+                 --preset / --rd-prune / --jacobian-sidecar are interpreted \
+                 by the server's default profile, not the local flags. \
+                 Override the API base with --api-url or CATETUS_API_URL."
+            );
+        }
+        let outcome = run_encode_to_disk(
+            &resolved_api,
+            ApiEncodeTarget::Sog,
+            v5tail,
+            input,
+            &out_path,
+            sidecar_path.as_deref(),
+            None,
+            std::time::Duration::from_secs(300),
+        )?;
+        if progress {
+            emit_progress(1.00, "hosted-sog-encode-done");
+        }
+        let sidecar_msg =
+            match (v5tail, sidecar_path.as_ref(), outcome.sidecar_bytes.as_ref()) {
+                (true, Some(p), Some(b)) => {
+                    format!(" + sidecar -> {} ({} bytes)", p.display(), b.len())
+                }
+                (true, _, _) => " (sidecar requested but server returned none)".to_string(),
+                _ => String::new(),
+            };
+        println!(
+            "hosted-sog encode: job_id={} -> {} ({} bytes){}",
+            outcome.job_id,
+            out_path.display(),
+            outcome.output_bytes.len(),
+            sidecar_msg,
+        );
+        let _ = (chunked, auto_jacobian);
+        return Ok(());
     }
     let target_glb = match target {
         None | Some("gltf") => false,
@@ -1579,7 +1719,40 @@ fn cmd_optimize(
     // exact byte-stable behaviour for the T2.1.R presets.
     let mut init_ctx = catetus_optimize::PassContext::default();
     let mut joint_jacobian: Option<Vec<f32>> = None;
-    if let Some(p) = jacobian_sidecar {
+    if auto_jacobian {
+        if emit_v5_tail.is_some() {
+            return Err(anyhow!(
+                "--auto-jacobian does not yet support --emit-v5-tail (V5.2 needs a joint \
+                 multi-array Jacobian — the CPU proxy currently emits only J_sh_rest). Use \
+                 --jacobian-sidecar pointing at a joint .npz for V5.2 emission."
+            ));
+        }
+        // Closed-form CPU proxy from `catetus-jacobian` (Apache-2.0). This is
+        // the public-CLI equivalent of `--jacobian-sidecar` — no external
+        // `.npz`, no CUDA, no Python. T2.1.R tier (~+6.24 dB over SuperSplat
+        // on bonsai canonical-11 — see experiments/3tier-leaderboard/RESULT.md).
+        let t0 = std::time::Instant::now();
+        let result = catetus_jacobian::compute_jacobian(&scene);
+        let weights = result.j_sh_rest;
+        let elapsed = t0.elapsed();
+        println!(
+            "auto-jacobian: computed {} SH-rest weights in {:.3}s ({} method)",
+            weights.len(),
+            elapsed.as_secs_f64(),
+            match result.method {
+                catetus_jacobian::JacobianMethod::GeometricProxyV1 => "GeometricProxyV1",
+            },
+        );
+        if weights.len() != scene.splats.len() {
+            return Err(anyhow!(
+                "--auto-jacobian: internal length mismatch ({} weights vs {} splats); \
+                 please file a bug",
+                weights.len(),
+                scene.splats.len()
+            ));
+        }
+        init_ctx.sh_rest_weights = Some(weights);
+    } else if let Some(p) = jacobian_sidecar {
         let weights = if emit_v5_tail.is_some() {
             let joint = load_joint_jacobian_sum_from_npz(p).with_context(|| {
                 format!(
@@ -1722,28 +1895,16 @@ fn cmd_optimize(
     // `shN_centroids.webp` — that's the +3 to +6 dB lift over PlayCanvas's
     // stock encoder at the same byte budget. See
     // `experiments/sog-render-weighted/RESULT.md`.
+    // `--target sog` short-circuits to the hosted `/v1/encode` route at
+    // the top of `cmd_optimize` — by the time we reach this point the
+    // request has already returned. Keep the dead branch as a defensive
+    // guard so a future refactor that drops the short-circuit fails
+    // loudly instead of running the GLB writer with target=sog.
     if target_sog {
-        // `--target sog` and the V5.2 `.sog.v5tail` sidecar emitter live in
-        // the private `catetus/catetus-private/crates/catetus-sog` crate as
-        // of the 2026-05-19 open-core split (RENAME_TO_CATETUS_PLAN.md
-        // Section 1.5). Public callers POST to
-        // `https://api.catetus.com/v1/encode?target=sog` instead; the
-        // request body is the optimized scene this pipeline produced.
-        let _ = (
-            compress_mode,
-            lossless_wrap,
-            emit_v5_tail,
-            &post_ctx,
-            &scene,
-            &out,
-            preset_name,
+        unreachable!(
+            "--target sog should have been handled by the hosted-encode \
+             short-circuit at the top of cmd_optimize"
         );
-        return Err(anyhow!(
-            "`--target sog` is hosted-only since the 2026-05-19 open-core split. \
-             POST the optimized GLB to https://api.catetus.com/v1/encode?target=sog \
-             (and set ?v5tail=1 for the V5.2 tail-residual sidecar). \
-             The reference encoder lives in the private catetus-sog crate."
-        ));
     }
     // Per SPEC-0013, the web-targeted presets opt in to `KHR_mesh_quantization`
     // integer accessors so the glTF wire size lands close to the SPZ payload.
@@ -2469,25 +2630,97 @@ fn compress_buffer_files(gltf_path: &Path) -> Result<(u64, u64)> {
     Ok((total_raw, total_zst))
 }
 
-/// `catetus sog-emit-v5-tail <sog> --gt <gt.ply>` — HOSTED-ONLY since 2026-05-19.
+/// `catetus sog-emit-v5-tail <sog> --gt <gt.ply>` — hosted call.
 ///
 /// The SOG writer + `.sog.v5tail` emitter moved to the private
-/// `catetus/catetus-private/crates/catetus-sog` crate as part of the open-core
-/// split (RENAME_TO_CATETUS_PLAN.md Section 1.5). Public callers POST to
-/// `https://api.catetus.com/v1/encode?target=sog&v5tail=1`.
+/// `catetus/catetus-private/crates/catetus-sog` crate as part of the
+/// 2026-05-19 open-core split. The hosted `/v1/encode?target=sog&v5tail=true`
+/// route runs the same encoder on the server side and returns both the
+/// SOG container AND the V5.2 sidecar — we discard the SOG (the caller
+/// already has one) and write the sidecar next to the provided `.sog`
+/// file (default `<sog>.v5tail`, mirroring the GLB-path naming).
+///
+/// Notes / known limitations:
+///   - The hosted route re-encodes from the GT PLY using the server's
+///     default profile; `--profile`, `--k-percent`, `--jacobian-sidecar`,
+///     and `--dump-residual-stats` are advisory locally and not yet
+///     forwarded to the worker. See LAUNCH4_BLOCKER.md for the open
+///     plumbing task.
 fn cmd_sog_emit_v5tail(
-    _sog: &Path,
-    _gt: &Path,
-    _k_percent: f32,
-    _profile: Option<&str>,
-    _jacobian_npz: Option<&Path>,
-    _dump_residual_stats: Option<&Path>,
+    sog: &Path,
+    gt: &Path,
+    k_percent: f32,
+    profile: Option<&str>,
+    jacobian_npz: Option<&Path>,
+    dump_residual_stats: Option<&Path>,
+    api_url: Option<&str>,
 ) -> Result<()> {
-    anyhow::bail!(
-        "`sog-emit-v5-tail` is hosted-only since the 2026-05-19 open-core split. \
-         POST to https://api.catetus.com/v1/encode?target=sog&v5tail=1 instead. \
-         The reference encoder lives in the private catetus-sog crate."
-    )
+    if !sog.exists() {
+        return Err(anyhow!("SOG not found at {}", sog.display()));
+    }
+    if !gt.exists() {
+        return Err(anyhow!("GT PLY not found at {}", gt.display()));
+    }
+    let sidecar_path = {
+        let mut p = sog.to_path_buf();
+        let new_ext = match p.extension().and_then(|s| s.to_str()) {
+            Some(ext) => format!("{ext}.v5tail"),
+            None => "v5tail".to_string(),
+        };
+        p.set_extension(new_ext);
+        p
+    };
+    if jacobian_npz.is_some()
+        || dump_residual_stats.is_some()
+        || profile.is_some()
+        || (k_percent - 0.01).abs() > 1e-6
+    {
+        eprintln!(
+            "catetus: note: --jacobian-sidecar / --dump-residual-stats / --profile / \
+             --k-percent are not yet forwarded to the hosted encoder. The server \
+             will use its default profile (V5.2 8/10/12/12/8/8, top-1% selection). \
+             See LAUNCH4_BLOCKER.md for the forwarding task."
+        );
+    }
+    let resolved_api = resolve_api_url(api_url);
+    // The hosted encode route's `v5tail=true` response carries both the
+    // SOG and the V5.2 sidecar. We use a throwaway temp path for the
+    // SOG (caller already has theirs).
+    let tmp_dir = std::env::temp_dir();
+    let mut tmp_sog = tmp_dir.clone();
+    tmp_sog.push(format!(
+        "catetus-emit-v5tail-{}.sog",
+        std::process::id()
+    ));
+    let outcome = run_encode_to_disk(
+        &resolved_api,
+        ApiEncodeTarget::Sog,
+        true,
+        gt,
+        &tmp_sog,
+        Some(&sidecar_path),
+        Some(&format!(
+            "sog-emit-v5-tail for {}",
+            sog.file_name().and_then(|s| s.to_str()).unwrap_or("?")
+        )),
+        std::time::Duration::from_secs(300),
+    )?;
+    // Best-effort tidy. Failure to remove the temp SOG is not fatal —
+    // tempdir sweeps eventually catch it.
+    let _ = std::fs::remove_file(&tmp_sog);
+    let sidecar_bytes = outcome
+        .sidecar_bytes
+        .as_ref()
+        .map(|b| b.len())
+        .unwrap_or(0);
+    println!(
+        "hosted-sog emit-v5-tail: job_id={} -> {} ({} bytes sidecar; SOG {} bytes discarded)",
+        outcome.job_id,
+        sidecar_path.display(),
+        sidecar_bytes,
+        outcome.output_bytes.len(),
+    );
+    Ok(())
 }
 
 /// Parse a `pos/rot/opa/sca/dc/shr` bit-depth profile string. Accepts a
@@ -2550,22 +2783,75 @@ fn parse_bit_depth_profile(s: &str) -> Result<catetus_gltf::v5_tail::BitDepths> 
     })
 }
 
-/// `catetus sog-apply-v5-tail <sog> -o <out.ply>` — HOSTED-ONLY since 2026-05-19.
+/// `catetus sog-apply-v5-tail <sog> -o <out.ply>` — hosted call.
 ///
 /// The SOG reader + `.sog.v5tail` applier moved to the private
-/// `catetus/catetus-private/crates/catetus-sog` crate. Public callers POST
-/// to `https://api.catetus.com/v1/decode?source=sog&v5tail=1`.
+/// `catetus/catetus-private/crates/catetus-sog` crate. Public callers
+/// POST `{sog_b64, sidecar_b64}` to `<api>/v1/decode?source=sog&v5tail=true`
+/// and receive the reconstructed PLY bytes back.
+///
+/// The `/v1/decode` route is currently a planned addition to the hosted
+/// API (see LAUNCH4_BLOCKER.md); the client is wired against the
+/// protocol so the CLI works the moment the server lands it. Until
+/// then a real call returns a clear "endpoint not implemented yet"
+/// error.
 fn cmd_sog_apply_v5tail(
-    _sog: &Path,
-    _sidecar: Option<&Path>,
-    _out: &Path,
-    _gt: Option<&Path>,
+    sog: &Path,
+    sidecar: Option<&Path>,
+    out: &Path,
+    gt: Option<&Path>,
+    api_url: Option<&str>,
 ) -> Result<()> {
-    anyhow::bail!(
-        "`sog-apply-v5-tail` is hosted-only since the 2026-05-19 open-core split. \
-         POST to https://api.catetus.com/v1/decode?source=sog&v5tail=1 instead. \
-         The reference decoder lives in the private catetus-sog crate."
-    )
+    if !sog.exists() {
+        return Err(anyhow!("SOG not found at {}", sog.display()));
+    }
+    let sidecar_path = match sidecar {
+        Some(p) => p.to_path_buf(),
+        None => {
+            let mut p = sog.to_path_buf();
+            let new_ext = match p.extension().and_then(|s| s.to_str()) {
+                Some(ext) => format!("{ext}.v5tail"),
+                None => "v5tail".to_string(),
+            };
+            p.set_extension(new_ext);
+            p
+        }
+    };
+    if !sidecar_path.exists() {
+        return Err(anyhow!(
+            "sidecar not found at {} (pass --sidecar to override the default `<sog>.v5tail` lookup)",
+            sidecar_path.display()
+        ));
+    }
+    let sog_bytes = std::fs::read(sog)
+        .with_context(|| format!("reading SOG {}", sog.display()))?;
+    let sidecar_bytes = std::fs::read(&sidecar_path)
+        .with_context(|| format!("reading sidecar {}", sidecar_path.display()))?;
+    let resolved_api = resolve_api_url(api_url);
+    let recon_bytes = apply_v5tail_via_api(
+        &resolved_api,
+        &sog_bytes,
+        &sidecar_bytes,
+        std::time::Duration::from_secs(300),
+    )?;
+    std::fs::write(out, &recon_bytes)
+        .with_context(|| format!("writing reconstructed PLY to {}", out.display()))?;
+    println!(
+        "hosted-sog apply-v5-tail: {} ({} bytes) + {} ({} bytes) -> {} ({} bytes)",
+        sog.display(),
+        sog_bytes.len(),
+        sidecar_path.display(),
+        sidecar_bytes.len(),
+        out.display(),
+        recon_bytes.len(),
+    );
+    if let Some(_gt) = gt {
+        eprintln!(
+            "catetus: note: --gt (per-attribute L1 diff vs ground truth) is not yet \
+             forwarded to the hosted decoder. See LAUNCH4_BLOCKER.md."
+        );
+    }
+    Ok(())
 }
 
 #[allow(dead_code)]

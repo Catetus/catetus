@@ -24,6 +24,7 @@ catetus-gltf = { workspace = true }
 catetus-usd = { workspace = true }
 catetus-optimize = { workspace = true }
 catetus-bench = { workspace = true }
+catetus-jacobian = { workspace = true }
 catetus-fidelity = { workspace = true }
 catetus-lodge    = { workspace = true }
 catetus-meson    = { workspace = true }
@@ -49,7 +50,15 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], def
 chrono = { version = "0.4", features = ["serde"] }
 serde = { workspace = true }
 dirs = "5"
+# Base64 codec for the `/v1/decode` request envelope. The hosted decode
+# endpoint expects base64 inputs (mirrors the encode-worker callback).
+base64 = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"
 tempfile = "3"
+# Local HTTP stub for the encode/decode API integration tests. wiremock 0.6
+# drives an axum server under the hood; we pair it with a small tokio
+# runtime so the blocking CLI client can hit the stub URL.
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
