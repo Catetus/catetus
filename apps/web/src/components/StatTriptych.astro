@@ -1,60 +1,63 @@
 ---
 // Three big numbers under the hero, each justified with a one-line blurb.
-// Numbers sourced from research/wd-r-spike/canonical11_3tier_leaderboard_2026-05-27.{md,json}
-// — the 11-scene cross-scene leaderboard that gates every public claim.
+//
+// All three are absolute, customer-visible facts about the SF tier (the codec
+// that ships today). No competitor comparisons, no negative percentages, no
+// "coming soon" — the deeper /vs section and SplatBench page carry the
+// head-to-head detail for visitors who want it.
+//
+// Numbers sourced from:
+//   SplatForge/benches/reports/canonical-11.{md,json} — 11-scene cross-scene
+//     leaderboard, bonsai row in particular for the absolute MB/PSNR pair.
 //
 // Tier framing:
-//   - SF baseline: production-ready today. 11/11 strict wins over SuperSplat SOG.
-//     Avg 19.8× ratio, +2.14 dB PSNR at -26% bytes. (canonical-11.md mean)
-//   - V5.2: cross-scene measured, gated on the Jacobian Rust port (LAUNCH-1) for
-//     customer uploads. +15.56 dB over SOG at 1.02× SOG bytes, 11/11 PSNR wins.
-//   - Wall clock: the SF tier runs ~730ms single-threaded on CPU for the bonsai
-//     scene (splatbench-v3 measurement, unchanged).
+//   - SF tier (shipping today): 11/11 scenes encode at an avg 19.8x
+//     compression ratio (308.7 MB raw bonsai -> 18.65 MB SF, 47.07 dB PSNR).
+//   - Wall clock: ~730 ms single-threaded CPU encode for bonsai
+//     (splatbench-v3 measurement, unchanged from prior landing copy).
 
-// SF baseline (production-ready-today tier)
+// SF tier — average compression across the canonical-11 corpus
 const sfRatioAvg = 19.8;              // canonical-11.md compression_ratio_mean
-const sfPsnrDeltaVsSog = 2.14;        // sf_minus_sog avg from leaderboard
-const sfBytesDeltaPct = 26;           // 1 - 0.7362 from byte_ratios.sf_over_sog
-const sfWinsTotal = 11;               // 11/11 strict wins on canonical-11
+const sfWinsTotal = 11;               // 11/11 scenes pass the strict gate
+const corpusRawMb = 8026;             // sum of input_ply_bytes across 11 scenes (decimal MB)
+const corpusOutMb = 396;              // sum of encoded_total_bytes across 11 scenes (decimal MB)
 
-// V5.2 tier (cross-scene measured, gated on LAUNCH-1 Jacobian port)
-const v52PsnrDeltaVsSog = 15.56;      // v52_minus_sog avg from leaderboard
-const v52ByteOverhead = 2;            // 1.024 - 1.000 = +2% bytes vs SOG
+// Bonsai — concrete reference scene (also the one rendering in the hero iframe)
+const bonsaiOutMb = 18.7;             // 18.65 MB SF output
+const bonsaiInputMb = 309;            // 308.7 MB raw 3DGS PLY
+const bonsaiPsnr = 47.07;             // gsplat 72-view orbit, SH3
+const bonsaiSsim = 0.9991;            // same protocol
 
-// Wall clock — SF baseline single-threaded CPU optimize on bonsai
-// (308.7 MB raw PLY -> 18.65 MB SF glb+shpal per canonical-11.json bonsai row;
-//  730ms measurement is from the splatbench-v3 webMobile pipeline that the SF
-//  baseline shares its packing path with).
+// Wall clock — SF tier single-threaded CPU encode on bonsai
 const optimizeMs = 730;
-const bonsaiInputMb = 309;            // 308716644 bytes -> ~309 MB
-const bonsaiSfOutMb = 18.7;           // 18649751 bytes -> 18.65 MB
 ---
 
 <section class="stat-strip" aria-label="Headline numbers">
   <div class="stat">
-    <div class="stat-label">SF tier · shipping today</div>
+    <div class="stat-label">Bonsai scene · live above</div>
+    <div class="stat-value tabular">{bonsaiOutMb}<span class="unit">MB</span></div>
+    <p class="stat-blurb">
+      <span class="tabular">{bonsaiInputMb} MB</span> raw 3DGS &rarr; <span class="tabular">{bonsaiOutMb} MB</span>
+      glTF + SPZ, rendered at <strong class="tabular">{bonsaiPsnr.toFixed(2)} dB</strong> /
+      <strong class="tabular">{bonsaiSsim.toFixed(4)}</strong> SSIM on a 72-view orbit.
+    </p>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Canonical-11 corpus</div>
     <div class="stat-value tabular">{sfRatioAvg.toFixed(1)}<span class="unit">×</span></div>
     <p class="stat-blurb">
-      Beats SuperSplat SOG by <strong>+{sfPsnrDeltaVsSog.toFixed(2)} dB PSNR at &minus;{sfBytesDeltaPct}% bytes</strong>,
-      <span class="tabular">{sfWinsTotal}/{sfWinsTotal}</span> strict wins on the canonical-11 corpus.
-      Bonsai: <span class="tabular">{bonsaiInputMb} MB → {bonsaiSfOutMb} MB</span>.
+      Average compression across <span class="tabular">{sfWinsTotal}</span> production scenes
+      (<span class="tabular">{corpusRawMb.toLocaleString()} MB</span> &rarr;
+      <span class="tabular">{corpusOutMb} MB</span>). Every scene reproducible byte-for-byte
+      from a BLAKE3 hash of its IR.
     </p>
   </div>
   <div class="stat">
-    <div class="stat-label">V5.2 tier · coming soon</div>
-    <div class="stat-value tabular">+{v52PsnrDeltaVsSog.toFixed(1)}<span class="unit">dB</span></div>
-    <p class="stat-blurb">
-      Cross-scene avg PSNR lift over SuperSplat SOG at <strong>+{v52ByteOverhead}% bytes</strong>
-      (<span class="tabular">11/11</span> PSNR wins, worst-case +1.69 dB on stump). Customer-upload
-      path gated on the Jacobian Rust port — see <a href="/bench">SplatBench</a>.
-    </p>
-  </div>
-  <div class="stat">
-    <div class="stat-label">Wall clock · SF tier</div>
+    <div class="stat-label">CPU encode · single core</div>
     <div class="stat-value tabular">{optimizeMs}<span class="unit">ms</span></div>
     <p class="stat-blurb">
-      Single-threaded CPU encode on bonsai. Deterministic outputs, byte-for-byte
-      reproducible — every scene identified by a BLAKE3 hash of its canonical IR.
+      Bonsai encodes in under a second on one CPU core, no GPU required. Outputs
+      are deterministic and validate against the glTF + SPZ specifications.
     </p>
   </div>
 </section>
