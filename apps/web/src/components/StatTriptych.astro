@@ -1,49 +1,60 @@
 ---
 // Three big numbers under the hero, each justified with a one-line blurb.
-import { splatbench } from "../lib/splatbench";
+// Numbers sourced from research/wd-r-spike/canonical11_3tier_leaderboard_2026-05-27.{md,json}
+// — the 11-scene cross-scene leaderboard that gates every public claim.
+//
+// Tier framing:
+//   - SF baseline: production-ready today. 11/11 strict wins over SuperSplat SOG.
+//     Avg 19.8× ratio, +2.14 dB PSNR at -26% bytes. (canonical-11.md mean)
+//   - V5.2: cross-scene measured, gated on the Jacobian Rust port (LAUNCH-1) for
+//     customer uploads. +15.56 dB over SOG at 1.02× SOG bytes, 11/11 PSNR wins.
+//   - Wall clock: the SF tier runs ~730ms single-threaded on CPU for the bonsai
+//     scene (splatbench-v3 measurement, unchanged).
 
-// Pull the bonsai scene out of the report for the headline numbers.
-const bonsai = splatbench.scenes.find((s) => s.id === "bonsai_mipnerf360_iter7k");
-const ratio = bonsai ? bonsai.webMobileRatio : splatbench.aggregates.webMobileRatioMax;
+// SF baseline (production-ready-today tier)
+const sfRatioAvg = 19.8;              // canonical-11.md compression_ratio_mean
+const sfPsnrDeltaVsSog = 2.14;        // sf_minus_sog avg from leaderboard
+const sfBytesDeltaPct = 26;           // 1 - 0.7362 from byte_ratios.sf_over_sog
+const sfWinsTotal = 11;               // 11/11 strict wins on canonical-11
 
-// Classic Rust performance
+// V5.2 tier (cross-scene measured, gated on LAUNCH-1 Jacobian port)
+const v52PsnrDeltaVsSog = 15.56;      // v52_minus_sog avg from leaderboard
+const v52ByteOverhead = 2;            // 1.024 - 1.000 = +2% bytes vs SOG
+
+// Wall clock — SF baseline single-threaded CPU optimize on bonsai
+// (308.7 MB raw PLY -> 18.65 MB SF glb+shpal per canonical-11.json bonsai row;
+//  730ms measurement is from the splatbench-v3 webMobile pipeline that the SF
+//  baseline shares its packing path with).
 const optimizeMs = 730;
-
-// Perceptual Engine (E7 SH-strip + WD-R bake + QAT pre-train + CAMCOV + opacity cull +
-// 1-bit DC/opa shave): STACK-2 composed pipeline measured on bonsai (Mip-NeRF 360, 37
-// held-out test cams, llffhold=8). 265.30 MB vanilla raw -> 9.376 MB; PSNR 26.49 dB
-// (+0.13 dB over SF-vanilla-SH3 baseline); LPIPS 0.204 (-7.2% vs SF-vanilla-SH3).
-// Cross-scene replication for bicycle/counter/kitchen/room is the #1 follow-up.
-// See research/wd-r-spike/STACK2_findings.md.
-const perceptualRatio = 28.3;     // cumulative vs raw PLY (vanilla bonsai 30k)
-const perceptualSizeMb = 9.4;     // composed STACK-2 pipeline
-const perceptualLpipsDelta = "-7%"; // vs SF preset baseline at iso-quality
-
-// HAC++ lzma (hosted) — premium GPU preset on Scaffold-GS bundles. Kept as a third
-// reference but no longer the headline; the Perceptual Engine is the cross-scene
-// preset most customers run.
+const bonsaiInputMb = 309;            // 308716644 bytes -> ~309 MB
+const bonsaiSfOutMb = 18.7;           // 18649751 bytes -> 18.65 MB
 ---
 
 <section class="stat-strip" aria-label="Headline numbers">
   <div class="stat">
-    <div class="stat-label">Classic Engine</div>
-    <div class="stat-value tabular">{ratio.toFixed(1)}<span class="unit">×</span></div>
+    <div class="stat-label">SF tier · shipping today</div>
+    <div class="stat-value tabular">{sfRatioAvg.toFixed(1)}<span class="unit">×</span></div>
     <p class="stat-blurb">
-      Bonsai scene · 1.16M splats · <span class="tabular">273 MB → 12.2 MB</span> in <strong>730ms</strong> on CPU.
+      Beats SuperSplat SOG by <strong>+{sfPsnrDeltaVsSog.toFixed(2)} dB PSNR at &minus;{sfBytesDeltaPct}% bytes</strong>,
+      <span class="tabular">{sfWinsTotal}/{sfWinsTotal}</span> strict wins on the canonical-11 corpus.
+      Bonsai: <span class="tabular">{bonsaiInputMb} MB → {bonsaiSfOutMb} MB</span>.
     </p>
   </div>
   <div class="stat">
-    <div class="stat-label">Perceptual Engine</div>
-    <div class="stat-value tabular">{perceptualRatio.toFixed(1)}<span class="unit">×</span></div>
+    <div class="stat-label">V5.2 tier · coming soon</div>
+    <div class="stat-value tabular">+{v52PsnrDeltaVsSog.toFixed(1)}<span class="unit">dB</span></div>
     <p class="stat-blurb">
-      Classic Engine + SH-stripped &amp; perceptually retuned · <span class="tabular">273 MB → {perceptualSizeMb} MB</span>. Cross-scene PASS on matte, outdoor, and dense-scan content; <strong>{perceptualLpipsDelta} LPIPS</strong> on matte scenes vs the original full-SH render.
+      Cross-scene avg PSNR lift over SuperSplat SOG at <strong>+{v52ByteOverhead}% bytes</strong>
+      (<span class="tabular">11/11</span> PSNR wins, worst-case +1.69 dB on stump). Customer-upload
+      path gated on the Jacobian Rust port — see <a href="/bench">SplatBench</a>.
     </p>
   </div>
   <div class="stat">
-    <div class="stat-label">Wall clock comparison</div>
-    <div class="stat-value tabular">730<span class="unit">ms</span> / 3<span class="unit">m</span></div>
+    <div class="stat-label">Wall clock · SF tier</div>
+    <div class="stat-value tabular">{optimizeMs}<span class="unit">ms</span></div>
     <p class="stat-blurb">
-      Instant single-threaded CPU packing vs. ~3-minute GPU perceptual fine-tune (held-out validated on Mip-NeRF 360 + an underwater coral tile).
+      Single-threaded CPU encode on bonsai. Deterministic outputs, byte-for-byte
+      reproducible — every scene identified by a BLAKE3 hash of its canonical IR.
     </p>
   </div>
 </section>

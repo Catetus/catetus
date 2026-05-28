@@ -2,6 +2,7 @@
 import Base from "../layouts/Base.astro";
 import Hero from "../components/Hero.astro";
 import StatTriptych from "../components/StatTriptych.astro";
+import VsSuperSplat from "../components/VsSuperSplat.astro";
 import Install from "../components/Install.astro";
 import Docs from "../components/Docs.astro";
 import Leaderboard from "../components/Leaderboard.astro";
@@ -10,7 +11,7 @@ import { splatbench } from "../lib/splatbench";
 
 const title = "Catetus — Production-ready Gaussian Splats";
 const description =
-  "Open-source CLI + viewer SDK that compresses Gaussian-Splat assets 22× on real 3D scenes, deterministically, with standards-aligned glTF + SPZ output.";
+  "Open-source CLI + viewer SDK for Gaussian Splats. Beats SuperSplat SOG by +2.14 dB PSNR at -26% bytes on the canonical-11 corpus (11/11 strict wins), with standards-aligned glTF + SPZ output.";
 
 const githubUrl = "https://github.com/Catetus/catetus";
 ---
@@ -23,10 +24,11 @@ const githubUrl = "https://github.com/Catetus/catetus";
     </a>
     <div class="nav-links">
       <a href="#docs">Quickstart</a>
+      <a href="#vs-supersplat">vs SuperSplat</a>
       <a href="/bench">SplatBench</a>
+      <a href="/viewer/">Viewer</a>
       <a href="/explore">Explore</a>
       <a href="/capture">Capture</a>
-      <a href="/vs-splat-transform">vs splat-transform</a>
       <a href="/compare">Compare</a>
       <a href="/rate">Rate</a>
       <a href="#try">Try it</a>
@@ -36,6 +38,7 @@ const githubUrl = "https://github.com/Catetus/catetus";
 
   <Hero />
   <StatTriptych />
+  <VsSuperSplat />
   <Install />
   <Docs />
   <Leaderboard />

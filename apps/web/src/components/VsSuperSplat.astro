@@ -1,0 +1,215 @@
+---
+// "vs SuperSplat" comparison panel — surfaces the LAUNCH-7 three-tier leaderboard
+// directly on the landing page so visitors don't have to dig through SplatBench
+// to see why we keep saying "+15.6 dB at 1.02× bytes".
+//
+// Numbers sourced from:
+//   splatforge-private/research/wd-r-spike/canonical11_3tier_leaderboard_2026-05-27.{md,json}
+//
+// All four rows are measured on the same canonical-11 corpus (Inria 3DGS iter 30k
+// pretrained, 11 scenes), 72-view orbit at 512x512, PSNR vs decoded SF baseline.
+// Deltas are apples-to-apples; absolute PSNR is higher than INRIA-style camera-pose
+// PSNR because the reference is the decoded SF PLY render, not the raw 3DGS render.
+
+// Avg PSNR per tier is derived from canonical11_3tier_leaderboard_2026-05-27.md
+// by taking the 11-scene mean of the per-tier PSNR column. (Spot-check: SOG mean
+// is 45.61 dB across 11 scenes; SF mean 47.75 dB ≈ SOG + 2.14 dB which matches
+// the leaderboard's sf_minus_sog row.)
+interface Tier {
+  name: string;
+  status: "shipping" | "preview" | "external";
+  psnrDb: string;         // mean PSNR vs SF-decoded reference (11-scene mean)
+  deltaVsSog: string;     // PSNR delta vs SOG (avg)
+  bytesVsSog: string;     // byte ratio vs SOG (from totals_MB)
+  winsVsSog: string;      // wins narrative
+  blurb: string;
+}
+
+const tiers: Tier[] = [
+  {
+    name: "SuperSplat SOG",
+    status: "external",
+    psnrDb: "45.61 dB",
+    deltaVsSog: "—",
+    bytesVsSog: "1.00×",
+    winsVsSog: "baseline",
+    blurb: "PlayCanvas splat-transform, included for reference.",
+  },
+  {
+    name: "Catetus SF",
+    status: "shipping",
+    psnrDb: "47.75 dB",
+    deltaVsSog: "+2.14 dB",
+    bytesVsSog: "0.74×",
+    winsVsSog: "11/11 strict",
+    blurb: "Production-ready today. CPU-only, deterministic, runs on every scene.",
+  },
+  {
+    name: "Catetus T2.1.R",
+    status: "preview",
+    psnrDb: "51.85 dB",
+    deltaVsSog: "+6.24 dB",
+    bytesVsSog: "0.98×",
+    winsVsSog: "10/11 strict, 11/11 PSNR",
+    blurb: "Gated on Jacobian Rust port for customer uploads.",
+  },
+  {
+    name: "Catetus V5.2",
+    status: "preview",
+    psnrDb: "61.17 dB",
+    deltaVsSog: "+15.56 dB",
+    bytesVsSog: "1.02×",
+    winsVsSog: "11/11 PSNR",
+    blurb: "Highest-fidelity tier. Gated on Jacobian Rust port.",
+  },
+];
+---
+
+<section id="vs-supersplat" class="vs-section" aria-labelledby="vs-title">
+  <div class="section-head">
+    <h2 id="vs-title" class="section-title">vs SuperSplat (canonical-11)</h2>
+    <p class="section-sub">
+      Cross-scene averages on the 11-scene Inria 3DGS pretrained corpus, 72-view
+      orbit at 512×512, PSNR vs decoded SF-baseline reference. Full per-scene
+      breakdown lives in the <a href="/bench">SplatBench leaderboard</a>; raw
+      methodology in
+      <a href="https://github.com/Catetus/catetus/blob/main/benches/reports/canonical-11.md"
+         target="_blank" rel="noreferrer noopener">canonical-11.md ↗</a>.
+    </p>
+  </div>
+
+  <div class="vs-wrap">
+    <table class="vs-table">
+      <thead>
+        <tr>
+          <th>Tier</th>
+          <th>Avg PSNR</th>
+          <th>Δ vs SOG</th>
+          <th>Bytes vs SOG</th>
+          <th>Wins vs SOG</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tiers.map((t) => (
+          <tr class={`vs-row vs-row-${t.status}`}>
+            <td>
+              <strong>{t.name}</strong>
+              {t.status === "shipping" && (
+                <span class="vs-pill vs-pill-shipping">shipping today</span>
+              )}
+              {t.status === "preview" && (
+                <span class="vs-pill vs-pill-preview">coming soon</span>
+              )}
+              {t.status === "external" && (
+                <span class="vs-pill vs-pill-external">external</span>
+              )}
+              <div class="vs-blurb">{t.blurb}</div>
+            </td>
+            <td class="tabular">{t.psnrDb}</td>
+            <td class={`tabular ${t.deltaVsSog.startsWith("+") ? "vs-win" : ""}`}>
+              {t.deltaVsSog}
+            </td>
+            <td class="tabular">{t.bytesVsSog}</td>
+            <td class="tabular">{t.winsVsSog}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="vs-footnote">
+    PSNR reference is the decoded SF-baseline PLY render (the V5.2 prototype-bench
+    protocol), so absolute numbers run hotter than INRIA-style camera-pose PSNR —
+    but every row is on the same reference, so deltas are directly comparable.
+    Strict-win = smaller bytes <em>and</em> higher PSNR; PSNR-win counts the
+    higher-PSNR comparison alone.
+  </p>
+</section>
+
+<style>
+  .vs-section {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 2.5rem 1rem 1.5rem;
+  }
+  .vs-wrap {
+    overflow-x: auto;
+    border-radius: 0.6rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .vs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.94rem;
+  }
+  .vs-table thead th {
+    text-align: left;
+    padding: 0.7rem 0.8rem;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted, #9aa2ad);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .vs-table tbody td {
+    padding: 0.85rem 0.8rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    vertical-align: top;
+  }
+  .vs-row-shipping td:first-child {
+    border-left: 3px solid #4ec27e;
+  }
+  .vs-row-preview td:first-child {
+    border-left: 3px solid #8b5cf6;
+  }
+  .vs-row-external td {
+    color: var(--muted, #9aa2ad);
+  }
+  .vs-row-external td:first-child {
+    border-left: 3px solid rgba(255, 255, 255, 0.18);
+    color: var(--text, #e7eaef);
+  }
+  .vs-blurb {
+    font-size: 0.78rem;
+    color: var(--muted, #9aa2ad);
+    margin-top: 0.2rem;
+    line-height: 1.45;
+  }
+  .vs-pill {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+  .vs-pill-shipping {
+    background: rgba(78, 194, 126, 0.14);
+    color: #4ec27e;
+  }
+  .vs-pill-preview {
+    background: rgba(139, 92, 246, 0.16);
+    color: #c4b5fd;
+  }
+  .vs-pill-external {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--muted, #9aa2ad);
+  }
+  .vs-win {
+    color: #4ec27e;
+    font-weight: 600;
+  }
+  .vs-footnote {
+    margin: 1rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted, #9aa2ad);
+    line-height: 1.55;
+    max-width: 86ch;
+  }
+  .vs-footnote em { font-style: italic; }
+</style>
