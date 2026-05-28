@@ -1,0 +1,19 @@
+[package]
+name = "catetus-jacobian"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Per-splat rendering-Jacobian proxy for SH-rest channels (CPU MVP, geometric approximation)."
+
+[dependencies]
+catetus-core = { workspace = true }
+catetus-ply  = { workspace = true }
+rayon        = { workspace = true }
+thiserror    = { workspace = true }
+anyhow       = { workspace = true }
+
+[[example]]
+name = "jacobian-bench"
+path = "examples/jacobian_bench.rs"

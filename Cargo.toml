@@ -13,6 +13,7 @@ members = [
     "crates/catetus-optimize",
     "crates/catetus-bench",
     "crates/catetus-cli",
+    "crates/catetus-jacobian",
     "crates/catetus-mcp",
     "crates/catetus-fidelity",
     "crates/catetus-usd",
@@ -41,6 +42,7 @@ catetus-khr-conformance = { path = "crates/catetus-khr-conformance" }
 catetus-usd-conformance = { path = "crates/catetus-usd-conformance" }
 catetus-optimize  = { path = "crates/catetus-optimize" }
 catetus-bench     = { path = "crates/catetus-bench" }
+catetus-jacobian  = { path = "crates/catetus-jacobian" }
 catetus-usd       = { path = "crates/catetus-usd" }
 catetus-fidelity  = { path = "crates/catetus-fidelity" }
 catetus-license   = { path = "crates/catetus-license" }
