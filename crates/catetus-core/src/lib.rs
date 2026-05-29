@@ -7,8 +7,10 @@ pub mod coords;
 pub mod hash;
 pub mod ir;
 pub mod report;
+pub mod tier;
 
 pub use coords::{CoordinateSystem, Handedness, UpAxis};
+pub use tier::{route_scene, Tier, TierDecision, RECAPTURE_UPSELL};
 pub use hash::scene_hash;
 pub use ir::{Color, LodLevel, SemanticLabel, Splat, SplatScene, TemporalMode};
 pub use report::{
