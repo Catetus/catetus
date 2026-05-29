@@ -190,6 +190,17 @@ enum Command {
         /// environment variable when set. Only consulted on the SOG path.
         #[arg(long, value_name = "URL")]
         api_url: Option<String>,
+        /// Print which quality tier this scene qualifies for (based on its
+        /// detected SH degree) and why, then exit WITHOUT writing any output.
+        ///
+        /// Tiers: SH degree >= 2 -> full quality tiers (`--auto-jacobian`
+        /// T2.1.R, `--emit-v5-tail` V5.2 engage the VQ SH-rest palette
+        /// meaningfully); SH == 1 -> partial (limited SH-rest budget, muted
+        /// gains); SH == 0 -> SF baseline (no view-dependent color, quality
+        /// tiers are no-ops) plus a recapture upsell. See
+        /// `docs/ops/INGEST1_BLOCKER.md` / the MARKET-1 capture survey.
+        #[arg(long)]
+        explain_tier: bool,
     },
     /// Emit a V5.2 joint-tail residual sidecar (`.sog.v5tail`) next to an
     /// existing `.sog` file. The sidecar is byte-compatible with the
@@ -631,6 +642,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             auto_jacobian,
             emit_v5_tail,
             api_url,
+            explain_tier,
         } => cmd_optimize(
             &input,
             &preset,
@@ -646,6 +658,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             auto_jacobian,
             emit_v5_tail.as_deref(),
             api_url.as_deref(),
+            explain_tier,
         ),
         Command::SogEmitV5Tail {
             sog,
@@ -1465,6 +1478,56 @@ fn emit_progress(frac: f32, stage: &str) {
     let _ = std::io::stdout().flush();
 }
 
+/// Emit the SH-degree tier-routing report to stderr, plus a no-op WARNING for
+/// any quality flag (`--auto-jacobian` / `--emit-v5-tail`) requested on input
+/// whose SH degree gives the quality tiers nothing to re-encode.
+///
+/// This converts the SH=0 weakness into an honest product signal: SH>=2 routes
+/// to the full quality tiers, SH==1 is partial, SH==0 gets the SF-baseline note
+/// plus the recapture upsell. Without this, an SH=0 capture run with
+/// `--auto-jacobian` silently produces output byte-identical to the SF baseline
+/// (the KORIYAMA-1 confusion).
+fn report_tier(
+    decision: &catetus_core::TierDecision,
+    auto_jacobian: bool,
+    emit_v5_tail: bool,
+) {
+    use catetus_core::Tier;
+    eprintln!(
+        "catetus optimize: tier = {} (SH degree {})",
+        decision.tier.name(),
+        decision.degree_str()
+    );
+    eprintln!("catetus optimize: {}", decision.reason);
+    match decision.tier {
+        Tier::Baseline => {
+            eprintln!(
+                "catetus optimize: NOTE — the SF baseline is the right choice for this capture."
+            );
+            eprintln!("catetus optimize: {}", catetus_core::RECAPTURE_UPSELL);
+        }
+        Tier::Partial => {
+            eprintln!(
+                "catetus optimize: NOTE — quality-tier gains are muted on SH degree 1 input."
+            );
+        }
+        Tier::Full => {}
+    }
+    if auto_jacobian && !decision.auto_jacobian_effective {
+        eprintln!(
+            "catetus optimize: WARNING — --auto-jacobian (T2.1.R) has NO EFFECT on this input \
+             (no SH-rest coefficients to re-encode); output will match the SF baseline. \
+             Recapture at SH=3 to use this tier."
+        );
+    }
+    if emit_v5_tail && !decision.v5_tail_effective {
+        eprintln!(
+            "catetus optimize: WARNING — --emit-v5-tail (V5.2) has NO EFFECT on this input \
+             (no SH-rest coefficients for the VQ palette); the sidecar adds no fidelity."
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cmd_optimize(
     input: &Path,
@@ -1481,9 +1544,36 @@ fn cmd_optimize(
     auto_jacobian: bool,
     emit_v5_tail: Option<&Path>,
     api_url: Option<&str>,
+    explain_tier: bool,
 ) -> Result<()> {
     if out.is_some() && output_dir.is_some() {
         return Err(anyhow!("--out and --output-dir are mutually exclusive"));
+    }
+    // SH-degree tier routing. Detect the scene's SH degree on ingest and tell
+    // the user which quality tier they qualify for (and warn when the quality
+    // flags will be no-ops). We load the scene here for the report; the local
+    // optimize path below re-loads it (cheap relative to the pipeline, and the
+    // hosted `--target sog` path never loads the scene at all, so a one-time
+    // load for the report is the simplest correct wiring). `--explain-tier` is
+    // a dry-run that prints the report and exits without writing output.
+    if explain_tier || auto_jacobian || emit_v5_tail.is_some() {
+        match load_scene(input) {
+            Ok((scene, _)) => {
+                let decision = catetus_core::route_scene(&scene);
+                report_tier(&decision, auto_jacobian, emit_v5_tail.is_some());
+                if explain_tier {
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                if explain_tier {
+                    return Err(e).context("loading input for --explain-tier");
+                }
+                // Non-explain path: don't fail the whole run on a routing-only
+                // load error; the main pipeline below will surface it properly.
+                eprintln!("catetus optimize: note: could not detect SH tier ({e:#})");
+            }
+        }
     }
     // `--target sog` is hosted-only since the 2026-05-19 open-core split:
     // the SOG encoder lives in the private `catetus-sog` crate. Short-
