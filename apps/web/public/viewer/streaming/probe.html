@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>boot</title></head>
+<body>
+<pre id="out">running…</pre>
+<script type="module">
+  // Headless probe of the streaming loader's BROWSER code path (no GPU needed).
+  // Drives the real modules exactly as index.html's loadTileset() does, up to
+  // the GPU boundary, and reports a JSON result into <pre> + document.title so
+  // `chrome --headless --dump-dom` (with virtual-time) can capture it.
+  const out = document.getElementById('out');
+  const result = { steps: [], ok: false };
+  function step(s) { result.steps.push(s); out.textContent = JSON.stringify(result, null, 2); }
+  (async () => {
+    try {
+      const { StreamingTileset } = await import('./index.js');
+      step('imported streaming/index.js');
+      const { TilesetRuntime } = await import('./runtime.js');
+      step('imported streaming/runtime.js');
+
+      const url = new URLSearchParams(location.search).get('tileset')
+        || '/fixtures/tileset-demo/tileset.json';
+      const ts = await StreamingTileset.create(url);
+      step(`StreamingTileset.create ok: ${ts.tileset.tiles.length} tiles, root=${ts.tileset.root.id}`);
+
+      // Run a few logical frames with a fixed camera at the root bbox. We can't
+      // upload to a GPU in headless, so we exercise the selection + fetch +
+      // decode path directly via the streamer (no makeRenderer needed).
+      const aabb = ts.tileset.root.aabb;
+      const center = aabb.min.map((v, i) => (v + aabb.max[i]) / 2);
+      const radius = Math.hypot(...aabb.max.map((v, i) => v - aabb.min[i])) / 2;
+      const cam = {
+        position: [center[0], center[1], center[2] + radius * 2.2],
+        target: center, up: [0, 1, 0], fovY: 0.9,
+        near: radius * 0.01, far: radius * 100,
+        aspect: 1,
+      };
+
+      let resident = 0, fetched = 0;
+      for (let i = 0; i < 40; i++) {
+        const r = ts.frame(cam, 1280, 720);
+        fetched = r.fetched.length || fetched;
+        await ts.drainPending();         // let queued tile fetches settle
+        resident = ts.streamer.stats().residentTiles;
+        if (resident > 0 && i > 2) break;
+      }
+      step(`after frames: residentTiles=${resident}, lastFetchEnqueued=${fetched}`);
+      if (resident < 1) throw new Error('no tiles became resident');
+
+      // Verify a resident tile actually decoded into renderable splats and that
+      // payloadToChunk-equivalent SoA packing works (the GPU upload input).
+      const { splatSceneToSoaChunk } = await import('../loader/to-soa.js');
+      let packed = 0;
+      for (const t of ts.tileset.tiles) {
+        const p = ts.streamer.get(t);
+        if (p && p.kind === 'sftile' && p.scene.count > 0) {
+          const chunk = splatSceneToSoaChunk(p.scene, `tile:${t.id}`);
+          if (chunk.descriptor.splatCount === p.scene.count) packed++;
+        }
+      }
+      step(`packed ${packed} resident tiles into SoA chunks (GPU-upload-ready)`);
+      if (packed < 1) throw new Error('no resident tile packed to SoA');
+
+      result.ok = true;
+      step('PASS');
+      document.title = 'PROBE_PASS';
+    } catch (e) {
+      result.error = String(e && e.stack || e);
+      step('FAIL: ' + result.error);
+      document.title = 'PROBE_FAIL';
+    }
+  })();
+</script>
+</body>
+</html>

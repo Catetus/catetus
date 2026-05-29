@@ -1,0 +1,2286 @@
+{
+  "lodLevels": 3,
+  "filenames": [
+    "tiles/0.sftile",
+    "tiles/1.sftile",
+    "tiles/2.sftile",
+    "tiles/3.sftile",
+    "tiles/4.sftile",
+    "tiles/5.sftile",
+    "tiles/6.sftile",
+    "tiles/7.sftile",
+    "tiles/8.sftile",
+    "tiles/9.sftile",
+    "tiles/10.sftile",
+    "tiles/11.sftile",
+    "tiles/12.sftile",
+    "tiles/13.sftile",
+    "tiles/14.sftile",
+    "tiles/15.sftile",
+    "tiles/16.sftile",
+    "tiles/17.sftile",
+    "tiles/18.sftile",
+    "tiles/19.sftile",
+    "tiles/20.sftile",
+    "tiles/21.sftile",
+    "tiles/22.sftile",
+    "tiles/23.sftile",
+    "tiles/24.sftile",
+    "tiles/25.sftile",
+    "tiles/26.sftile",
+    "tiles/27.sftile",
+    "tiles/28.sftile",
+    "tiles/29.sftile",
+    "tiles/30.sftile",
+    "tiles/31.sftile",
+    "tiles/32.sftile",
+    "tiles/33.sftile",
+    "tiles/34.sftile",
+    "tiles/35.sftile",
+    "tiles/36.sftile",
+    "tiles/37.sftile",
+    "tiles/38.sftile",
+    "tiles/39.sftile",
+    "tiles/40.sftile",
+    "tiles/41.sftile",
+    "tiles/42.sftile",
+    "tiles/43.sftile",
+    "tiles/44.sftile",
+    "tiles/45.sftile",
+    "tiles/46.sftile",
+    "tiles/47.sftile",
+    "tiles/48.sftile",
+    "tiles/49.sftile",
+    "tiles/50.sftile",
+    "tiles/51.sftile",
+    "tiles/52.sftile",
+    "tiles/53.sftile",
+    "tiles/54.sftile",
+    "tiles/55.sftile",
+    "tiles/56.sftile",
+    "tiles/57.sftile",
+    "tiles/58.sftile",
+    "tiles/59.sftile",
+    "tiles/60.sftile",
+    "tiles/61.sftile",
+    "tiles/62.sftile",
+    "tiles/63.sftile",
+    "tiles/64.sftile",
+    "tiles/65.sftile",
+    "tiles/66.sftile",
+    "tiles/67.sftile",
+    "tiles/68.sftile",
+    "tiles/69.sftile",
+    "tiles/70.sftile",
+    "tiles/71.sftile",
+    "tiles/72.sftile",
+    "tiles/73.sftile",
+    "tiles/74.sftile",
+    "tiles/75.sftile",
+    "tiles/76.sftile",
+    "tiles/77.sftile",
+    "tiles/78.sftile",
+    "tiles/79.sftile",
+    "tiles/80.sftile",
+    "tiles/81.sftile",
+    "tiles/82.sftile",
+    "tiles/83.sftile",
+    "tiles/84.sftile",
+    "tiles/85.sftile",
+    "tiles/86.sftile",
+    "tiles/87.sftile",
+    "tiles/88.sftile",
+    "tiles/89.sftile",
+    "tiles/90.sftile",
+    "tiles/91.sftile",
+    "tiles/92.sftile",
+    "tiles/93.sftile",
+    "tiles/94.sftile",
+    "tiles/95.sftile",
+    "tiles/96.sftile",
+    "tiles/97.sftile",
+    "tiles/98.sftile",
+    "tiles/99.sftile",
+    "tiles/100.sftile",
+    "tiles/101.sftile",
+    "tiles/102.sftile",
+    "tiles/103.sftile",
+    "tiles/104.sftile",
+    "tiles/105.sftile",
+    "tiles/106.sftile",
+    "tiles/107.sftile",
+    "tiles/108.sftile",
+    "tiles/109.sftile",
+    "tiles/110.sftile",
+    "tiles/111.sftile",
+    "tiles/112.sftile",
+    "tiles/113.sftile",
+    "tiles/114.sftile",
+    "tiles/115.sftile",
+    "tiles/116.sftile",
+    "tiles/117.sftile",
+    "tiles/118.sftile",
+    "tiles/119.sftile",
+    "tiles/120.sftile",
+    "tiles/121.sftile",
+    "tiles/122.sftile",
+    "tiles/123.sftile",
+    "tiles/124.sftile",
+    "tiles/125.sftile",
+    "tiles/126.sftile",
+    "tiles/127.sftile",
+    "tiles/128.sftile",
+    "tiles/129.sftile",
+    "tiles/130.sftile",
+    "tiles/131.sftile",
+    "tiles/132.sftile",
+    "tiles/133.sftile",
+    "tiles/134.sftile",
+    "tiles/135.sftile",
+    "tiles/136.sftile",
+    "tiles/137.sftile",
+    "tiles/138.sftile",
+    "tiles/139.sftile",
+    "tiles/140.sftile",
+    "tiles/141.sftile",
+    "tiles/142.sftile",
+    "tiles/143.sftile",
+    "tiles/144.sftile",
+    "tiles/145.sftile",
+    "tiles/146.sftile",
+    "tiles/147.sftile",
+    "tiles/148.sftile",
+    "tiles/149.sftile",
+    "tiles/150.sftile",
+    "tiles/151.sftile",
+    "tiles/152.sftile",
+    "tiles/153.sftile",
+    "tiles/154.sftile",
+    "tiles/155.sftile",
+    "tiles/156.sftile",
+    "tiles/157.sftile",
+    "tiles/158.sftile",
+    "tiles/159.sftile",
+    "tiles/160.sftile",
+    "tiles/161.sftile",
+    "tiles/162.sftile",
+    "tiles/163.sftile",
+    "tiles/164.sftile",
+    "tiles/165.sftile",
+    "tiles/166.sftile",
+    "tiles/167.sftile",
+    "tiles/168.sftile",
+    "tiles/169.sftile",
+    "tiles/170.sftile",
+    "tiles/171.sftile",
+    "tiles/172.sftile",
+    "tiles/173.sftile",
+    "tiles/174.sftile",
+    "tiles/175.sftile",
+    "tiles/176.sftile",
+    "tiles/177.sftile",
+    "tiles/178.sftile",
+    "tiles/179.sftile",
+    "tiles/180.sftile",
+    "tiles/181.sftile",
+    "tiles/182.sftile",
+    "tiles/183.sftile",
+    "tiles/184.sftile",
+    "tiles/185.sftile",
+    "tiles/186.sftile",
+    "tiles/187.sftile",
+    "tiles/188.sftile",
+    "tiles/189.sftile",
+    "tiles/190.sftile",
+    "tiles/191.sftile",
+    "tiles/192.sftile",
+    "tiles/193.sftile",
+    "tiles/194.sftile",
+    "tiles/195.sftile",
+    "tiles/196.sftile",
+    "tiles/197.sftile",
+    "tiles/198.sftile",
+    "tiles/199.sftile",
+    "tiles/200.sftile",
+    "tiles/201.sftile",
+    "tiles/202.sftile",
+    "tiles/203.sftile",
+    "tiles/204.sftile",
+    "tiles/205.sftile",
+    "tiles/206.sftile",
+    "tiles/207.sftile",
+    "tiles/208.sftile",
+    "tiles/209.sftile",
+    "tiles/210.sftile",
+    "tiles/211.sftile",
+    "tiles/212.sftile",
+    "tiles/213.sftile",
+    "tiles/214.sftile",
+    "tiles/215.sftile",
+    "tiles/216.sftile",
+    "tiles/217.sftile",
+    "tiles/218.sftile"
+  ],
+  "tree": {
+    "bound": {
+      "min": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "max": [
+        39.0,
+        39.0,
+        39.0
+      ]
+    },
+    "lods": [
+      {
+        "file": 0,
+        "count": 2520
+      },
+      {
+        "file": 1,
+        "count": 12699
+      },
+      {
+        "file": 2,
+        "count": 64000
+      }
+    ],
+    "children": [
+      {
+        "bound": {
+          "min": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "max": [
+            19.0,
+            19.0,
+            19.0
+          ]
+        },
+        "lods": [
+          {
+            "file": 3,
+            "count": 1260
+          },
+          {
+            "file": 4,
+            "count": 3175
+          },
+          {
+            "file": 5,
+            "count": 8000
+          }
+        ],
+        "children": [
+          {
+            "bound": {
+              "min": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "max": [
+                9.0,
+                9.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 6,
+                "count": 630
+              },
+              {
+                "file": 7,
+                "count": 794
+              },
+              {
+                "file": 8,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                0.0,
+                0.0
+              ],
+              "max": [
+                19.0,
+                9.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 9,
+                "count": 630
+              },
+              {
+                "file": 10,
+                "count": 794
+              },
+              {
+                "file": 11,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                10.0,
+                0.0
+              ],
+              "max": [
+                9.0,
+                19.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 12,
+                "count": 630
+              },
+              {
+                "file": 13,
+                "count": 794
+              },
+              {
+                "file": 14,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                10.0,
+                0.0
+              ],
+              "max": [
+                19.0,
+                19.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 15,
+                "count": 630
+              },
+              {
+                "file": 16,
+                "count": 794
+              },
+              {
+                "file": 17,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                0.0,
+                10.0
+              ],
+              "max": [
+                9.0,
+                9.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 18,
+                "count": 630
+              },
+              {
+                "file": 19,
+                "count": 794
+              },
+              {
+                "file": 20,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                0.0,
+                10.0
+              ],
+              "max": [
+                19.0,
+                9.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 21,
+                "count": 630
+              },
+              {
+                "file": 22,
+                "count": 794
+              },
+              {
+                "file": 23,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                10.0,
+                10.0
+              ],
+              "max": [
+                9.0,
+                19.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 24,
+                "count": 630
+              },
+              {
+                "file": 25,
+                "count": 794
+              },
+              {
+                "file": 26,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                10.0,
+                10.0
+              ],
+              "max": [
+                19.0,
+                19.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 27,
+                "count": 630
+              },
+              {
+                "file": 28,
+                "count": 794
+              },
+              {
+                "file": 29,
+                "count": 1000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "bound": {
+          "min": [
+            20.0,
+            0.0,
+            0.0
+          ],
+          "max": [
+            39.0,
+            19.0,
+            19.0
+          ]
+        },
+        "lods": [
+          {
+            "file": 30,
+            "count": 1260
+          },
+          {
+            "file": 31,
+            "count": 3175
+          },
+          {
+            "file": 32,
+            "count": 8000
+          }
+        ],
+        "children": [
+          {
+            "bound": {
+              "min": [
+                20.0,
+                0.0,
+                0.0
+              ],
+              "max": [
+                29.0,
+                9.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 33,
+                "count": 630
+              },
+              {
+                "file": 34,
+                "count": 794
+              },
+              {
+                "file": 35,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                0.0,
+                0.0
+              ],
+              "max": [
+                39.0,
+                9.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 36,
+                "count": 630
+              },
+              {
+                "file": 37,
+                "count": 794
+              },
+              {
+                "file": 38,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                10.0,
+                0.0
+              ],
+              "max": [
+                29.0,
+                19.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 39,
+                "count": 630
+              },
+              {
+                "file": 40,
+                "count": 794
+              },
+              {
+                "file": 41,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                10.0,
+                0.0
+              ],
+              "max": [
+                39.0,
+                19.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 42,
+                "count": 630
+              },
+              {
+                "file": 43,
+                "count": 794
+              },
+              {
+                "file": 44,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                0.0,
+                10.0
+              ],
+              "max": [
+                29.0,
+                9.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 45,
+                "count": 630
+              },
+              {
+                "file": 46,
+                "count": 794
+              },
+              {
+                "file": 47,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                0.0,
+                10.0
+              ],
+              "max": [
+                39.0,
+                9.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 48,
+                "count": 630
+              },
+              {
+                "file": 49,
+                "count": 794
+              },
+              {
+                "file": 50,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                10.0,
+                10.0
+              ],
+              "max": [
+                29.0,
+                19.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 51,
+                "count": 630
+              },
+              {
+                "file": 52,
+                "count": 794
+              },
+              {
+                "file": 53,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                10.0,
+                10.0
+              ],
+              "max": [
+                39.0,
+                19.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 54,
+                "count": 630
+              },
+              {
+                "file": 55,
+                "count": 794
+              },
+              {
+                "file": 56,
+                "count": 1000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "bound": {
+          "min": [
+            0.0,
+            20.0,
+            0.0
+          ],
+          "max": [
+            19.0,
+            39.0,
+            19.0
+          ]
+        },
+        "lods": [
+          {
+            "file": 57,
+            "count": 1260
+          },
+          {
+            "file": 58,
+            "count": 3175
+          },
+          {
+            "file": 59,
+            "count": 8000
+          }
+        ],
+        "children": [
+          {
+            "bound": {
+              "min": [
+                0.0,
+                20.0,
+                0.0
+              ],
+              "max": [
+                9.0,
+                29.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 60,
+                "count": 630
+              },
+              {
+                "file": 61,
+                "count": 794
+              },
+              {
+                "file": 62,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                20.0,
+                0.0
+              ],
+              "max": [
+                19.0,
+                29.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 63,
+                "count": 630
+              },
+              {
+                "file": 64,
+                "count": 794
+              },
+              {
+                "file": 65,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                30.0,
+                0.0
+              ],
+              "max": [
+                9.0,
+                39.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 66,
+                "count": 630
+              },
+              {
+                "file": 67,
+                "count": 794
+              },
+              {
+                "file": 68,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                30.0,
+                0.0
+              ],
+              "max": [
+                19.0,
+                39.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 69,
+                "count": 630
+              },
+              {
+                "file": 70,
+                "count": 794
+              },
+              {
+                "file": 71,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                20.0,
+                10.0
+              ],
+              "max": [
+                9.0,
+                29.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 72,
+                "count": 630
+              },
+              {
+                "file": 73,
+                "count": 794
+              },
+              {
+                "file": 74,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                20.0,
+                10.0
+              ],
+              "max": [
+                19.0,
+                29.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 75,
+                "count": 630
+              },
+              {
+                "file": 76,
+                "count": 794
+              },
+              {
+                "file": 77,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                30.0,
+                10.0
+              ],
+              "max": [
+                9.0,
+                39.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 78,
+                "count": 630
+              },
+              {
+                "file": 79,
+                "count": 794
+              },
+              {
+                "file": 80,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                30.0,
+                10.0
+              ],
+              "max": [
+                19.0,
+                39.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 81,
+                "count": 630
+              },
+              {
+                "file": 82,
+                "count": 794
+              },
+              {
+                "file": 83,
+                "count": 1000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "bound": {
+          "min": [
+            20.0,
+            20.0,
+            0.0
+          ],
+          "max": [
+            39.0,
+            39.0,
+            19.0
+          ]
+        },
+        "lods": [
+          {
+            "file": 84,
+            "count": 1260
+          },
+          {
+            "file": 85,
+            "count": 3175
+          },
+          {
+            "file": 86,
+            "count": 8000
+          }
+        ],
+        "children": [
+          {
+            "bound": {
+              "min": [
+                20.0,
+                20.0,
+                0.0
+              ],
+              "max": [
+                29.0,
+                29.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 87,
+                "count": 630
+              },
+              {
+                "file": 88,
+                "count": 794
+              },
+              {
+                "file": 89,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                20.0,
+                0.0
+              ],
+              "max": [
+                39.0,
+                29.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 90,
+                "count": 630
+              },
+              {
+                "file": 91,
+                "count": 794
+              },
+              {
+                "file": 92,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                30.0,
+                0.0
+              ],
+              "max": [
+                29.0,
+                39.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 93,
+                "count": 630
+              },
+              {
+                "file": 94,
+                "count": 794
+              },
+              {
+                "file": 95,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                30.0,
+                0.0
+              ],
+              "max": [
+                39.0,
+                39.0,
+                9.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 96,
+                "count": 630
+              },
+              {
+                "file": 97,
+                "count": 794
+              },
+              {
+                "file": 98,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                20.0,
+                10.0
+              ],
+              "max": [
+                29.0,
+                29.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 99,
+                "count": 630
+              },
+              {
+                "file": 100,
+                "count": 794
+              },
+              {
+                "file": 101,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                20.0,
+                10.0
+              ],
+              "max": [
+                39.0,
+                29.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 102,
+                "count": 630
+              },
+              {
+                "file": 103,
+                "count": 794
+              },
+              {
+                "file": 104,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                30.0,
+                10.0
+              ],
+              "max": [
+                29.0,
+                39.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 105,
+                "count": 630
+              },
+              {
+                "file": 106,
+                "count": 794
+              },
+              {
+                "file": 107,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                30.0,
+                10.0
+              ],
+              "max": [
+                39.0,
+                39.0,
+                19.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 108,
+                "count": 630
+              },
+              {
+                "file": 109,
+                "count": 794
+              },
+              {
+                "file": 110,
+                "count": 1000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "bound": {
+          "min": [
+            0.0,
+            0.0,
+            20.0
+          ],
+          "max": [
+            19.0,
+            19.0,
+            39.0
+          ]
+        },
+        "lods": [
+          {
+            "file": 111,
+            "count": 1260
+          },
+          {
+            "file": 112,
+            "count": 3175
+          },
+          {
+            "file": 113,
+            "count": 8000
+          }
+        ],
+        "children": [
+          {
+            "bound": {
+              "min": [
+                0.0,
+                0.0,
+                20.0
+              ],
+              "max": [
+                9.0,
+                9.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 114,
+                "count": 630
+              },
+              {
+                "file": 115,
+                "count": 794
+              },
+              {
+                "file": 116,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                0.0,
+                20.0
+              ],
+              "max": [
+                19.0,
+                9.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 117,
+                "count": 630
+              },
+              {
+                "file": 118,
+                "count": 794
+              },
+              {
+                "file": 119,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                10.0,
+                20.0
+              ],
+              "max": [
+                9.0,
+                19.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 120,
+                "count": 630
+              },
+              {
+                "file": 121,
+                "count": 794
+              },
+              {
+                "file": 122,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                10.0,
+                20.0
+              ],
+              "max": [
+                19.0,
+                19.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 123,
+                "count": 630
+              },
+              {
+                "file": 124,
+                "count": 794
+              },
+              {
+                "file": 125,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                0.0,
+                30.0
+              ],
+              "max": [
+                9.0,
+                9.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 126,
+                "count": 630
+              },
+              {
+                "file": 127,
+                "count": 794
+              },
+              {
+                "file": 128,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                0.0,
+                30.0
+              ],
+              "max": [
+                19.0,
+                9.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 129,
+                "count": 630
+              },
+              {
+                "file": 130,
+                "count": 794
+              },
+              {
+                "file": 131,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                10.0,
+                30.0
+              ],
+              "max": [
+                9.0,
+                19.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 132,
+                "count": 630
+              },
+              {
+                "file": 133,
+                "count": 794
+              },
+              {
+                "file": 134,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                10.0,
+                30.0
+              ],
+              "max": [
+                19.0,
+                19.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 135,
+                "count": 630
+              },
+              {
+                "file": 136,
+                "count": 794
+              },
+              {
+                "file": 137,
+                "count": 1000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "bound": {
+          "min": [
+            20.0,
+            0.0,
+            20.0
+          ],
+          "max": [
+            39.0,
+            19.0,
+            39.0
+          ]
+        },
+        "lods": [
+          {
+            "file": 138,
+            "count": 1260
+          },
+          {
+            "file": 139,
+            "count": 3175
+          },
+          {
+            "file": 140,
+            "count": 8000
+          }
+        ],
+        "children": [
+          {
+            "bound": {
+              "min": [
+                20.0,
+                0.0,
+                20.0
+              ],
+              "max": [
+                29.0,
+                9.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 141,
+                "count": 630
+              },
+              {
+                "file": 142,
+                "count": 794
+              },
+              {
+                "file": 143,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                0.0,
+                20.0
+              ],
+              "max": [
+                39.0,
+                9.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 144,
+                "count": 630
+              },
+              {
+                "file": 145,
+                "count": 794
+              },
+              {
+                "file": 146,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                10.0,
+                20.0
+              ],
+              "max": [
+                29.0,
+                19.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 147,
+                "count": 630
+              },
+              {
+                "file": 148,
+                "count": 794
+              },
+              {
+                "file": 149,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                10.0,
+                20.0
+              ],
+              "max": [
+                39.0,
+                19.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 150,
+                "count": 630
+              },
+              {
+                "file": 151,
+                "count": 794
+              },
+              {
+                "file": 152,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                0.0,
+                30.0
+              ],
+              "max": [
+                29.0,
+                9.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 153,
+                "count": 630
+              },
+              {
+                "file": 154,
+                "count": 794
+              },
+              {
+                "file": 155,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                0.0,
+                30.0
+              ],
+              "max": [
+                39.0,
+                9.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 156,
+                "count": 630
+              },
+              {
+                "file": 157,
+                "count": 794
+              },
+              {
+                "file": 158,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                10.0,
+                30.0
+              ],
+              "max": [
+                29.0,
+                19.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 159,
+                "count": 630
+              },
+              {
+                "file": 160,
+                "count": 794
+              },
+              {
+                "file": 161,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                10.0,
+                30.0
+              ],
+              "max": [
+                39.0,
+                19.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 162,
+                "count": 630
+              },
+              {
+                "file": 163,
+                "count": 794
+              },
+              {
+                "file": 164,
+                "count": 1000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "bound": {
+          "min": [
+            0.0,
+            20.0,
+            20.0
+          ],
+          "max": [
+            19.0,
+            39.0,
+            39.0
+          ]
+        },
+        "lods": [
+          {
+            "file": 165,
+            "count": 1260
+          },
+          {
+            "file": 166,
+            "count": 3175
+          },
+          {
+            "file": 167,
+            "count": 8000
+          }
+        ],
+        "children": [
+          {
+            "bound": {
+              "min": [
+                0.0,
+                20.0,
+                20.0
+              ],
+              "max": [
+                9.0,
+                29.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 168,
+                "count": 630
+              },
+              {
+                "file": 169,
+                "count": 794
+              },
+              {
+                "file": 170,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                20.0,
+                20.0
+              ],
+              "max": [
+                19.0,
+                29.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 171,
+                "count": 630
+              },
+              {
+                "file": 172,
+                "count": 794
+              },
+              {
+                "file": 173,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                30.0,
+                20.0
+              ],
+              "max": [
+                9.0,
+                39.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 174,
+                "count": 630
+              },
+              {
+                "file": 175,
+                "count": 794
+              },
+              {
+                "file": 176,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                30.0,
+                20.0
+              ],
+              "max": [
+                19.0,
+                39.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 177,
+                "count": 630
+              },
+              {
+                "file": 178,
+                "count": 794
+              },
+              {
+                "file": 179,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                20.0,
+                30.0
+              ],
+              "max": [
+                9.0,
+                29.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 180,
+                "count": 630
+              },
+              {
+                "file": 181,
+                "count": 794
+              },
+              {
+                "file": 182,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                20.0,
+                30.0
+              ],
+              "max": [
+                19.0,
+                29.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 183,
+                "count": 630
+              },
+              {
+                "file": 184,
+                "count": 794
+              },
+              {
+                "file": 185,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                0.0,
+                30.0,
+                30.0
+              ],
+              "max": [
+                9.0,
+                39.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 186,
+                "count": 630
+              },
+              {
+                "file": 187,
+                "count": 794
+              },
+              {
+                "file": 188,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                10.0,
+                30.0,
+                30.0
+              ],
+              "max": [
+                19.0,
+                39.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 189,
+                "count": 630
+              },
+              {
+                "file": 190,
+                "count": 794
+              },
+              {
+                "file": 191,
+                "count": 1000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "bound": {
+          "min": [
+            20.0,
+            20.0,
+            20.0
+          ],
+          "max": [
+            39.0,
+            39.0,
+            39.0
+          ]
+        },
+        "lods": [
+          {
+            "file": 192,
+            "count": 1260
+          },
+          {
+            "file": 193,
+            "count": 3175
+          },
+          {
+            "file": 194,
+            "count": 8000
+          }
+        ],
+        "children": [
+          {
+            "bound": {
+              "min": [
+                20.0,
+                20.0,
+                20.0
+              ],
+              "max": [
+                29.0,
+                29.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 195,
+                "count": 630
+              },
+              {
+                "file": 196,
+                "count": 794
+              },
+              {
+                "file": 197,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                20.0,
+                20.0
+              ],
+              "max": [
+                39.0,
+                29.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 198,
+                "count": 630
+              },
+              {
+                "file": 199,
+                "count": 794
+              },
+              {
+                "file": 200,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                30.0,
+                20.0
+              ],
+              "max": [
+                29.0,
+                39.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 201,
+                "count": 630
+              },
+              {
+                "file": 202,
+                "count": 794
+              },
+              {
+                "file": 203,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                30.0,
+                20.0
+              ],
+              "max": [
+                39.0,
+                39.0,
+                29.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 204,
+                "count": 630
+              },
+              {
+                "file": 205,
+                "count": 794
+              },
+              {
+                "file": 206,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                20.0,
+                30.0
+              ],
+              "max": [
+                29.0,
+                29.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 207,
+                "count": 630
+              },
+              {
+                "file": 208,
+                "count": 794
+              },
+              {
+                "file": 209,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                20.0,
+                30.0
+              ],
+              "max": [
+                39.0,
+                29.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 210,
+                "count": 630
+              },
+              {
+                "file": 211,
+                "count": 794
+              },
+              {
+                "file": 212,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                20.0,
+                30.0,
+                30.0
+              ],
+              "max": [
+                29.0,
+                39.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 213,
+                "count": 630
+              },
+              {
+                "file": 214,
+                "count": 794
+              },
+              {
+                "file": 215,
+                "count": 1000
+              }
+            ]
+          },
+          {
+            "bound": {
+              "min": [
+                30.0,
+                30.0,
+                30.0
+              ],
+              "max": [
+                39.0,
+                39.0,
+                39.0
+              ]
+            },
+            "lods": [
+              {
+                "file": 216,
+                "count": 630
+              },
+              {
+                "file": 217,
+                "count": 794
+              },
+              {
+                "file": 218,
+                "count": 1000
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
