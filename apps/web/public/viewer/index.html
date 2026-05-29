@@ -96,7 +96,9 @@
 
     const params = new URLSearchParams(location.search);
     const src = params.get('src');
+    const tilesetParam = params.get('tileset');
     const rendererParam = params.get('renderer');
+    const sseParam = parseFloat(params.get('sse') || '');
 
     const stateEl = document.getElementById('state');
     const chunksEl = document.getElementById('chunks');
@@ -350,17 +352,109 @@
     });
 
     /* ------------------------------------------------------------------ */
-    /*  ?src= bootstrap                                                   */
+    /*  Mode C — `?tileset=` streaming octree (SuperSplat-style UX).       */
+    /*    Fetch the octree root first, paint immediately, then frustum-    */
+    /*    cull + screen-space-error-select finer tiles and fill detail in  */
+    /*    coarse→fine order as bytes arrive. Works with STREAM-1 .sftile   */
+    /*    tiles today and STREAM-2 GLB tiles when they land (the streamer  */
+    /*    dispatches on tile magic).                                       */
     /* ------------------------------------------------------------------ */
 
-    if (src) {
+    async function loadTileset(url) {
+      setState(`fetching tileset ${url}…`);
+      setFormat('tileset (octree)');
+      try {
+        const { TilesetRuntime } = await import('./streaming/runtime.js');
+        let firstPaintShown = false;
+        // Camera + controls share the single-scene path's setup.
+        camState = defaultCamera();
+        controls = new OrbitControls({
+          canvas,
+          cam: camState,
+          getFrameBbox: () => currentBbox,
+        });
+        rendererEl.textContent = 'webgpu (streaming)';
+
+        const runtime = await TilesetRuntime.create(url, {
+          maximumScreenSpaceError: Number.isFinite(sseParam) ? sseParam : 16,
+          makeRenderer: async () => {
+            const r = new WebGPURenderer({ useComputeDecode: true });
+            await r.init({ canvas, clearColor: [0, 0, 0, 1] });
+            window.__viewerRendererInstance = r;
+            return r;
+          },
+          getCanvasSize: () => [canvas.width, canvas.height],
+          onMetrics: (m) => {
+            chunksEl.textContent = `${m.drawTiles} drawn · ${m.residentTiles}/${m.totalTiles} resident · ${m.inFlight} in-flight`;
+            setSplats(estimateSplatsResident(m));
+            if (m.firstPaintMs !== null && !firstPaintShown) {
+              firstPaintShown = true;
+              setState(`first paint @ ${m.firstPaintMs.toFixed(0)} ms`, 'ok');
+              // eslint-disable-next-line no-console
+              console.log(`[tileset] time-to-first-paint: ${m.firstPaintMs.toFixed(1)} ms`);
+            }
+          },
+        });
+        window.__tilesetRuntime = runtime;
+
+        // Frame the camera on the tileset root bbox so the first paint is in
+        // view. The root tile's AABB is the whole-scene bound.
+        const rootAabb = runtime.streaming.tileset.root.aabb;
+        currentBbox = { min: [...rootAabb.min], max: [...rootAabb.max] };
+        frameCameraToBbox(camState, currentBbox);
+        controls.setHome(camState);
+
+        let lastDraw = performance.now();
+        let frames = 0;
+        let lastFrameT = performance.now();
+        const tick = async (now) => {
+          if (!camState) return;
+          const dt = Math.min(now - lastFrameT, 100);
+          lastFrameT = now;
+          controls.update(dt);
+          const camera = poseFromState(camState);
+          const r = await runtime.frame(camera);
+          if (r) {
+            try { await r.renderFrame(camera); }
+            catch (e) { setState(`render error: ${e.message}`, 'err'); }
+          }
+          frames += 1;
+          if (now - lastDraw >= 500) {
+            const fps = (frames * 1000) / (now - lastDraw);
+            const m = window.__tilesetMetrics;
+            const fp = m && m.firstPaintMs !== null ? `${m.firstPaintMs.toFixed(0)}ms TTFP · ` : '';
+            rendererEl.textContent = `webgpu (streaming) · ${fp}${fps.toFixed(0)} fps`;
+            frames = 0; lastDraw = now;
+          }
+          requestAnimationFrame((t) => { tick(t); });
+        };
+        requestAnimationFrame((t) => { tick(t); });
+      } catch (e) {
+        setState(e.message, 'err');
+        console.error(e);
+      }
+    }
+
+    // Rough resident-splat estimate from resident bytes (SoA ≈ 56 B/splat for
+    // DC-only). Display-only; the bench reads exact counts from the timeline.
+    function estimateSplatsResident(m) {
+      return Math.round(m.residentBytes / 56);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  ?src= / ?tileset= bootstrap                                        */
+    /* ------------------------------------------------------------------ */
+
+    if (tilesetParam) {
+      loadTileset(tilesetParam);
+    } else if (src) {
       if (isManifestUrl(src)) {
         loadViaManifest(src);
       } else {
         loadUrl(src);
       }
     } else {
-      setState('idle (drop a file, pick one, or use ?src=)');
+      setState('idle (drop a file, pick one, or use ?src= / ?tileset=)');
     }
   </script>
 </body>

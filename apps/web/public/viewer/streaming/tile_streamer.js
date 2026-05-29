@@ -23,6 +23,7 @@
  * mode awaits all pending fetches before emitting `frameRendered`.
  */
 import { decodeGlb } from './glb.js';
+import { isSftile, decodeSftile } from './sftile.js';
 export class TileStreamer {
     cache = new Map();
     inFlight = new Map();
@@ -122,19 +123,34 @@ export class TileStreamer {
                 }
                 const ab = await res.arrayBuffer();
                 const bytes = new Uint8Array(ab);
-                let glb;
+                // Format dispatch by magic: STREAM-1 emits `.sftile`; STREAM-2's
+                // GLB tiles use the `glTF` magic. Branch so the same streamer
+                // serves whichever tile payload the encoder produced.
+                let payload;
                 try {
-                    glb = decodeGlb(bytes);
+                    if (isSftile(bytes)) {
+                        const scene = decodeSftile(bytes);
+                        payload = {
+                            kind: 'sftile',
+                            scene,
+                            bytes: bytes.byteLength,
+                            lastUsed: this.currentFrame,
+                        };
+                    }
+                    else {
+                        const glb = decodeGlb(bytes);
+                        payload = {
+                            kind: 'glb',
+                            json: glb.json,
+                            bin: glb.bin,
+                            bytes: bytes.byteLength,
+                            lastUsed: this.currentFrame,
+                        };
+                    }
                 }
                 catch (err) {
                     throw new Error(`tile_fetch_failed: ${tile.id} ${err.message}`);
                 }
-                const payload = {
-                    json: glb.json,
-                    bin: glb.bin,
-                    bytes: bytes.byteLength,
-                    lastUsed: this.currentFrame,
-                };
                 this.cache.set(tile.id, payload);
                 this.residentBytes += payload.bytes;
                 this.maybeEvict();
