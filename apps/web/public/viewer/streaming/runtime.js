@@ -24,53 +24,126 @@
  * so the rebuild cost is amortized and never on the steady-state frame path.
  */
 import { splatSceneToSoaChunk } from '../loader/to-soa.js';
-import { decodeGlb, manifestFromGlb, decodeTileIndices, reconstructShRestBlob } from './glb.js';
-/** glTF FLOAT component type (matches loader/to-soa.js + progressive/uploader.js). */
-const FLOAT_COMPONENT = 5126;
+import { decodeTileIndices, reconstructShRestBlob } from './glb.js';
+import { decodeSFExtensions } from '../glb-polyfill/index.js';
+import { clamp01, computeBbox, normalizeQuatInto, SH_C0 } from '../loader/splat-scene.js';
+/**
+ * Convert a decoded GLB tile (`{ json, bin }`) into the LOG-space `SplatScene`
+ * that `splatSceneToSoaChunk` expects — the SAME contract `loader/sf-glb.js`
+ * produces for the working single-file path.
+ *
+ * Tile GLBs are quantized with `CT_log_quant_attrs` (SCALE in ln-space, OPACITY
+ * in logit-space) + `KHR_mesh_quantization` (normalized-int accessors with affine
+ * min/max). `decodeSFExtensions` undoes ALL of that — it applies the KHR affine
+ * dequant AND eagerly `exp()`s scale + `sigmoid()`s opacity — so its `scales` /
+ * `opacities` are LINEAR. We then re-`ln()` scales (to-soa re-`exp()`s them) and
+ * keep opacity linear, mirroring sf-glb.js exactly. SH-rest is elided in tiles
+ * (it lives in the shared codebook), so the scene has none here; the caller
+ * attaches it from the shared palette.
+ *
+ * The `zstd` decoder is passed through to satisfy `CT_zstd_split_buffer` tiles;
+ * the bonsai tileset doesn't use it but defensive code stays format-agnostic.
+ */
+function glbTileToScene(json, bin, zstd) {
+    // `payload.json` from the streaming decodeGlb is the raw JSON *string* (the
+    // old manifestFromGlb path did `JSON.parse(glb.json)` internally). The
+    // polyfill's decodeSFExtensions expects a PARSED object — passing the string
+    // made `g.meshes` undefined → it threw "GLB has no splat primitive" for every
+    // tile → black screen. Parse first.
+    const g = typeof json === 'string' ? JSON.parse(json) : json;
+    // Shared-palette tiles declare CT_gaussian_splatting_palette but the per-tile
+    // .shpal sidecar does NOT exist — SH-rest lives in the ONE scene-global
+    // codebook, reconstructed in payloadToChunk. decodeSFExtensions THROWS when
+    // that extension is present with no sidecar, so strip it; we attach SH-rest
+    // from the shared codebook ourselves.
+    if (g.extensions && g.extensions['CT_gaussian_splatting_palette']) {
+        delete g.extensions['CT_gaussian_splatting_palette'];
+    }
+    const decoded = decodeSFExtensions(g, bin, undefined, zstd);
+    const N = decoded.count;
+    // SplatScene.scales is LOG-space; the polyfill returns LINEAR. Re-ln with a
+    // floor at f32::MIN_POSITIVE so an underflow can't push below ln(MIN_POSITIVE).
+    const scales = new Float32Array(N * 3);
+    for (let i = 0; i < N * 3; i++) {
+        scales[i] = Math.log(Math.max(decoded.scales[i], 1.175494e-38));
+    }
+    // Defensive quat re-normalization (matches sf-glb.js + to-soa.js).
+    const rotations = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+        normalizeQuatInto(rotations, i * 4, decoded.rotations[i * 4 + 0], decoded.rotations[i * 4 + 1], decoded.rotations[i * 4 + 2], decoded.rotations[i * 4 + 3]);
+    }
+    const opacity = new Float32Array(N);
+    opacity.set(decoded.opacities); // already linear [0,1] (sigmoid applied)
+    const dcRaw = new Float32Array(decoded.dcRaw);
+    const colorDC = new Float32Array(N * 3);
+    for (let i = 0; i < N * 3; i++)
+        colorDC[i] = clamp01(0.5 + SH_C0 * dcRaw[i]);
+    const bbox = decoded.bbox ?? computeBbox(decoded.positions);
+    return {
+        count: N,
+        positions: decoded.positions,
+        rotations,
+        scales,
+        opacity,
+        colorDC,
+        dcRaw,
+        shRest: undefined,
+        shDegree: undefined,
+        bbox: {
+            min: [bbox.min[0], bbox.min[1], bbox.min[2]],
+            max: [bbox.max[0], bbox.max[1], bbox.max[2]],
+        },
+    };
+}
 /**
  * Convert a streamer payload (`.sftile` scene or decoded GLB) into the
  * `{descriptor, bytes}` pair `renderer.uploadChunk` accepts.
  *
- * For `.sftile` we already have a `SplatScene`-shaped object from
- * `decodeSftile`, so `splatSceneToSoaChunk` does the SoA packing directly.
- * For GLB we reuse `manifestFromGlb` (its chunk descriptor + BIN bytes are
- * already in the renderer's expected layout).
+ * Both paths now funnel through `splatSceneToSoaChunk`, the SAME proven bridge
+ * the single-file loaders use. For `.sftile` we already have a `SplatScene`. For
+ * GLB tiles we first dequantize via `glbTileToScene` (log→linear scale,
+ * logit→sigmoid opacity, KHR affine) so ln-space scale is NEVER fed to the
+ * renderer as linear — the bug that made every tile bloom into a fuzzy blob.
  *
  * `sharedPalette` (the decoded root `palette.shpal` + a zstd decoder, or null)
  * upgrades shared-palette GLB tiles from geometry+DC to FULL view-dependent
  * SH-rest color: we decode the tile's `.glb.shpalx` indices, reconstruct each
- * splat's 45-D SH-rest = `codebook[index]` (degree 3), and append that blob to
- * the chunk bytes with a matching `shRest`/`shDegree` attribute layout — the
- * exact slice `WebGPURenderer.uploadChunk` copies into its per-scene SH-rest
- * buffer (webgpu/index.js). When the palette / sidecar is absent the tile keeps
- * its DC-only behavior unchanged.
+ * splat's 45-D SH-rest = `codebook[index]` (degree 3), and attach that blob to
+ * the scene so `splatSceneToSoaChunk` emits the `shRest`/`shDegree` slice the
+ * WebGPU renderer copies into its per-scene SH-rest buffer. When the palette /
+ * sidecar is absent the tile keeps its DC-only behavior unchanged.
  */
 function payloadToChunk(payload, tileId, sharedPalette) {
     if (payload.kind === 'sftile') {
         return splatSceneToSoaChunk(payload.scene, `tile:${tileId}`);
     }
-    // GLB tile (STREAM-2). manifestFromGlb yields a one-chunk manifest whose
-    // single chunk descriptor + BIN bytes match uploadChunk's contract.
-    const { manifest, bin } = manifestFromGlb({ json: payload.json, bin: payload.bin });
-    const chunk = manifest.chunks[0];
+    // GLB tile (STREAM-2): dequantize to a log-space SplatScene first.
+    const zstd = sharedPalette ? sharedPalette.zstd : undefined;
+    const scene = glbTileToScene(payload.json, payload.bin, zstd);
+    const n = scene.count;
     // Geometry+DC only (no shared palette, or this tile has no index sidecar).
     if (!sharedPalette || !payload.shpalxBytes) {
         if (typeof window !== 'undefined') {
             const st = (window.__shStats ??= { fullColorChunks: 0, dcOnlyChunks: 0, shSplats: 0, maxAbsErr: 0, samples: 0, anyNonZero: false });
             st.dcOnlyChunks++;
         }
-        return { descriptor: { ...chunk, uri: `tile:${tileId}` }, bytes: bin };
+        return splatSceneToSoaChunk(scene, `tile:${tileId}`);
     }
     // Full-color path: reconstruct SH-rest from the shared codebook + per-tile
-    // indices and append it to the chunk bytes.
-    const { palette, zstd } = sharedPalette;
-    const sx = decodeTileIndices(payload.shpalxBytes, zstd);
-    const n = chunk.splatCount;
+    // indices and attach it to the scene before SoA packing.
+    const { palette, zstd: zstdDec } = sharedPalette;
+    const sx = decodeTileIndices(payload.shpalxBytes, zstdDec);
     if (sx.n !== n) {
         // Index/splat-count mismatch — fall back to DC-only rather than mis-shade.
-        return { descriptor: { ...chunk, uri: `tile:${tileId}` }, bytes: bin };
+        if (typeof window !== 'undefined') {
+            const st = (window.__shStats ??= { fullColorChunks: 0, dcOnlyChunks: 0, shSplats: 0, maxAbsErr: 0, samples: 0, anyNonZero: false });
+            st.dcOnlyChunks++;
+        }
+        return splatSceneToSoaChunk(scene, `tile:${tileId}`);
     }
     const shRest = reconstructShRestBlob(sx.indices, palette.codebook, n); // n*45 floats
+    scene.shRest = shRest;
+    scene.shDegree = 3;
     // In-browser correctness instrumentation (headless harness reads
     // `window.__shStats`): count full-color chunks + splats and spot-check that a
     // sampled splat's reconstructed SH-rest exactly equals codebook[index] with
@@ -93,31 +166,8 @@ function payloadToChunk(payload, tileId, sharedPalette) {
         }
         st.samples++;
     }
-    // Lay out [BIN | pad to 4B | shRest floats] in one buffer so the renderer's
-    // `bytes.buffer @ shRest.byteOffset` reads the SH-rest as aligned float32.
-    const shByteOffset = (bin.byteLength + 3) & ~3;
-    const shByteLength = shRest.byteLength;
-    const out = new Uint8Array(shByteOffset + shByteLength);
-    out.set(bin, 0);
-    new Float32Array(out.buffer, shByteOffset, shRest.length).set(shRest);
-    const layout = {
-        ...chunk.attributeLayout,
-        shRest: {
-            byteOffset: shByteOffset,
-            byteLength: shByteLength,
-            componentType: FLOAT_COMPONENT,
-        },
-        shDegree: 3,
-    };
-    const descriptor = {
-        ...chunk,
-        uri: `tile:${tileId}`,
-        byteLength: out.byteLength,
-        attributeLayout: layout,
-    };
-    return { descriptor, bytes: out };
+    return splatSceneToSoaChunk(scene, `tile:${tileId}`);
 }
-void decodeGlb; // referenced for symmetry / future direct-GLB paths
 /**
  * Drives progressive tileset load against a live WebGPU renderer + camera.
  *
