@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "Catetus MCP — Continue.dev config.",
+    "",
+    "Continue.dev uses ~/.continue/config.json (legacy) or ~/.continue/config.yaml (current).",
+    "This file shows the JSON form. If your Continue install reads YAML, the equivalent",
+    "keys map 1:1; see https://docs.continue.dev/customize/mcp.",
+    "",
+    "Merge the `experimental.modelContextProtocolServers` block into your existing",
+    "~/.continue/config.json (Continue has many other top-level keys — do not overwrite).",
+    "Reload Continue (VS Code: 'Continue: Reload Window' from the command palette).",
+    "",
+    "Two variants below in the array: index [0] is local stdio (free + paid via env);",
+    "index [1] is hosted HTTP at mcp.catetus.com (paid only). Pick ONE; delete the other.",
+    "",
+    "FREE TIER (stdio, no key): analyze, list_presets, list_scenes, get_scene,",
+    "  optimize, compare, list_competitor_codecs, validate_pipeline.",
+    "PAID TIER (key set): also encode, score_fidelity, repack, predict_quality,",
+    "  recommend_preset, batch_jobs, list_jobs. Get a key at https://catetus.com/dashboard."
+  ],
+  "experimental": {
+    "modelContextProtocolServers": [
+      {
+        "_comment": "FREE + PAID via stdio. Omit the env block to use the free tier only.",
+        "name": "catetus",
+        "transport": {
+          "type": "stdio",
+          "command": "npx",
+          "args": ["-y", "@catetus/mcp@latest"],
+          "env": {
+            "CATETUS_API_KEY": "cat_live_REPLACE_ME"
+          }
+        }
+      },
+      {
+        "_comment": "Alternative: hosted HTTP. Delete the stdio entry above (index [0]) and keep only this one to use it.",
+        "name": "catetus",
+        "transport": {
+          "type": "streamable-http",
+          "url": "https://mcp.catetus.com",
+          "headers": {
+            "Authorization": "Bearer cat_live_REPLACE_ME"
+          }
+        }
+      }
+    ]
+  }
+}

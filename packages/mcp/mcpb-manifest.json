@@ -1,0 +1,113 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "catetus",
+  "display_name": "Catetus",
+  "version": "1.0.0-alpha.1",
+  "description": "SOTA 3D Gaussian Splatting compression — encode, score, analyze, and benchmark splat scenes from inside Claude Desktop.",
+  "long_description": "Catetus is the state-of-the-art toolkit for compressing and benchmarking 3D Gaussian Splatting (3DGS) scenes. This MCP server exposes 15 tools across two tiers:\n\n**Free (always on, no key):** analyze a .ply / .spz / .gltf / .glb file, list and inspect SplatBench corpus scenes, list competitor codecs (PlayCanvas SOG, Inria 3DGS, SPZ, glTF KHR_gaussian_splatting), run free encoder presets locally, render before/after diffs, validate pipeline output.\n\n**Paid (set CATETUS_API_KEY):** hosted encode on Modal A100s with the SOG / SOG+V5tail / T2.1.R / V5.2 targets, ML-scored perceptual fidelity, differentiable repack, preset recommendation against scene constraints, predicted quality without encoding, and batch jobs across many scenes.\n\nResources: the canonical-11 leaderboard, SplatBench v0 corpus, 3-tier comparison, preset cheatsheet, competitor codec catalog, and SDK license.\n\nPrompts: 'compress for product page', 'compare against SOG', 'pick best preset', 'audit existing outputs'.\n\nHeadline numbers: V5.2 beats SuperSplat SOG by +15.56 dB avg PSNR across all 11 canonical scenes at 1.02× SOG bytes (11/11 wins).",
+  "author": {
+    "name": "Catetus",
+    "email": "support@catetus.com",
+    "url": "https://catetus.com"
+  },
+  "homepage": "https://catetus.com",
+  "documentation": "https://docs.catetus.com/mcp",
+  "support": "https://github.com/catetus/catetus-mcp/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/catetus/catetus-mcp"
+  },
+  "icon": "icon.png",
+  "screenshots": [],
+  "keywords": [
+    "3dgs",
+    "gaussian-splatting",
+    "splat",
+    "compression",
+    "sog",
+    "supersplat",
+    "rendering",
+    "3d",
+    "ml"
+  ],
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "server/server-stdio.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/server-stdio.js"
+      ],
+      "env": {
+        "CATETUS_API_KEY": "${user_config.api_key}",
+        "CATETUS_API_BASE": "${user_config.api_base}",
+        "CATETUS_MCP_LOG_LEVEL": "${user_config.log_level}",
+        "CATETUS_MCP_ALLOWLIST_ROOTS": "${user_config.allowlist_roots}"
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "Catetus API Key",
+      "description": "Optional. Unlocks the paid tools: encode, repack, score_fidelity, predict_quality, recommend_preset, batch_jobs, list_jobs. Get one at https://catetus.com/dashboard. Leave blank to use the free tier only.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "api_base": {
+      "type": "string",
+      "title": "API base URL",
+      "description": "Override for the api.catetus.com base URL (advanced — leave default unless instructed by support).",
+      "required": false,
+      "default": "https://api.catetus.com"
+    },
+    "log_level": {
+      "type": "string",
+      "title": "Log level",
+      "description": "One of: debug, info, warn, error. Defaults to info. Logs go to stderr — never stdout (would corrupt MCP).",
+      "required": false,
+      "default": "info"
+    },
+    "allowlist_roots": {
+      "type": "directory",
+      "title": "Filesystem allowlist root",
+      "description": "Directory the MCP server is allowed to read .ply / .spz / .gltf / .glb files from. The `analyze`, `compare`, and `validate_pipeline` tools refuse paths outside this root. Defaults to your home directory.",
+      "required": false,
+      "default": "${HOME}"
+    }
+  },
+  "tools_generated": true,
+  "tools": [
+    { "name": "analyze",                 "description": "Analyze a .ply/.spz/.gltf/.glb scene: splat count, bbox, SH degree, opacity histogram, content hash, recommendations. (free)" },
+    { "name": "list_presets",            "description": "List encoder presets (free + paid) with target use case, typical compression ratio, and tier. (free)" },
+    { "name": "list_scenes",             "description": "List SplatBench corpus scenes with class, license, splat count, and headline metrics. (free)" },
+    { "name": "get_scene",               "description": "Get the full per-scene record + the 3-tier (SF / T2.1.R / V5.2) vs SOG leaderboard row. (free)" },
+    { "name": "optimize",                "description": "Run a free Catetus preset over a splat file locally and return the output. (free, stdio-only)" },
+    { "name": "compare",                 "description": "Render before/after frames and return per-frame ΔE94, SSIM-loss, pixel-match. (free, stdio-only)" },
+    { "name": "list_competitor_codecs",  "description": "List public competitor codecs (PlayCanvas SOG, Inria 3DGS, SPZ, glTF KHR_gaussian_splatting…) with Catetus comparison. (free)" },
+    { "name": "validate_pipeline",       "description": "Sanity-check a Catetus output: NaN/Inf check, container validity, expected splat count. (free)" },
+    { "name": "encode",                  "description": "Hosted encode on Modal-backed workers using sog / sog+v5tail / v52 / t21r / sf-baseline targets. (paid)" },
+    { "name": "score_fidelity",          "description": "ML-score a render pair (V0.4 perceptual model) and return 22 input features. (paid)" },
+    { "name": "repack",                  "description": "Differentiable repack on A100 — push an encoded asset toward a byte budget while preserving PSNR. (paid)" },
+    { "name": "predict_quality",         "description": "Predict mean ΔE94, p95 ΔE94, ML score of a preset on a scene WITHOUT running the encode. (paid)" },
+    { "name": "recommend_preset",        "description": "Given a scene + constraints, recommend the best preset and a next-best alternative. (paid)" },
+    { "name": "batch_jobs",              "description": "Submit a batch of encode/repack jobs and either poll asynchronously or wait inline. (paid)" },
+    { "name": "list_jobs",               "description": "List recent encode/repack jobs for the current API key. (paid)" }
+  ],
+  "prompts": [
+    { "name": "compress_for_product_page", "description": "Compress for product page", "text": "Compress a list of .ply scenes for a product page at a target byte budget per scene." },
+    { "name": "compare_against_sog",       "description": "Compare against SOG",       "text": "Encode a scene with both Catetus V5.2 and PlayCanvas SOG, then compare and ML-score for a head-to-head report." },
+    { "name": "pick_best_preset",          "description": "Pick the best preset",      "text": "Run analyze and recommend_preset against constraints described in plain English." },
+    { "name": "audit_existing_outputs",    "description": "Audit existing outputs",    "text": "Run validate_pipeline on every .gltf/.spz in a directory and summarize pass/fail." }
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

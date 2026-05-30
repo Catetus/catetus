@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "Catetus MCP — Claude Desktop config.",
+    "",
+    "Paste the `mcpServers` block into:",
+    "  macOS:   ~/Library/Application Support/Claude/claude_desktop_config.json",
+    "  Windows: %APPDATA%/Claude/claude_desktop_config.json",
+    "  Linux:   ~/.config/Claude/claude_desktop_config.json",
+    "",
+    "Two variants below: (1) FREE stdio (local) and (2) PAID HTTP (hosted at mcp.catetus.com).",
+    "Pick ONE entry under `mcpServers.catetus` — uncomment the variant you want and delete the other.",
+    "",
+    "FREE TIER (stdio, no key): exposes analyze, list_presets, list_scenes, get_scene,",
+    "  optimize, compare, list_competitor_codecs, validate_pipeline.",
+    "PAID TIER (CATETUS_API_KEY set): additionally exposes encode, score_fidelity, repack,",
+    "  predict_quality, recommend_preset, batch_jobs, list_jobs.",
+    "Get a key at https://catetus.com/dashboard.",
+    "",
+    "EASIEST INSTALL: drag the Catetus .mcpb bundle onto Claude Desktop instead (one-click).",
+    "See https://github.com/catetus/catetus-mcp/releases for the latest .mcpb."
+  ],
+  "mcpServers": {
+    "catetus": {
+      "_comment": "FREE + PAID via stdio. Omit CATETUS_API_KEY entirely (delete the env block) to use the free tier.",
+      "command": "npx",
+      "args": ["-y", "@catetus/mcp@latest"],
+      "env": {
+        "CATETUS_API_KEY": "cat_live_REPLACE_ME"
+      }
+    },
+    "catetus-hosted-disabled": {
+      "_comment": "Alternative: hosted HTTP transport at mcp.catetus.com (paid only; key required). Rename this key to `catetus` and delete the stdio entry above to use this one. Claude Desktop 0.10+ supports remote MCP servers via the `url` field.",
+      "url": "https://mcp.catetus.com",
+      "headers": {
+        "Authorization": "Bearer cat_live_REPLACE_ME"
+      }
+    }
+  }
+}

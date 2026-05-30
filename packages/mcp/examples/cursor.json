@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "Catetus MCP — Cursor config.",
+    "",
+    "Cursor reads MCP servers from one of:",
+    "  Global:      ~/.cursor/mcp.json",
+    "  Per-project: <project>/.cursor/mcp.json",
+    "",
+    "Paste the `mcpServers` block below into one of those files.",
+    "Restart Cursor (or toggle the server off/on in Settings → MCP) after editing.",
+    "",
+    "Two variants below: (1) hosted HTTP (mcp.catetus.com — paid, no local Node) and",
+    "(2) local stdio via npx (free + optional paid via env). Keep ONE of the two entries.",
+    "",
+    "FREE TIER (stdio, no key): analyze, list_presets, list_scenes, get_scene,",
+    "  optimize, compare, list_competitor_codecs, validate_pipeline.",
+    "PAID TIER (key set): also encode, score_fidelity, repack, predict_quality,",
+    "  recommend_preset, batch_jobs, list_jobs. Get a key at https://catetus.com/dashboard."
+  ],
+  "mcpServers": {
+    "catetus": {
+      "_comment": "Hosted HTTP — paid only. Zero local install. Drop this entry and use the stdio variant below if you want the free tier.",
+      "url": "https://mcp.catetus.com",
+      "headers": {
+        "Authorization": "Bearer cat_live_REPLACE_ME"
+      }
+    },
+    "catetus-local-disabled": {
+      "_comment": "Alternative: local stdio. Works free without the env block; add CATETUS_API_KEY to unlock paid tier. Rename this key to `catetus` and delete the hosted entry above to use this one.",
+      "command": "npx",
+      "args": ["-y", "@catetus/mcp@latest"],
+      "env": {
+        "CATETUS_API_KEY": "cat_live_REPLACE_ME"
+      }
+    }
+  }
+}
