@@ -213,6 +213,17 @@
 
     let rafHandle = null;
     let lastFrame = performance.now();
+    // Tear down a running streaming tileset (its RAF loop + GPU runtime) before
+    // loading a different scene, so the tileset loop can't keep drawing over the
+    // new scene (the "SOG after tileset goes black" bug).
+    function stopTilesetRuntime() {
+      if (rafHandle !== null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+      const rt = window.__tilesetRuntime;
+      if (rt) {
+        try { rt.dispose?.(); } catch { /* best-effort */ }
+        window.__tilesetRuntime = null;
+      }
+    }
     function startRenderLoop() {
       let lastDraw = performance.now();
       let frames = 0;
@@ -292,6 +303,7 @@
 
     async function loadFiles(files) {
       setState(`loading ${files.length} file(s)…`);
+      stopTilesetRuntime();
       try {
         const bag = await readFilesToBytes(files);
         const scene = await loadFromFiles(bag);
@@ -429,9 +441,13 @@
             rendererEl.textContent = `webgpu (streaming) · ${fp}${fps.toFixed(0)} fps`;
             frames = 0; lastDraw = now;
           }
-          requestAnimationFrame((t) => { tick(t); });
+          rafHandle = requestAnimationFrame((t) => { tick(t); });
         };
-        requestAnimationFrame((t) => { tick(t); });
+        // Share the single-scene loop's handle so loadFiles()/loadUrl() can
+        // cancel this tileset loop — otherwise opening a new file leaves this
+        // RAF running and it keeps clobbering the canvas (black screen).
+        if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+        rafHandle = requestAnimationFrame((t) => { tick(t); });
       } catch (e) {
         setState(e.message, 'err');
         console.error(e);
