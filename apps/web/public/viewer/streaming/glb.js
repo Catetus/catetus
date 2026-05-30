@@ -87,6 +87,10 @@ const RC_KEYS = {
     SCALE: `${GS_EXT_NAME}:SCALE`,
     OPACITY: `${GS_EXT_NAME}:OPACITY`,
     COLOR_DC: `${GS_EXT_NAME}:COLOR_DC`,
+    // SH-elided shared-palette tiles store the DC color as the SH degree-0
+    // coefficient accessor rather than a dedicated COLOR_DC attribute. The two
+    // are the same 3-float-per-splat DC term; accept either name.
+    SH_DC: `${GS_EXT_NAME}:SH_DEGREE_0_COEF_0`,
 };
 /**
  * Pull a normalized attribute index table out of the first splat primitive
@@ -101,12 +105,28 @@ function readPrimitiveAttributes(g) {
             if (pa && typeof pa === 'object') {
                 const rec = pa;
                 if (Object.keys(rec).some((k) => k.startsWith(`${GS_EXT_NAME}:`))) {
+                    // POSITION is a STANDARD glTF attribute, so the producer writes it
+                    // as the bare `POSITION` key (not namespaced). Accept the plain key
+                    // first, falling back to a namespaced form if a producer ever uses it.
+                    const pos = typeof rec['POSITION'] === 'number'
+                        ? rec['POSITION']
+                        : typeof rec[RC_KEYS.POSITION] === 'number'
+                            ? rec[RC_KEYS.POSITION]
+                            : undefined;
+                    // SH-elided shared-palette tiles store the DC color as the SH
+                    // degree-0 coefficient accessor rather than a dedicated COLOR_DC
+                    // attribute; accept either name.
+                    const dc = typeof rec[RC_KEYS.COLOR_DC] === 'number'
+                        ? rec[RC_KEYS.COLOR_DC]
+                        : typeof rec[RC_KEYS.SH_DC] === 'number'
+                            ? rec[RC_KEYS.SH_DC]
+                            : undefined;
                     return {
-                        POSITION: typeof rec[RC_KEYS.POSITION] === 'number' ? rec[RC_KEYS.POSITION] : undefined,
+                        POSITION: pos,
                         _ROTATION: typeof rec[RC_KEYS.ROTATION] === 'number' ? rec[RC_KEYS.ROTATION] : undefined,
                         _SCALE: typeof rec[RC_KEYS.SCALE] === 'number' ? rec[RC_KEYS.SCALE] : undefined,
                         _OPACITY: typeof rec[RC_KEYS.OPACITY] === 'number' ? rec[RC_KEYS.OPACITY] : undefined,
-                        _COLOR_DC: typeof rec[RC_KEYS.COLOR_DC] === 'number' ? rec[RC_KEYS.COLOR_DC] : undefined,
+                        _COLOR_DC: dc,
                     };
                 }
             }
@@ -330,5 +350,81 @@ export function decodeShPaletteSidecar(compressed, ext, zstdDecompress) {
         indices,
         shDegree: ext?.shDegree ?? 0,
     };
+}
+/**
+ * Decode a per-tile `.glb.shpalx` index sidecar emitted by the shared-palette
+ * tileset codec (`catetus-tileset::shared_palette`). Wire format (little-endian,
+ * after zstd decompression of the whole file), SPLX-v1:
+ *   magic "SPLX" u32 (0x53504c58 LE) | version u32 (==1) | n u32 | k u32 |
+ *   indices u16[n]
+ * Each `indices[j]` is the shared-codebook centroid index for tile splat `j`
+ * (tile-local order, matching the tile GLB's splat order). The codebook itself
+ * lives ONCE at the tileset root (`palette.shpal`, decoded via
+ * {@link decodeShPaletteSidecar}); per-tile SH-rest = `codebook[indices[j]]`.
+ *
+ * @param compressed Raw bytes of the `.glb.shpalx` file.
+ * @param zstdDecompress Pure zstd frame decoder (e.g. from `makeZstd()`).
+ */
+export function decodeTileIndices(compressed, zstdDecompress) {
+    const raw = zstdDecompress(compressed);
+    const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    if (raw.byteLength < 16) {
+        throw new Error(`.shpalx too small: ${raw.byteLength} bytes`);
+    }
+    const magic = dv.getUint32(0, true);
+    if (magic !== 0x53504c58) {
+        throw new Error(`.shpalx magic mismatch: 0x${magic.toString(16)}`);
+    }
+    const version = dv.getUint32(4, true);
+    if (version !== 1)
+        throw new Error(`unsupported .shpalx version: ${version}`);
+    const n = dv.getUint32(8, true);
+    const k = dv.getUint32(12, true);
+    if (raw.byteLength < 16 + n * 2) {
+        throw new Error('.shpalx truncated in indices');
+    }
+    const indices = new Uint16Array(n);
+    let off = 16;
+    for (let i = 0; i < n; i++) {
+        indices[i] = dv.getUint16(off, true);
+        off += 2;
+    }
+    return { n, k, indices };
+}
+/**
+ * Reconstruct an SH-rest blob (degree-3, 45 floats/splat) for a shared-palette
+ * tile from its per-splat codebook indices and the shared root codebook.
+ *
+ * Output layout matches what `splatSceneToSoaChunk` / the WebGPU SoA path
+ * expect: splat-major, then coef-major, then channel-minor (interleaved RGB):
+ *     out[splat * 45 + k * 3 + c]   (coefCount = 15 for degree 3)
+ *
+ * The codebook (from `decodeShPaletteSidecar`) is stored CHANNEL-major to match
+ * Inria PLY's `f_rest_X` convention: `codebook[idx*45 + c*15 + k]`. This is the
+ * exact transpose `glb-polyfill/palette.js::paletteShRestForSplat` performs for
+ * the single-file path — kept bit-identical here so streamed tiles render the
+ * same view-dependent color as a dropped-in full GLB.
+ *
+ * @param indices Per-tile-splat codebook indices (from {@link decodeTileIndices}).
+ * @param codebook Decoded shared codebook (`decodeShPaletteSidecar(...).codebook`,
+ *   a Float32Array of length K*45).
+ * @param splatCount Tile splat count (== indices.length).
+ * @returns Float32Array of length splatCount*45 (degree-3 SH-rest, interleaved).
+ */
+export function reconstructShRestBlob(indices, codebook, splatCount) {
+    const VQ_DIM = 45;
+    const COEF = 15; // degree-3 coefficient count (per channel)
+    const STRIDE = 15; // intra-centroid channel stride (fixed at VQ_DIM/3)
+    const out = new Float32Array(splatCount * VQ_DIM);
+    for (let s = 0; s < splatCount; s++) {
+        const cbBase = indices[s] * VQ_DIM;
+        const dst = s * VQ_DIM;
+        for (let kk = 0; kk < COEF; kk++) {
+            out[dst + kk * 3 + 0] = codebook[cbBase + 0 * STRIDE + kk];
+            out[dst + kk * 3 + 1] = codebook[cbBase + 1 * STRIDE + kk];
+            out[dst + kk * 3 + 2] = codebook[cbBase + 2 * STRIDE + kk];
+        }
+    }
+    return out;
 }
 //# sourceMappingURL=glb.js.map

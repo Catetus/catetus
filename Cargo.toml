@@ -19,6 +19,7 @@ members = [
     "crates/catetus-usd",
     "crates/catetus-license",
     "crates/catetus-lodge",
+    "crates/catetus-tileset",
     # `apps/api` moved to catetus/catetus-private 2026-05-19 (open-core split).
     # `apps/worker` (Modal training) moved alongside.
     "packages/viewer-mobile/core",
@@ -47,6 +48,7 @@ catetus-usd       = { path = "crates/catetus-usd" }
 catetus-fidelity  = { path = "crates/catetus-fidelity" }
 catetus-license   = { path = "crates/catetus-license" }
 catetus-lodge     = { path = "crates/catetus-lodge" }
+catetus-tileset   = { path = "crates/catetus-tileset" }
 
 # Shared dependencies
 serde       = { version = "1", features = ["derive"] }

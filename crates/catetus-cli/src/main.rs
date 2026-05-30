@@ -110,6 +110,16 @@ enum Command {
         /// plus one `.glb` per LOD level. Mutually exclusive with `--out`.
         #[arg(long, value_name = "DIR")]
         output_dir: Option<PathBuf>,
+        /// For `--target tileset`: write a SHARED-PALETTE tileset. Builds one
+        /// scene-global SH-rest codebook (`palette.shpal` at the tileset root)
+        /// and emits each tile's SH-rest as a tiny `.glb.shpalx` index sidecar
+        /// instead of inlining FP32 SH coefficients per tile. The total payload
+        /// is dramatically smaller (the SH-rest codebook is shared, not
+        /// duplicated per tile) at equal octree/LOD config. No effect unless
+        /// `--target tileset` is also set; ignored for DC-only scenes (those
+        /// transparently fall back to the FP32 tile codec).
+        #[arg(long)]
+        shared_palette: bool,
         /// Lossless wrapper around the GLB BIN chunk. `brotli11` saves
         /// ~47% on the `quality-max` preset's FP32 SH coefficients and
         /// ~5-7% on quantized presets vs an uncompressed GLB. Decoder is a
@@ -635,6 +645,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             target,
             out,
             output_dir,
+            shared_palette,
             lossless,
             progress,
             rd_prune,
@@ -651,6 +662,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             target.as_deref(),
             out.as_deref(),
             output_dir.as_deref(),
+            shared_palette,
             lossless.as_deref(),
             progress,
             rd_prune,
@@ -1537,6 +1549,7 @@ fn cmd_optimize(
     target: Option<&str>,
     out: Option<&Path>,
     output_dir: Option<&Path>,
+    shared_palette: bool,
     lossless: Option<&str>,
     progress: bool,
     rd_prune: Option<f32>,
@@ -1674,13 +1687,19 @@ fn cmd_optimize(
         // entirely below. For the early flag-validation stage we treat it
         // as "not a GLB" and let the dispatch at write-time decide.
         Some("sog") => false,
+        // `tileset` is a multi-file octree LOD output written via
+        // `catetus-tileset`. Each tile is itself an SF GLB, so we treat it as
+        // "not a single GLB" here and short-circuit to the tileset writer after
+        // the optimize pipeline runs (see the `target_tileset` block below).
+        Some("tileset") => false,
         Some(other) => {
             return Err(anyhow!(
-                "unknown --target {other:?} (want gltf, glb, or sog)"
+                "unknown --target {other:?} (want gltf, glb, sog, or tileset)"
             ))
         }
     };
     let target_sog = matches!(target, Some("sog"));
+    let target_tileset = matches!(target, Some("tileset"));
     let compress_mode: Option<&str> = match compress {
         None => None,
         Some("zstd") => Some("zstd"),
@@ -1742,9 +1761,9 @@ fn cmd_optimize(
              submit the job through the hosted API to use it"
         ));
     }
-    if preset_name != "geospatial" && output_dir.is_some() {
+    if preset_name != "geospatial" && !target_tileset && output_dir.is_some() {
         return Err(anyhow!(
-            "--output-dir is only supported with --preset geospatial"
+            "--output-dir is only supported with --preset geospatial or --target tileset"
         ));
     }
     // The pipeline run is the longest single span; everything else is fast.
@@ -1913,7 +1932,107 @@ fn cmd_optimize(
     let _ = joint_jacobian; // joint-J pre-pipeline kept around for the sidecar
                             // encoder; we actually re-derive from post_ctx below
                             // so the indexing matches the post-pipeline scene.
-                            // `geospatial` short-circuits to the tileset writer — no single .gltf out.
+
+    // `--target tileset` short-circuits to the streaming octree LOD writer
+    // (`catetus-tileset`). The optimize pipeline above has already run on
+    // `scene` (Morton sort, prune, etc. per `--preset`), so the tileset's
+    // octree is built over the post-optimize splats. Each tile is encoded as a
+    // standalone SF GLB; the output directory is HTTP-servable for progressive
+    // streaming viewers (root tile first, refine into children by projected
+    // size). See `crates/catetus-tileset/STATUS.md`.
+    if target_tileset {
+        let dir = output_dir.map(PathBuf::from).unwrap_or_else(|| {
+            let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
+            input
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(format!("{stem}-tileset"))
+        });
+        if progress {
+            emit_progress(0.92, "writing-tileset");
+        }
+        let total_splats = scene.len();
+        if total_splats == 0 {
+            return Err(anyhow!("input scene has no splats to tile"));
+        }
+        let ts_config = catetus_tileset::TilesetConfig::default();
+        let plan = catetus_tileset::plan_tileset(&scene, &ts_config)
+            .map_err(|e| anyhow!("tileset planning failed: {e}"))?;
+        let tile_count = plan.payloads.len();
+        let lod_levels = plan.lod_meta.lod_levels;
+        // Per-node-LOD (tile_count, splat_count) summary across all nodes.
+        let mut per_lod: Vec<(usize, usize)> = Vec::new();
+        for p in &plan.payloads {
+            if per_lod.len() <= p.lod {
+                per_lod.resize(p.lod + 1, (0, 0));
+            }
+            per_lod[p.lod].0 += 1;
+            per_lod[p.lod].1 += p.scene.len();
+        }
+        std::fs::create_dir_all(&dir)?;
+        let total_tile_bytes = if shared_palette {
+            // Shared-palette tileset: one scene-global SH-rest codebook
+            // (`palette.shpal`) + per-tile `.glb.shpalx` index sidecars.
+            let written = catetus_tileset::write_tileset_shared(
+                &plan,
+                &scene,
+                &dir,
+                &catetus_tileset::SharedPaletteConfig::default(),
+            )
+            .map_err(|e| anyhow!("writing shared-palette tileset failed: {e}"))?;
+            written.total_bytes
+        } else {
+            let codec = catetus_tileset::GlbTileCodec::from_cli_preset(preset_name);
+            catetus_tileset::write_tileset(&plan, &codec, &dir)
+                .map_err(|e| anyhow!("writing tileset failed: {e}"))?
+        };
+        if progress {
+            emit_progress(1.00, "done");
+        }
+        let kind = if shared_palette {
+            "shared-palette tileset"
+        } else {
+            "tileset"
+        };
+        println!(
+            "optimized {} -> {} {} ({} GLB tiles, {} octree LOD levels, {} splats)",
+            input.display(),
+            kind,
+            dir.display(),
+            tile_count,
+            lod_levels,
+            total_splats,
+        );
+        if shared_palette {
+            println!(
+                "  shared SH-rest palette: {}",
+                dir.join(catetus_tileset::SHARED_PALETTE_FILENAME).display()
+            );
+        }
+        let last_nonempty = per_lod.iter().rposition(|&(t, _)| t > 0).unwrap_or(0);
+        for (lod, &(ntiles, nsplats)) in per_lod.iter().enumerate() {
+            if ntiles == 0 {
+                continue;
+            }
+            let tag = if lod == 0 {
+                "coarsest"
+            } else if lod == last_nonempty {
+                "finest"
+            } else {
+                "mid"
+            };
+            println!("  per-node LOD {lod} ({tag}): {ntiles} tiles, {nsplats} splats");
+        }
+        println!(
+            "  manifests: lod-meta.json (SuperSplat) + tileset.json (3D Tiles 1.1); \
+             {:.2} MB tile payloads",
+            total_tile_bytes as f64 / (1024.0 * 1024.0),
+        );
+        return Ok(());
+    }
+
+    // `geospatial` short-circuits to the (legacy) Cesium tileset writer — no
+    // single .gltf out.
     if preset_name == "geospatial" {
         let dir = output_dir.expect("checked above");
         if progress {

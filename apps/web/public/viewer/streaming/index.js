@@ -21,12 +21,69 @@ import { extractFrustum } from './frustum.js';
 import { loadTilesetJson, } from './tileset_loader.js';
 import { selectVisibleTiles, } from './lod_selector.js';
 import { TileStreamer, } from './tile_streamer.js';
+import { decodeShPaletteSidecar } from './glb.js';
+// Import the browser zstd decoder by RELATIVE vendor path rather than the bare
+// `'fzstd'` specifier: the standalone preview-shell index.html (and the local
+// perf harness) don't carry the `fzstd` importmap entry that the Astro
+// `Base.astro` layout provides, but `/viewer/vendor/fzstd.js` is always served.
+import { decompress as fzstdDecompress } from '../vendor/fzstd.js';
 export { extractFrustum } from './frustum.js';
 export { selectVisibleTiles, screenSpaceError } from './lod_selector.js';
 // `screenSpaceError` re-export is convenience for the bench / docs.
 export { TileStreamer } from './tile_streamer.js';
 export { loadTilesetJson, parseTileset } from './tileset_loader.js';
-export { decodeGlb, manifestFromGlb } from './glb.js';
+export { decodeGlb, manifestFromGlb, decodeTileIndices, reconstructShRestBlob } from './glb.js';
+/**
+ * Synchronous zstd frame decoder used for the shared SH-rest palette + per-tile
+ * index sidecars. `fzstd.decompress` is the same browser zstd the single-file
+ * GLB path uses (`glb-polyfill`); it is resolved via the page importmap
+ * (`"fzstd": "/viewer/vendor/fzstd.js"`). Synchronous, so `payloadToChunk`
+ * stays sync.
+ */
+const zstdDecompress = (b) => fzstdDecompress(b);
+/**
+ * Fetch + decode the tileset-root shared SH-rest palette (`palette.shpal`),
+ * resolved as a sibling of `tileset.json`. Shared-palette tilesets store SH-rest
+ * ONCE here (a VQ45 codebook); each tile carries only u16 indices in a
+ * `.glb.shpalx` sidecar. Returns `null` when the tileset has no such palette
+ * (FP32 / DC-only tilesets), so the caller silently falls back to geometry+DC.
+ */
+async function loadSharedPalette(tilesetUrl) {
+    try {
+        // Resolve `palette.shpal` as a sibling of tileset.json. `tilesetUrl` may be
+        // a server-absolute path (e.g. "/_fs_ts/tileset.json"), which `new URL()`
+        // can't take as a base — anchor to the page origin first (mirrors
+        // tileset_loader.resolveAgainst), then fall back to a trailing-segment swap.
+        let palUrl;
+        const pageHref = typeof globalThis !== 'undefined' && globalThis.location?.href;
+        try {
+            const absBase = pageHref ? new URL(tilesetUrl, pageHref).toString() : tilesetUrl;
+            palUrl = new URL('palette.shpal', absBase).toString();
+        }
+        catch {
+            const slash = tilesetUrl.lastIndexOf('/');
+            palUrl = slash >= 0 ? tilesetUrl.slice(0, slash + 1) + 'palette.shpal' : 'palette.shpal';
+        }
+        const res = await fetch(palUrl);
+        if (!res.ok) {
+            if (typeof window !== 'undefined')
+                window.__sharedPaletteDebug = { ok: false, reason: `palette.shpal HTTP ${res.status}`, palUrl };
+            return null; // no shared palette → FP32/DC tileset
+        }
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        // shDegree 3: the shared codebook is always full SH-rest (VQ45).
+        const palette = decodeShPaletteSidecar(bytes, { shDegree: 3 }, zstdDecompress);
+        if (typeof window !== 'undefined')
+            window.__sharedPaletteDebug = { ok: true, K: palette.K, N: palette.N, palUrl };
+        return { palette, zstd: zstdDecompress };
+    }
+    catch (err) {
+        // Surface the reason (silent fallback to geometry+DC, never crash).
+        if (typeof window !== 'undefined')
+            window.__sharedPaletteDebug = { ok: false, reason: String(err && err.message || err) };
+        return null;
+    }
+}
 /**
  * Streaming-tile runtime. Glues the loader, frustum, selector, and streamer
  * into the per-frame loop that {@link CatetusViewer} drives.
@@ -36,6 +93,8 @@ export class StreamingTileset {
     streamer;
     opts;
     lastEye;
+    /** Decoded shared SH-rest palette + zstd decoder, or null for FP32/DC tilesets. */
+    sharedPalette = null;
     constructor(tileset, opts) {
         this.tileset = tileset;
         this.streamer = new TileStreamer(opts);
@@ -53,6 +112,18 @@ export class StreamingTileset {
     static async create(url, opts = {}) {
         const tileset = await loadTilesetJson(url);
         const ts = new StreamingTileset(tileset, opts);
+        // Fetch + decode the shared SH-rest palette ONCE (sibling of tileset.json),
+        // so streamed tiles can render full view-dependent color. Null when absent.
+        // `tileset.url` is the resolved tileset.json URL (parseTileset sets it).
+        // `opts.disableSharedPalette` (wired from `?nocolor=1`) forces the
+        // geometry+DC path on the SAME tileset tree — used by the perf harness to
+        // isolate the SH-rest decode cost from the tile-tree (a clean same-tree A/B).
+        ts.sharedPalette = opts.disableSharedPalette
+            ? null
+            : await loadSharedPalette(tileset.url ?? url);
+        // When a shared palette exists, tell the streamer to also fetch each
+        // tile's `.glb.shpalx` index sidecar alongside the GLB.
+        ts.streamer.fetchShpalx = !!ts.sharedPalette;
         // Kick off the root fetch — without this, the first frame would render
         // nothing while LOD selection waits on a resident ancestor.
         void ts.streamer.fetchTile(tileset.root, Number.MAX_SAFE_INTEGER);
