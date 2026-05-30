@@ -24,7 +24,9 @@
  * so the rebuild cost is amortized and never on the steady-state frame path.
  */
 import { splatSceneToSoaChunk } from '../loader/to-soa.js';
-import { decodeGlb, manifestFromGlb } from './glb.js';
+import { decodeGlb, manifestFromGlb, decodeTileIndices, reconstructShRestBlob } from './glb.js';
+/** glTF FLOAT component type (matches loader/to-soa.js + progressive/uploader.js). */
+const FLOAT_COMPONENT = 5126;
 /**
  * Convert a streamer payload (`.sftile` scene or decoded GLB) into the
  * `{descriptor, bytes}` pair `renderer.uploadChunk` accepts.
@@ -33,8 +35,17 @@ import { decodeGlb, manifestFromGlb } from './glb.js';
  * `decodeSftile`, so `splatSceneToSoaChunk` does the SoA packing directly.
  * For GLB we reuse `manifestFromGlb` (its chunk descriptor + BIN bytes are
  * already in the renderer's expected layout).
+ *
+ * `sharedPalette` (the decoded root `palette.shpal` + a zstd decoder, or null)
+ * upgrades shared-palette GLB tiles from geometry+DC to FULL view-dependent
+ * SH-rest color: we decode the tile's `.glb.shpalx` indices, reconstruct each
+ * splat's 45-D SH-rest = `codebook[index]` (degree 3), and append that blob to
+ * the chunk bytes with a matching `shRest`/`shDegree` attribute layout — the
+ * exact slice `WebGPURenderer.uploadChunk` copies into its per-scene SH-rest
+ * buffer (webgpu/index.js). When the palette / sidecar is absent the tile keeps
+ * its DC-only behavior unchanged.
  */
-function payloadToChunk(payload, tileId) {
+function payloadToChunk(payload, tileId, sharedPalette) {
     if (payload.kind === 'sftile') {
         return splatSceneToSoaChunk(payload.scene, `tile:${tileId}`);
     }
@@ -42,7 +53,69 @@ function payloadToChunk(payload, tileId) {
     // single chunk descriptor + BIN bytes match uploadChunk's contract.
     const { manifest, bin } = manifestFromGlb({ json: payload.json, bin: payload.bin });
     const chunk = manifest.chunks[0];
-    return { descriptor: { ...chunk, uri: `tile:${tileId}` }, bytes: bin };
+    // Geometry+DC only (no shared palette, or this tile has no index sidecar).
+    if (!sharedPalette || !payload.shpalxBytes) {
+        if (typeof window !== 'undefined') {
+            const st = (window.__shStats ??= { fullColorChunks: 0, dcOnlyChunks: 0, shSplats: 0, maxAbsErr: 0, samples: 0, anyNonZero: false });
+            st.dcOnlyChunks++;
+        }
+        return { descriptor: { ...chunk, uri: `tile:${tileId}` }, bytes: bin };
+    }
+    // Full-color path: reconstruct SH-rest from the shared codebook + per-tile
+    // indices and append it to the chunk bytes.
+    const { palette, zstd } = sharedPalette;
+    const sx = decodeTileIndices(payload.shpalxBytes, zstd);
+    const n = chunk.splatCount;
+    if (sx.n !== n) {
+        // Index/splat-count mismatch — fall back to DC-only rather than mis-shade.
+        return { descriptor: { ...chunk, uri: `tile:${tileId}` }, bytes: bin };
+    }
+    const shRest = reconstructShRestBlob(sx.indices, palette.codebook, n); // n*45 floats
+    // In-browser correctness instrumentation (headless harness reads
+    // `window.__shStats`): count full-color chunks + splats and spot-check that a
+    // sampled splat's reconstructed SH-rest exactly equals codebook[index] with
+    // the channel-major→interleaved transpose. Cheap (one sample per chunk),
+    // strips out of any minified prod build, and never affects rendering.
+    if (typeof window !== 'undefined') {
+        const st = (window.__shStats ??= { fullColorChunks: 0, dcOnlyChunks: 0, shSplats: 0, maxAbsErr: 0, samples: 0, anyNonZero: false });
+        st.fullColorChunks++;
+        st.shSplats += n;
+        const s = (n >> 1); // a mid splat
+        const cbBase = sx.indices[s] * 45;
+        for (let k = 0; k < 15; k++) {
+            for (let c = 0; c < 3; c++) {
+                const got = shRest[s * 45 + k * 3 + c];
+                const want = palette.codebook[cbBase + c * 15 + k];
+                const e = Math.abs(got - want);
+                if (e > st.maxAbsErr) st.maxAbsErr = e;
+                if (want !== 0) st.anyNonZero = true;
+            }
+        }
+        st.samples++;
+    }
+    // Lay out [BIN | pad to 4B | shRest floats] in one buffer so the renderer's
+    // `bytes.buffer @ shRest.byteOffset` reads the SH-rest as aligned float32.
+    const shByteOffset = (bin.byteLength + 3) & ~3;
+    const shByteLength = shRest.byteLength;
+    const out = new Uint8Array(shByteOffset + shByteLength);
+    out.set(bin, 0);
+    new Float32Array(out.buffer, shByteOffset, shRest.length).set(shRest);
+    const layout = {
+        ...chunk.attributeLayout,
+        shRest: {
+            byteOffset: shByteOffset,
+            byteLength: shByteLength,
+            componentType: FLOAT_COMPONENT,
+        },
+        shDegree: 3,
+    };
+    const descriptor = {
+        ...chunk,
+        uri: `tile:${tileId}`,
+        byteLength: out.byteLength,
+        attributeLayout: layout,
+    };
+    return { descriptor, bytes: out };
 }
 void decodeGlb; // referenced for symmetry / future direct-GLB paths
 /**
@@ -90,6 +163,8 @@ export class TilesetRuntime {
         const streaming = await StreamingTileset.create(url, {
             maximumScreenSpaceError: opts.maximumScreenSpaceError ?? 16,
             prefetchLookahead: opts.prefetchLookahead ?? 0,
+            // Forward the geometry+DC override for the clean same-tree A/B (?nocolor=1).
+            disableSharedPalette: !!opts.disableSharedPalette,
         });
         return new TilesetRuntime(streaming, opts);
     }
@@ -130,9 +205,10 @@ export class TilesetRuntime {
         try {
             const next = await this.makeRenderer();
             let uploaded = 0;
+            const sharedPalette = this.streaming.sharedPalette ?? null;
             for (const { tile, payload } of drawable) {
                 try {
-                    const { descriptor, bytes } = payloadToChunk(payload, tile.id);
+                    const { descriptor, bytes } = payloadToChunk(payload, tile.id, sharedPalette);
                     if (descriptor.splatCount > 0) {
                         next.uploadChunk(descriptor, bytes);
                         uploaded++;

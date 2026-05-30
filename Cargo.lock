@@ -280,6 +280,7 @@ dependencies = [
  "catetus-optimize",
  "catetus-ply",
  "catetus-spz",
+ "catetus-tileset",
  "catetus-usd",
  "chrono",
  "clap",
@@ -433,6 +434,8 @@ dependencies = [
  "anyhow",
  "catetus-core",
  "catetus-gltf",
+ "catetus-jacobian",
+ "catetus-ply",
  "rayon",
  "serde",
  "serde_json",
@@ -458,6 +461,22 @@ dependencies = [
  "catetus-core",
  "flate2",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "catetus-tileset"
+version = "0.1.0"
+dependencies = [
+ "catetus-core",
+ "catetus-gltf",
+ "catetus-optimize",
+ "catetus-ply",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "zstd",
 ]
 
 [[package]]

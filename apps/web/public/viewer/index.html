@@ -377,6 +377,9 @@
 
         const runtime = await TilesetRuntime.create(url, {
           maximumScreenSpaceError: Number.isFinite(sseParam) ? sseParam : 16,
+          // `?nocolor=1` forces geometry+DC on a shared-palette tileset — used by
+          // the perf harness for a clean same-tree color-on vs color-off A/B.
+          disableSharedPalette: params.get('nocolor') === '1',
           makeRenderer: async () => {
             const r = new WebGPURenderer({ useComputeDecode: true });
             await r.init({ canvas, clearColor: [0, 0, 0, 1] });
