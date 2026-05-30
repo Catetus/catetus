@@ -1,0 +1,36 @@
+[package]
+name = "catetus-tileset"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Octree LOD tileset encoder for Catetus — streaming-first multi-tile output (SuperSplat lod-meta.json + 3D Tiles compatible)."
+
+[dependencies]
+catetus-core = { workspace = true }
+# Real tile payloads: each octree tile is encoded as a standalone SF GLB
+# (glTF 2.0 + KHR_gaussian_splatting) via `catetus_gltf::write_glb`. This is what
+# turns `.sftile` placeholders into viewer-loadable tiles (STATUS roadmap #1).
+catetus-gltf = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+# The GLB tile codec writes each tile to a temp path via `catetus_gltf::write_glb`
+# (the public GLB writer is path-based), then reads the bytes back.
+tempfile   = "3"
+
+# Scene-global SH-rest VQ45 palette: the shared codebook is built ONCE over the
+# whole scene by `catetus_optimize::VQPaletteShRest`, then threaded through the
+# manifest so every streamed tile stores only u16 palette INDICES (2 B/splat)
+# instead of FP32 SH-rest (180 B/splat). This is the streaming-compression moat.
+catetus-optimize = { workspace = true }
+# zstd-19 for the per-tile `.shpalx` index sidecar (same pin as catetus-optimize,
+# which uses it for the `.shpal` codebook sidecar).
+zstd = { version = "0.13", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+# For the throwaway TILE-CODEC-1 bench example only (loads the real bonsai PLY).
+catetus-ply = { workspace = true }

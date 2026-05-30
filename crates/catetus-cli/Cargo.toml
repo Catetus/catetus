@@ -28,6 +28,8 @@ catetus-jacobian = { workspace = true }
 catetus-fidelity = { workspace = true }
 catetus-lodge    = { workspace = true }
 catetus-meson    = { workspace = true }
+# Streaming-first octree LOD tileset output (`--target tileset`).
+catetus-tileset  = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }

@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Catetus MCP — Cline (VS Code extension) config.",
+    "",
+    "Cline stores MCP server config in cline_mcp_settings.json. Open it via:",
+    "  1. Click the Cline icon in the VS Code sidebar",
+    "  2. Click the 'MCP Servers' button at the top of the Cline panel",
+    "  3. Click 'Configure MCP Servers'  →  this opens cline_mcp_settings.json",
+    "(Or find it manually under your VS Code user/extensions storage.)",
+    "",
+    "Paste the `mcpServers` block below into that file. Cline will hot-reload",
+    "the server (you should see it appear in the MCP Servers list within seconds).",
+    "",
+    "Two variants below: (1) local stdio (free + paid via env) and",
+    "(2) hosted HTTP at mcp.catetus.com (paid only). Pick ONE.",
+    "",
+    "FREE TIER (stdio, no key): analyze, list_presets, list_scenes, get_scene,",
+    "  optimize, compare, list_competitor_codecs, validate_pipeline.",
+    "PAID TIER (key set): also encode, score_fidelity, repack, predict_quality,",
+    "  recommend_preset, batch_jobs, list_jobs.",
+    "Get a key at https://catetus.com/dashboard."
+  ],
+  "mcpServers": {
+    "catetus": {
+      "_comment": "FREE + PAID via stdio. Omit the env block to use the free tier only.",
+      "command": "npx",
+      "args": ["-y", "@catetus/mcp@latest"],
+      "env": {
+        "CATETUS_API_KEY": "cat_live_REPLACE_ME"
+      },
+      "disabled": false,
+      "autoApprove": []
+    },
+    "catetus-hosted-disabled": {
+      "_comment": "Alternative: hosted HTTP at mcp.catetus.com. Cline supports remote MCP via the `url` field. Rename this key to `catetus` and delete the stdio entry above to use this one.",
+      "url": "https://mcp.catetus.com",
+      "headers": {
+        "Authorization": "Bearer cat_live_REPLACE_ME"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}

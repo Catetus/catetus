@@ -29,3 +29,8 @@ rayon = { workspace = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 catetus-gltf = { workspace = true }
+# FRONT-F progressive-layer measurement + jacobian-npz minting examples need
+# the PLY reader and the closed-form Jacobian proxy. Both are already normal
+# deps of the build pipeline; listed here only so the examples link them.
+catetus-ply = { workspace = true }
+catetus-jacobian = { workspace = true }

@@ -34,6 +34,15 @@ use serde::{Deserialize, Serialize};
 /// `catetus-api.fly.dev` (see `[[catetus-api-deploy]]`).
 pub const DEFAULT_ENCODE_API_URL: &str = "https://api.catetus.com";
 
+/// Inputs at or above this size use the presigned-upload flow
+/// (`POST /v1/encode/upload` → streaming PUT → `POST /v1/encode` with
+/// `{job_id, input_ref}`) instead of the inline-bytes body (LARGE-2
+/// Part A). Below it, the simpler inline path is used. 100 MB is well
+/// under the API's inline body cap (512 MiB) so small/medium scenes keep
+/// the one-call path while multi-GB captures avoid buffering + the ~33%
+/// base64 inflation that the inline dispatch envelope incurs.
+pub const UPLOAD_THRESHOLD_BYTES: u64 = 100 * 1024 * 1024;
+
 /// Output container requested from the server. Mirrors `EncodeTarget`
 /// in `routes/encode.rs` — kept in sync via the kebab-case URL params.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +107,30 @@ struct EncodeAccepted {
 
 fn default_poll_after() -> u64 {
     2
+}
+
+/// Parsed response from `POST /v1/encode/upload`. Field names match
+/// `EncodeUploadTargetResponse` in the private API exactly.
+#[derive(Debug, Clone, Deserialize)]
+struct EncodeUploadTarget {
+    job_id: String,
+    upload_url: String,
+    #[serde(default = "default_upload_method")]
+    #[allow(dead_code)]
+    upload_method: String,
+    input_ref: String,
+}
+
+fn default_upload_method() -> String {
+    "PUT".to_string()
+}
+
+/// Body for the by-ref `POST /v1/encode` call (large-file path). Mirrors
+/// `EncodeByRefBody` in `routes/encode.rs`.
+#[derive(Debug, Clone, Serialize)]
+struct EncodeByRefBody<'a> {
+    job_id: &'a str,
+    input_ref: &'a str,
 }
 
 /// Parsed 202 / 503 / 422 status JSON returned by `GET /v1/encode/:id`
@@ -226,38 +259,198 @@ pub fn encode_via_api(req: &EncodeRequest<'_>) -> Result<EncodeOutcome> {
         .max(Duration::from_secs(accepted.poll_after_seconds.max(1)));
 
     // ---- 2. Poll until Done (200 + binary) / Error / timeout. ----
+    // Shared with the presigned-upload path via `poll_until_done`.
+    poll_until_done(
+        &client,
+        &base,
+        &poll_url,
+        &accepted.job_id,
+        req.v5tail,
+        started,
+        req.timeout,
+        min_interval,
+    )
+}
+
+/// Round-trip one encode request against the hosted API using the
+/// large-file presigned-upload path (LARGE-2 Part A).
+///
+/// Three calls instead of the inline path's one:
+///   1. `POST /v1/encode/upload` → mint `{ job_id, upload_url, input_ref }`.
+///   2. Streaming `PUT <upload_url>` of the PLY bytes (no base64, no
+///      whole-file buffering beyond what reqwest's body needs).
+///   3. `POST /v1/encode` with `{ job_id, input_ref }` to trigger the
+///      encode, then poll exactly like the inline path.
+///
+/// `ply_path` is read with a streaming reqwest body so a multi-GB file
+/// isn't loaded into a `Vec<u8>` for the PUT.
+pub fn encode_via_api_upload(
+    api_url: &str,
+    target: EncodeTarget,
+    v5tail: bool,
+    ply_path: &Path,
+    label: Option<&str>,
+    timeout: Duration,
+    min_poll_interval: Duration,
+) -> Result<EncodeOutcome> {
+    if v5tail && target != EncodeTarget::Sog {
+        return Err(anyhow!(
+            "--emit-v5-tail requires --target sog (the V5.2 sidecar only \
+             rides on top of a SOG container)"
+        ));
+    }
+
+    let base = normalize_base(api_url);
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        // The PUT of a multi-GB file can take a while; allow the full
+        // request budget rather than the inline path's 120 s ceiling.
+        .timeout(timeout)
+        .build()
+        .context("building HTTP client for the Catetus encode API")?;
+
+    let started = Instant::now();
+
+    // ---- 1. Mint the upload target. ----
+    let mut mint_url = format!(
+        "{base}/v1/encode/upload?target={t}&v5tail={v}",
+        base = base,
+        t = target.as_query_value(),
+        v = if v5tail { "true" } else { "false" },
+    );
+    if let Some(label) = label {
+        let encoded: String = label
+            .bytes()
+            .map(|b| match b {
+                b'?' | b'&' | b'=' | b'#' | b' ' | b'+' | b'%' => format!("%{:02X}", b),
+                _ => (b as char).to_string(),
+            })
+            .collect();
+        mint_url.push_str(&format!("&label={encoded}"));
+    }
+    let mint_resp = client
+        .post(&mint_url)
+        .send()
+        .with_context(|| {
+            format!(
+                "POST {mint_url} failed — is the Catetus API reachable? \
+                 (override with --api-url or CATETUS_API_URL)"
+            )
+        })?;
+    let mint_status = mint_resp.status();
+    if !mint_status.is_success() {
+        let body = mint_resp.text().unwrap_or_default();
+        let detail = parse_error_message(&body).unwrap_or_else(|| shorten(&body));
+        return Err(anyhow!(
+            "minting upload target rejected by {mint_url}: HTTP {mint_status}: {detail}"
+        ));
+    }
+    let target_info: EncodeUploadTarget = mint_resp
+        .json()
+        .context("parsing response from POST /v1/encode/upload")?;
+    let upload_url = join_url(&base, &target_info.upload_url);
+
+    // ---- 2. Streaming PUT the PLY bytes. ----
+    let file = std::fs::File::open(ply_path)
+        .with_context(|| format!("opening input PLY {}", ply_path.display()))?;
+    let file_len = file
+        .metadata()
+        .with_context(|| format!("stat-ing input PLY {}", ply_path.display()))?
+        .len();
+    // `reqwest::blocking::Body::sized` streams the file through a reader
+    // (no whole-file buffering) and sets Content-Length so the server's
+    // body-limit layer + blob PUT see the size up-front.
+    let body = reqwest::blocking::Body::sized(file, file_len);
+    let put_resp = client
+        .put(&upload_url)
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .body(body)
+        .send()
+        .with_context(|| format!("PUT {upload_url} failed while uploading the PLY"))?;
+    let put_status = put_resp.status();
+    if !put_status.is_success() {
+        let body = put_resp.text().unwrap_or_default();
+        return Err(anyhow!(
+            "uploading the PLY to {upload_url} failed: HTTP {put_status}: {}",
+            shorten(&body)
+        ));
+    }
+
+    // ---- 3. Trigger the encode by reference. ----
+    let by_ref = EncodeByRefBody {
+        job_id: &target_info.job_id,
+        input_ref: &target_info.input_ref,
+    };
+    let post_url = format!("{base}/v1/encode");
+    let post_resp = client
+        .post(&post_url)
+        .json(&by_ref)
+        .send()
+        .with_context(|| format!("POST {post_url} (by-ref) failed"))?;
+    let post_status = post_resp.status();
+    if !(post_status == reqwest::StatusCode::ACCEPTED || post_status.is_success()) {
+        let body = post_resp.text().unwrap_or_default();
+        let detail = parse_error_message(&body).unwrap_or_else(|| shorten(&body));
+        return Err(anyhow!(
+            "by-ref encode submission rejected by {post_url}: HTTP {post_status}: {detail}"
+        ));
+    }
+    let accepted: EncodeAccepted = post_resp
+        .json()
+        .context("parsing 202 response from by-ref POST /v1/encode")?;
+    let poll_url = join_url(&base, &accepted.poll_url);
+    let min_interval =
+        min_poll_interval.max(Duration::from_secs(accepted.poll_after_seconds.max(1)));
+
+    // ---- 4. Poll until Done / Error / timeout (same as inline path). ----
+    poll_until_done(
+        &client,
+        &base,
+        &poll_url,
+        &accepted.job_id,
+        v5tail,
+        started,
+        timeout,
+        min_interval,
+    )
+}
+
+/// Shared poll loop used by both the inline and presigned paths: GET the
+/// poll URL until 200 (binary) / terminal error / timeout, then fetch the
+/// v5tail sidecar when requested.
+#[allow(clippy::too_many_arguments)]
+fn poll_until_done(
+    client: &reqwest::blocking::Client,
+    base: &str,
+    poll_url: &str,
+    job_id: &str,
+    v5tail: bool,
+    started: Instant,
+    timeout: Duration,
+    min_interval: Duration,
+) -> Result<EncodeOutcome> {
     loop {
-        if started.elapsed() >= req.timeout {
+        if started.elapsed() >= timeout {
             return Err(anyhow!(
-                "encode job {} did not finish within {}s (last poll at {}); \
+                "encode job {job_id} did not finish within {}s (last poll at {poll_url}); \
                  the worker may be cold-starting — retry or raise the timeout",
-                accepted.job_id,
-                req.timeout.as_secs(),
-                poll_url
+                timeout.as_secs(),
             ));
         }
         std::thread::sleep(min_interval);
 
-        let get_resp = client.get(&poll_url).send().with_context(|| {
-            format!("GET {poll_url} failed while polling for job result")
-        })?;
+        let get_resp = client
+            .get(poll_url)
+            .send()
+            .with_context(|| format!("GET {poll_url} failed while polling for job result"))?;
         let status = get_resp.status();
         if status == reqwest::StatusCode::OK {
-            // Done — body is the encoded binary.
             let output_bytes = get_resp
                 .bytes()
                 .context("reading encoded output bytes from API")?
                 .to_vec();
-            // The 200 path does NOT include sidecar metadata (the
-            // server emits raw bytes on Done). To pick up the
-            // sidecar we issue one more GET against the canonical
-            // sidecar URL when v5tail was requested. The server
-            // serves it at `/v1/encode/<id>/sidecar` (a 404 here
-            // when v5tail=true means the worker chose not to emit
-            // one — surface a clear error rather than silently
-            // dropping the request).
-            let sidecar_bytes = if req.v5tail {
-                let sidecar_url = format!("{base}/v1/encode/{}/sidecar", accepted.job_id);
+            let sidecar_bytes = if v5tail {
+                let sidecar_url = format!("{base}/v1/encode/{job_id}/sidecar");
                 let sc = client.get(&sidecar_url).send().with_context(|| {
                     format!("GET {sidecar_url} failed while fetching v5tail sidecar")
                 })?;
@@ -267,8 +460,7 @@ pub fn encode_via_api(req: &EncodeRequest<'_>) -> Result<EncodeOutcome> {
                 } else {
                     let body = sc.text().unwrap_or_default();
                     return Err(anyhow!(
-                        "v5tail sidecar requested but {sidecar_url} returned \
-                         HTTP {sc_status}: {}",
+                        "v5tail sidecar requested but {sidecar_url} returned HTTP {sc_status}: {}",
                         shorten(&body)
                     ));
                 }
@@ -276,30 +468,18 @@ pub fn encode_via_api(req: &EncodeRequest<'_>) -> Result<EncodeOutcome> {
                 None
             };
             return Ok(EncodeOutcome {
-                job_id: accepted.job_id,
+                job_id: job_id.to_string(),
                 output_bytes,
                 sidecar_bytes,
             });
         }
         if status == reqwest::StatusCode::ACCEPTED {
-            // Still queued / running. Loop.
-            // (The server sets Retry-After=2 but we honour our own
-            // min_poll_interval since the second-resolution server
-            // hint already folded in above.)
             continue;
         }
-        // 503 NotYetHosted, 422 Error, 404 NotFound, or anything else
-        // -> surface the error envelope.
         let body_text = get_resp.text().unwrap_or_default();
-        // Try the structured error envelope first; fall back to the
-        // job-view envelope which carries `error` on terminal failure.
         let detail = parse_error_message(&body_text).unwrap_or_else(|| shorten(&body_text));
         return Err(anyhow!(
-            "encode job {} failed: HTTP {} from {}: {}",
-            accepted.job_id,
-            status,
-            poll_url,
-            detail
+            "encode job {job_id} failed: HTTP {status} from {poll_url}: {detail}"
         ));
     }
 }
@@ -419,17 +599,35 @@ pub fn run_encode_to_disk(
     label: Option<&str>,
     timeout: Duration,
 ) -> Result<EncodeOutcome> {
-    let ply_bytes = std::fs::read(input)
-        .with_context(|| format!("reading input PLY {}", input.display()))?;
-    let outcome = encode_via_api(&EncodeRequest {
-        api_url,
-        target,
-        v5tail,
-        ply_bytes: &ply_bytes,
-        label,
-        timeout,
-        min_poll_interval: Duration::from_secs(2),
-    })?;
+    // Size-based dispatch: large inputs use the presigned-upload flow so
+    // we never buffer a multi-GB PLY in memory or inflate it 33% through
+    // base64; small inputs keep the one-call inline path (LARGE-2 Part A).
+    let size = std::fs::metadata(input)
+        .with_context(|| format!("stat-ing input PLY {}", input.display()))?
+        .len();
+    let outcome = if size >= UPLOAD_THRESHOLD_BYTES {
+        encode_via_api_upload(
+            api_url,
+            target,
+            v5tail,
+            input,
+            label,
+            timeout,
+            Duration::from_secs(2),
+        )?
+    } else {
+        let ply_bytes = std::fs::read(input)
+            .with_context(|| format!("reading input PLY {}", input.display()))?;
+        encode_via_api(&EncodeRequest {
+            api_url,
+            target,
+            v5tail,
+            ply_bytes: &ply_bytes,
+            label,
+            timeout,
+            min_poll_interval: Duration::from_secs(2),
+        })?
+    };
     std::fs::write(output, &outcome.output_bytes)
         .with_context(|| format!("writing encoded output to {}", output.display()))?;
     if let (true, Some(path), Some(bytes)) = (v5tail, sidecar_output, outcome.sidecar_bytes.as_ref())
@@ -494,6 +692,31 @@ mod tests {
             parse_error_message(body).as_deref(),
             Some("[bad_request] bad ply")
         );
+    }
+
+    #[test]
+    fn upload_threshold_is_100_mib() {
+        // Guards the size-based dispatch in `run_encode_to_disk`: a
+        // 99 MB file stays inline, a 101 MB file uses the upload flow.
+        assert_eq!(UPLOAD_THRESHOLD_BYTES, 100 * 1024 * 1024);
+        assert!(99 * 1024 * 1024 < UPLOAD_THRESHOLD_BYTES);
+        assert!(101 * 1024 * 1024 >= UPLOAD_THRESHOLD_BYTES);
+    }
+
+    #[test]
+    fn upload_target_deserializes_api_shape() {
+        // Pins the CLI's parse against the private API's
+        // EncodeUploadTargetResponse field names.
+        let body = r#"{
+            "job_id":"11111111-1111-1111-1111-111111111111",
+            "upload_url":"http://api.test/v1/encode/blob/encode/abc.ply",
+            "upload_method":"PUT",
+            "input_ref":"encode/abc.ply"
+        }"#;
+        let t: EncodeUploadTarget = serde_json::from_str(body).unwrap();
+        assert_eq!(t.job_id, "11111111-1111-1111-1111-111111111111");
+        assert_eq!(t.input_ref, "encode/abc.ply");
+        assert!(t.upload_url.ends_with("encode/abc.ply"));
     }
 
     #[test]

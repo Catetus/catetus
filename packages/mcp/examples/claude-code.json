@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Catetus MCP — Claude Code config.",
+    "",
+    "Claude Code (the CLI) stores MCP servers in ~/.claude.json under the `mcpServers` key,",
+    "or per-project in <project>/.mcp.json. You can edit those JSON files directly, or",
+    "use the `claude mcp add` command (recommended).",
+    "",
+    "=== Option 1: hosted HTTP transport (paid) ===",
+    "  claude mcp add --transport http catetus https://mcp.catetus.com \\",
+    "    --header \"Authorization: Bearer cat_live_REPLACE_ME\"",
+    "",
+    "=== Option 2: local stdio (free + paid via env) ===",
+    "  claude mcp add catetus -- npx -y @catetus/mcp@latest",
+    "  # paid tier: also set the key via -e",
+    "  claude mcp add catetus -e CATETUS_API_KEY=cat_live_REPLACE_ME -- npx -y @catetus/mcp@latest",
+    "",
+    "=== Option 3: edit ~/.claude.json directly with the block below ===",
+    "",
+    "FREE TIER (stdio, no key): analyze, list_presets, list_scenes, get_scene,",
+    "  optimize, compare, list_competitor_codecs, validate_pipeline.",
+    "PAID TIER (key set): all of the above + encode, score_fidelity, repack,",
+    "  predict_quality, recommend_preset, batch_jobs, list_jobs."
+  ],
+  "mcpServers": {
+    "catetus": {
+      "_comment": "FREE + PAID via stdio. Omit the env block to use the free tier.",
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@catetus/mcp@latest"],
+      "env": {
+        "CATETUS_API_KEY": "cat_live_REPLACE_ME"
+      }
+    },
+    "catetus-hosted-disabled": {
+      "_comment": "Alternative: hosted HTTP, no local Node required. Paid only. Rename this key to `catetus` and delete the stdio entry above to use this one.",
+      "type": "http",
+      "url": "https://mcp.catetus.com",
+      "headers": {
+        "Authorization": "Bearer cat_live_REPLACE_ME"
+      }
+    }
+  }
+}

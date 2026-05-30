@@ -1,0 +1,470 @@
+{
+  "report": "canonical11_3tier_leaderboard_2026-05-27",
+  "generated_utc": "2026-05-28T02:21:00Z",
+  "purpose": "Cross-scene leaderboard quantifying the Catetus V5.2 (T2.1.R + V5.2 joint-tail residual) recipe vs SuperSplat SOG and the SF baseline on the canonical-11 corpus.  Used to underwrite landing-page claims of the form 'V5.2 beats SOG by +X dB on average at smaller bytes' (see summary).",
+  "methodology": {
+    "scenes": [
+      "bicycle",
+      "bonsai",
+      "counter",
+      "drjohnson",
+      "garden",
+      "kitchen",
+      "playroom",
+      "room",
+      "stump",
+      "train",
+      "truck"
+    ],
+    "input_source": "Inria 3DGS pretrained, iteration 30000 (canonical-11 corpus)",
+    "input_source_url": "https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/pretrained/models.zip",
+    "renderer": "gsplat (PyTorch, SH degree 3)",
+    "camera_path": "72-view orbit (24 azimuth x 3 elevation)",
+    "frame_size": "512x512",
+    "psnr_method": "RGB MSE -> 10*log10(255^2 / MSE), measured against decoded SF baseline PLY render",
+    "psnr_bench_script": "bench_repaired.py (V5.2 prototype bench, gsplat on 4090)",
+    "psnr_source": "splatforge-private/experiments/canonical-11-t21r-v52/bench/<scene>.json",
+    "bytes_sources": {
+      "sf": "SplatForge/experiments/gaussian-rasterizer-bench/canonical-11/encoded/<scene>_sf.glb (+ .shpal when present)",
+      "sog": "SplatForge/experiments/gaussian-rasterizer-bench/canonical-11/encoded/<scene>.sog (PlayCanvas splat-transform)",
+      "t21r": "splatforge-private/experiments/canonical-11-t21r-v52/bench/<scene>.sizes (encoded on 4090 with --jacobian-sidecar)",
+      "v52": "splatforge-private/experiments/canonical-11-t21r-v52/bench/<scene>.sizes (T2.1.R + --emit-v5-tail)"
+    },
+    "preset": "wmv-vq45-no-prune-tight",
+    "encoder": "splatforge optimize (T2.1.R adds --jacobian-sidecar; V5.2 adds --emit-v5-tail)",
+    "notes": [
+      "SF bytes here use the non-shpal variant (the comparator wired into canonical-11-t21r-v52); this differs from the canonical-11.md (SF-only) leaderboard which uses a +shpal config.",
+      "All four codecs share identical 72-view orbit viewpoints and identical SF-baseline decoded PLY as the PSNR ground truth (so deltas are directly comparable).",
+      "PSNR ground truth is the decoded SF baseline render rather than the raw 3DGS PLY render; this matches the V5.2 prototype bench protocol and is what the cross-scene RESULT.md uses."
+    ]
+  },
+  "summary": {
+    "scenes": 11,
+    "wins": {
+      "v52_strict_vs_sog": 2,
+      "v52_strict_vs_sf": 0,
+      "v52_psnr_vs_sog": 11,
+      "v52_psnr_vs_sf": 11,
+      "t21r_strict_vs_sog": 10,
+      "t21r_psnr_vs_sog": 11,
+      "t21r_psnr_vs_sf": 11
+    },
+    "avg_delta_psnr_db": {
+      "v52_minus_sog": 15.55877870553012,
+      "v52_minus_sf": 13.423668497289095,
+      "t21r_minus_sog": 6.240525060968067,
+      "t21r_minus_sf": 4.105414852727038,
+      "sf_minus_sog": 2.135110208241028
+    },
+    "totals_bytes": {
+      "sog": 460663707,
+      "sf": 339136400,
+      "t21r": 452451254,
+      "v52": 471498581
+    },
+    "totals_MB": {
+      "sog": 439.32,
+      "sf": 323.43,
+      "t21r": 431.49,
+      "v52": 449.66
+    },
+    "byte_ratios": {
+      "v52_over_sog": 1.0235201380863286,
+      "v52_over_sf": 1.3902918737121701,
+      "t21r_over_sog": 0.9821725634661296,
+      "t21r_over_sf": 1.3341276666261717,
+      "sf_over_sog": 0.7361908369308546
+    },
+    "worst_v52_minus_sog": {
+      "scene": "stump",
+      "delta_psnr_db": 1.693209593348044
+    }
+  },
+  "scenes": [
+    {
+      "scene": "bicycle",
+      "bytes": {
+        "sf": 69499279,
+        "sog": 82688045,
+        "t21r": 82015102,
+        "v52": 85503338
+      },
+      "MB": {
+        "sf": 66.28,
+        "sog": 78.86,
+        "t21r": 78.22,
+        "v52": 81.54
+      },
+      "psnr_db": {
+        "sf": 50.199,
+        "sog": 46.592,
+        "t21r": 52.43,
+        "v52": 55.437
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 8.844,
+        "v52_minus_sf": 5.238,
+        "t21r_minus_sog": 5.837,
+        "sf_minus_sog": 3.606
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.0340471588123772,
+        "v52_over_sf": 1.2302766191286676,
+        "t21r_over_sog": 0.9918616651294634
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "bonsai",
+      "bytes": {
+        "sf": 12647428,
+        "sog": 18919933,
+        "t21r": 18595370,
+        "v52": 19442438
+      },
+      "MB": {
+        "sf": 12.06,
+        "sog": 18.04,
+        "t21r": 17.73,
+        "v52": 18.54
+      },
+      "psnr_db": {
+        "sf": 47.703,
+        "sog": 47.356,
+        "t21r": 52.697,
+        "v52": 57.817
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 10.461,
+        "v52_minus_sf": 10.114,
+        "t21r_minus_sog": 5.341,
+        "sf_minus_sog": 0.347
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.0276166411371541,
+        "v52_over_sf": 1.537264177348944,
+        "t21r_over_sog": 0.9828454466514231
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "counter",
+      "bytes": {
+        "sf": 12048940,
+        "sog": 18888988,
+        "t21r": 18543877,
+        "v52": 19291233
+      },
+      "MB": {
+        "sf": 11.49,
+        "sog": 18.01,
+        "t21r": 17.68,
+        "v52": 18.4
+      },
+      "psnr_db": {
+        "sf": 45.083,
+        "sog": 44.038,
+        "t21r": 50.986,
+        "v52": 62.736
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 18.698,
+        "v52_minus_sf": 17.653,
+        "t21r_minus_sog": 6.947,
+        "sf_minus_sog": 1.045
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.0212952117921827,
+        "v52_over_sf": 1.6010730404500313,
+        "t21r_over_sog": 0.9817295135133761
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "drjohnson",
+      "bytes": {
+        "sf": 34538424,
+        "sog": 48184131,
+        "t21r": 48261675,
+        "v52": 50216592
+      },
+      "MB": {
+        "sf": 32.94,
+        "sog": 45.95,
+        "t21r": 46.03,
+        "v52": 47.89
+      },
+      "psnr_db": {
+        "sf": 47.613,
+        "sog": 45.6,
+        "t21r": 54.913,
+        "v52": 71.763
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 26.163,
+        "v52_minus_sf": 24.149,
+        "t21r_minus_sog": 9.314,
+        "sf_minus_sog": 2.014
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.042181128056455,
+        "v52_over_sf": 1.4539340880174498,
+        "t21r_over_sog": 1.0016093265228754
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "garden",
+      "bytes": {
+        "sf": 69696725,
+        "sog": 82434241,
+        "t21r": 80394597,
+        "v52": 83681585
+      },
+      "MB": {
+        "sf": 66.47,
+        "sog": 78.62,
+        "t21r": 76.67,
+        "v52": 79.8
+      },
+      "psnr_db": {
+        "sf": 48.495,
+        "sog": 47.372,
+        "t21r": 51.681,
+        "v52": 53.716
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 6.344,
+        "v52_minus_sf": 5.221,
+        "t21r_minus_sog": 4.309,
+        "sf_minus_sog": 1.123
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.015131382115837,
+        "v52_over_sf": 1.2006530435970988,
+        "t21r_over_sog": 0.9752573205593049
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "kitchen",
+      "bytes": {
+        "sf": 17743292,
+        "sog": 28208638,
+        "t21r": 26387923,
+        "v52": 27568376
+      },
+      "MB": {
+        "sf": 16.92,
+        "sog": 26.9,
+        "t21r": 25.17,
+        "v52": 26.29
+      },
+      "psnr_db": {
+        "sf": 48.467,
+        "sog": 48.08,
+        "t21r": 54.916,
+        "v52": 63.057
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 14.976,
+        "v52_minus_sf": 14.59,
+        "t21r_minus_sog": 6.836,
+        "sf_minus_sog": 0.386
+      },
+      "byte_ratio": {
+        "v52_over_sog": 0.9773026262381048,
+        "v52_over_sf": 1.5537351242373738,
+        "t21r_over_sog": 0.935455409084267
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "playroom",
+      "bytes": {
+        "sf": 25395148,
+        "sog": 37296642,
+        "t21r": 36805610,
+        "v52": 38220369
+      },
+      "MB": {
+        "sf": 24.22,
+        "sog": 35.57,
+        "t21r": 35.1,
+        "v52": 36.45
+      },
+      "psnr_db": {
+        "sf": 43.809,
+        "sog": 41.707,
+        "t21r": 50.473,
+        "v52": 76.315
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 34.608,
+        "v52_minus_sf": 32.506,
+        "t21r_minus_sog": 8.766,
+        "sf_minus_sog": 2.102
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.0247670286241854,
+        "v52_over_sf": 1.5050264326083076,
+        "t21r_over_sog": 0.98683441796181
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "room",
+      "bytes": {
+        "sf": 15242556,
+        "sog": 23419061,
+        "t21r": 22492486,
+        "v52": 23486039
+      },
+      "MB": {
+        "sf": 14.54,
+        "sog": 22.33,
+        "t21r": 21.45,
+        "v52": 22.4
+      },
+      "psnr_db": {
+        "sf": 50.8,
+        "sog": 46.989,
+        "t21r": 54.154,
+        "v52": 69.845
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 22.856,
+        "v52_minus_sf": 19.045,
+        "t21r_minus_sog": 7.164,
+        "sf_minus_sog": 3.811
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.002859978032424,
+        "v52_over_sf": 1.5408202535060394,
+        "t21r_over_sog": 0.9604350063394942
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "stump",
+      "bytes": {
+        "sf": 49156564,
+        "sog": 68947694,
+        "t21r": 68572454,
+        "v52": 71467797
+      },
+      "MB": {
+        "sf": 46.88,
+        "sog": 65.75,
+        "t21r": 65.4,
+        "v52": 68.16
+      },
+      "psnr_db": {
+        "sf": 49.026,
+        "sog": 48.821,
+        "t21r": 50.113,
+        "v52": 50.514
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 1.693,
+        "v52_minus_sf": 1.488,
+        "t21r_minus_sog": 1.292,
+        "sf_minus_sog": 0.205
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.0365509396151813,
+        "v52_over_sf": 1.4538810523860048,
+        "t21r_over_sog": 0.9945576134859565
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "train",
+      "bytes": {
+        "sf": 9437768,
+        "sog": 16324446,
+        "t21r": 15624009,
+        "v52": 16310495
+      },
+      "MB": {
+        "sf": 9.0,
+        "sog": 15.57,
+        "t21r": 14.9,
+        "v52": 15.55
+      },
+      "psnr_db": {
+        "sf": 46.02,
+        "sog": 42.275,
+        "t21r": 48.774,
+        "v52": 57.434
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 15.158,
+        "v52_minus_sf": 11.414,
+        "t21r_minus_sog": 6.499,
+        "sf_minus_sog": 3.744
+      },
+      "byte_ratio": {
+        "v52_over_sog": 0.9991453921315309,
+        "v52_over_sf": 1.7282152941246278,
+        "t21r_over_sog": 0.9570927552457217
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    },
+    {
+      "scene": "truck",
+      "bytes": {
+        "sf": 23730276,
+        "sog": 35351888,
+        "t21r": 34758151,
+        "v52": 36310319
+      },
+      "MB": {
+        "sf": 22.63,
+        "sog": 33.71,
+        "t21r": 33.15,
+        "v52": 34.63
+      },
+      "psnr_db": {
+        "sf": 47.982,
+        "sog": 42.879,
+        "t21r": 49.22,
+        "v52": 54.224
+      },
+      "delta_psnr_db": {
+        "v52_minus_sog": 11.346,
+        "v52_minus_sf": 6.242,
+        "t21r_minus_sog": 6.341,
+        "sf_minus_sog": 5.103
+      },
+      "byte_ratio": {
+        "v52_over_sog": 1.027111168716081,
+        "v52_over_sf": 1.5301262825598825,
+        "t21r_over_sog": 0.9832049422650354
+      },
+      "n_views": 72,
+      "image_size": 512,
+      "sh_degree": 3
+    }
+  ]
+}

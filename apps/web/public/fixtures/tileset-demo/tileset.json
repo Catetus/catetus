@@ -1,0 +1,1704 @@
+{
+  "asset": {
+    "version": "1.1",
+    "generator": "catetus-tileset 0.1.0"
+  },
+  "geometricError": 67.54998016357422,
+  "root": {
+    "boundingVolume": {
+      "box": [
+        19.5,
+        19.5,
+        19.5,
+        19.5,
+        0.0,
+        0.0,
+        0.0,
+        19.5,
+        0.0,
+        0.0,
+        0.0,
+        19.5
+      ]
+    },
+    "geometricError": 67.54998016357422,
+    "refine": "REPLACE",
+    "content": {
+      "uri": "tiles/2.sftile"
+    },
+    "children": [
+      {
+        "boundingVolume": {
+          "box": [
+            9.5,
+            9.5,
+            9.5,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5
+          ]
+        },
+        "geometricError": 32.908966064453125,
+        "refine": "REPLACE",
+        "content": {
+          "uri": "tiles/5.sftile"
+        },
+        "children": [
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                4.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/8.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                4.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/11.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                14.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/14.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                14.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/17.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                4.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/20.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                4.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/23.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                14.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/26.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                14.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/29.sftile"
+            }
+          }
+        ]
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            29.5,
+            9.5,
+            9.5,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5
+          ]
+        },
+        "geometricError": 32.908966064453125,
+        "refine": "REPLACE",
+        "content": {
+          "uri": "tiles/32.sftile"
+        },
+        "children": [
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                4.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/35.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                4.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/38.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                14.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/41.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                14.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/44.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                4.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/47.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                4.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/50.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                14.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/53.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                14.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/56.sftile"
+            }
+          }
+        ]
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            9.5,
+            29.5,
+            9.5,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5
+          ]
+        },
+        "geometricError": 32.908966064453125,
+        "refine": "REPLACE",
+        "content": {
+          "uri": "tiles/59.sftile"
+        },
+        "children": [
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                24.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/62.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                24.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/65.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                34.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/68.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                34.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/71.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                24.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/74.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                24.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/77.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                34.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/80.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                34.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/83.sftile"
+            }
+          }
+        ]
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            29.5,
+            29.5,
+            9.5,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5
+          ]
+        },
+        "geometricError": 32.908966064453125,
+        "refine": "REPLACE",
+        "content": {
+          "uri": "tiles/86.sftile"
+        },
+        "children": [
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                24.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/89.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                24.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/92.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                34.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/95.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                34.5,
+                4.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/98.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                24.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/101.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                24.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/104.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                34.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/107.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                34.5,
+                14.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/110.sftile"
+            }
+          }
+        ]
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            9.5,
+            9.5,
+            29.5,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5
+          ]
+        },
+        "geometricError": 32.908966064453125,
+        "refine": "REPLACE",
+        "content": {
+          "uri": "tiles/113.sftile"
+        },
+        "children": [
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                4.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/116.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                4.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/119.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                14.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/122.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                14.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/125.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                4.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/128.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                4.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/131.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                14.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/134.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                14.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/137.sftile"
+            }
+          }
+        ]
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            29.5,
+            9.5,
+            29.5,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5
+          ]
+        },
+        "geometricError": 32.908966064453125,
+        "refine": "REPLACE",
+        "content": {
+          "uri": "tiles/140.sftile"
+        },
+        "children": [
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                4.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/143.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                4.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/146.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                14.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/149.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                14.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/152.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                4.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/155.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                4.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/158.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                14.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/161.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                14.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/164.sftile"
+            }
+          }
+        ]
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            9.5,
+            29.5,
+            29.5,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5
+          ]
+        },
+        "geometricError": 32.908966064453125,
+        "refine": "REPLACE",
+        "content": {
+          "uri": "tiles/167.sftile"
+        },
+        "children": [
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                24.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/170.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                24.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/173.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                34.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/176.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                34.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/179.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                24.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/182.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                24.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/185.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                4.5,
+                34.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/188.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                14.5,
+                34.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/191.sftile"
+            }
+          }
+        ]
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            29.5,
+            29.5,
+            29.5,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5,
+            0.0,
+            0.0,
+            0.0,
+            9.5
+          ]
+        },
+        "geometricError": 32.908966064453125,
+        "refine": "REPLACE",
+        "content": {
+          "uri": "tiles/194.sftile"
+        },
+        "children": [
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                24.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/197.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                24.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/200.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                34.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/203.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                34.5,
+                24.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/206.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                24.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/209.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                24.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/212.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                24.5,
+                34.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/215.sftile"
+            }
+          },
+          {
+            "boundingVolume": {
+              "box": [
+                34.5,
+                34.5,
+                34.5,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5,
+                0.0,
+                0.0,
+                0.0,
+                4.5
+              ]
+            },
+            "geometricError": 15.588457107543945,
+            "refine": "REPLACE",
+            "content": {
+              "uri": "tiles/218.sftile"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -110,6 +110,16 @@ enum Command {
         /// plus one `.glb` per LOD level. Mutually exclusive with `--out`.
         #[arg(long, value_name = "DIR")]
         output_dir: Option<PathBuf>,
+        /// For `--target tileset`: write a SHARED-PALETTE tileset. Builds one
+        /// scene-global SH-rest codebook (`palette.shpal` at the tileset root)
+        /// and emits each tile's SH-rest as a tiny `.glb.shpalx` index sidecar
+        /// instead of inlining FP32 SH coefficients per tile. The total payload
+        /// is dramatically smaller (the SH-rest codebook is shared, not
+        /// duplicated per tile) at equal octree/LOD config. No effect unless
+        /// `--target tileset` is also set; ignored for DC-only scenes (those
+        /// transparently fall back to the FP32 tile codec).
+        #[arg(long)]
+        shared_palette: bool,
         /// Lossless wrapper around the GLB BIN chunk. `brotli11` saves
         /// ~47% on the `quality-max` preset's FP32 SH coefficients and
         /// ~5-7% on quantized presets vs an uncompressed GLB. Decoder is a
@@ -190,6 +200,17 @@ enum Command {
         /// environment variable when set. Only consulted on the SOG path.
         #[arg(long, value_name = "URL")]
         api_url: Option<String>,
+        /// Print which quality tier this scene qualifies for (based on its
+        /// detected SH degree) and why, then exit WITHOUT writing any output.
+        ///
+        /// Tiers: SH degree >= 2 -> full quality tiers (`--auto-jacobian`
+        /// T2.1.R, `--emit-v5-tail` V5.2 engage the VQ SH-rest palette
+        /// meaningfully); SH == 1 -> partial (limited SH-rest budget, muted
+        /// gains); SH == 0 -> SF baseline (no view-dependent color, quality
+        /// tiers are no-ops) plus a recapture upsell. See
+        /// `docs/ops/INGEST1_BLOCKER.md` / the MARKET-1 capture survey.
+        #[arg(long)]
+        explain_tier: bool,
     },
     /// Emit a V5.2 joint-tail residual sidecar (`.sog.v5tail`) next to an
     /// existing `.sog` file. The sidecar is byte-compatible with the
@@ -624,6 +645,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             target,
             out,
             output_dir,
+            shared_palette,
             lossless,
             progress,
             rd_prune,
@@ -631,6 +653,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             auto_jacobian,
             emit_v5_tail,
             api_url,
+            explain_tier,
         } => cmd_optimize(
             &input,
             &preset,
@@ -639,6 +662,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             target.as_deref(),
             out.as_deref(),
             output_dir.as_deref(),
+            shared_palette,
             lossless.as_deref(),
             progress,
             rd_prune,
@@ -646,6 +670,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             auto_jacobian,
             emit_v5_tail.as_deref(),
             api_url.as_deref(),
+            explain_tier,
         ),
         Command::SogEmitV5Tail {
             sog,
@@ -1465,6 +1490,56 @@ fn emit_progress(frac: f32, stage: &str) {
     let _ = std::io::stdout().flush();
 }
 
+/// Emit the SH-degree tier-routing report to stderr, plus a no-op WARNING for
+/// any quality flag (`--auto-jacobian` / `--emit-v5-tail`) requested on input
+/// whose SH degree gives the quality tiers nothing to re-encode.
+///
+/// This converts the SH=0 weakness into an honest product signal: SH>=2 routes
+/// to the full quality tiers, SH==1 is partial, SH==0 gets the SF-baseline note
+/// plus the recapture upsell. Without this, an SH=0 capture run with
+/// `--auto-jacobian` silently produces output byte-identical to the SF baseline
+/// (the KORIYAMA-1 confusion).
+fn report_tier(
+    decision: &catetus_core::TierDecision,
+    auto_jacobian: bool,
+    emit_v5_tail: bool,
+) {
+    use catetus_core::Tier;
+    eprintln!(
+        "catetus optimize: tier = {} (SH degree {})",
+        decision.tier.name(),
+        decision.degree_str()
+    );
+    eprintln!("catetus optimize: {}", decision.reason);
+    match decision.tier {
+        Tier::Baseline => {
+            eprintln!(
+                "catetus optimize: NOTE — the SF baseline is the right choice for this capture."
+            );
+            eprintln!("catetus optimize: {}", catetus_core::RECAPTURE_UPSELL);
+        }
+        Tier::Partial => {
+            eprintln!(
+                "catetus optimize: NOTE — quality-tier gains are muted on SH degree 1 input."
+            );
+        }
+        Tier::Full => {}
+    }
+    if auto_jacobian && !decision.auto_jacobian_effective {
+        eprintln!(
+            "catetus optimize: WARNING — --auto-jacobian (T2.1.R) has NO EFFECT on this input \
+             (no SH-rest coefficients to re-encode); output will match the SF baseline. \
+             Recapture at SH=3 to use this tier."
+        );
+    }
+    if emit_v5_tail && !decision.v5_tail_effective {
+        eprintln!(
+            "catetus optimize: WARNING — --emit-v5-tail (V5.2) has NO EFFECT on this input \
+             (no SH-rest coefficients for the VQ palette); the sidecar adds no fidelity."
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cmd_optimize(
     input: &Path,
@@ -1474,6 +1549,7 @@ fn cmd_optimize(
     target: Option<&str>,
     out: Option<&Path>,
     output_dir: Option<&Path>,
+    shared_palette: bool,
     lossless: Option<&str>,
     progress: bool,
     rd_prune: Option<f32>,
@@ -1481,9 +1557,36 @@ fn cmd_optimize(
     auto_jacobian: bool,
     emit_v5_tail: Option<&Path>,
     api_url: Option<&str>,
+    explain_tier: bool,
 ) -> Result<()> {
     if out.is_some() && output_dir.is_some() {
         return Err(anyhow!("--out and --output-dir are mutually exclusive"));
+    }
+    // SH-degree tier routing. Detect the scene's SH degree on ingest and tell
+    // the user which quality tier they qualify for (and warn when the quality
+    // flags will be no-ops). We load the scene here for the report; the local
+    // optimize path below re-loads it (cheap relative to the pipeline, and the
+    // hosted `--target sog` path never loads the scene at all, so a one-time
+    // load for the report is the simplest correct wiring). `--explain-tier` is
+    // a dry-run that prints the report and exits without writing output.
+    if explain_tier || auto_jacobian || emit_v5_tail.is_some() {
+        match load_scene(input) {
+            Ok((scene, _)) => {
+                let decision = catetus_core::route_scene(&scene);
+                report_tier(&decision, auto_jacobian, emit_v5_tail.is_some());
+                if explain_tier {
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                if explain_tier {
+                    return Err(e).context("loading input for --explain-tier");
+                }
+                // Non-explain path: don't fail the whole run on a routing-only
+                // load error; the main pipeline below will surface it properly.
+                eprintln!("catetus optimize: note: could not detect SH tier ({e:#})");
+            }
+        }
     }
     // `--target sog` is hosted-only since the 2026-05-19 open-core split:
     // the SOG encoder lives in the private `catetus-sog` crate. Short-
@@ -1584,13 +1687,19 @@ fn cmd_optimize(
         // entirely below. For the early flag-validation stage we treat it
         // as "not a GLB" and let the dispatch at write-time decide.
         Some("sog") => false,
+        // `tileset` is a multi-file octree LOD output written via
+        // `catetus-tileset`. Each tile is itself an SF GLB, so we treat it as
+        // "not a single GLB" here and short-circuit to the tileset writer after
+        // the optimize pipeline runs (see the `target_tileset` block below).
+        Some("tileset") => false,
         Some(other) => {
             return Err(anyhow!(
-                "unknown --target {other:?} (want gltf, glb, or sog)"
+                "unknown --target {other:?} (want gltf, glb, sog, or tileset)"
             ))
         }
     };
     let target_sog = matches!(target, Some("sog"));
+    let target_tileset = matches!(target, Some("tileset"));
     let compress_mode: Option<&str> = match compress {
         None => None,
         Some("zstd") => Some("zstd"),
@@ -1652,9 +1761,9 @@ fn cmd_optimize(
              submit the job through the hosted API to use it"
         ));
     }
-    if preset_name != "geospatial" && output_dir.is_some() {
+    if preset_name != "geospatial" && !target_tileset && output_dir.is_some() {
         return Err(anyhow!(
-            "--output-dir is only supported with --preset geospatial"
+            "--output-dir is only supported with --preset geospatial or --target tileset"
         ));
     }
     // The pipeline run is the longest single span; everything else is fast.
@@ -1823,7 +1932,107 @@ fn cmd_optimize(
     let _ = joint_jacobian; // joint-J pre-pipeline kept around for the sidecar
                             // encoder; we actually re-derive from post_ctx below
                             // so the indexing matches the post-pipeline scene.
-                            // `geospatial` short-circuits to the tileset writer — no single .gltf out.
+
+    // `--target tileset` short-circuits to the streaming octree LOD writer
+    // (`catetus-tileset`). The optimize pipeline above has already run on
+    // `scene` (Morton sort, prune, etc. per `--preset`), so the tileset's
+    // octree is built over the post-optimize splats. Each tile is encoded as a
+    // standalone SF GLB; the output directory is HTTP-servable for progressive
+    // streaming viewers (root tile first, refine into children by projected
+    // size). See `crates/catetus-tileset/STATUS.md`.
+    if target_tileset {
+        let dir = output_dir.map(PathBuf::from).unwrap_or_else(|| {
+            let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
+            input
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(format!("{stem}-tileset"))
+        });
+        if progress {
+            emit_progress(0.92, "writing-tileset");
+        }
+        let total_splats = scene.len();
+        if total_splats == 0 {
+            return Err(anyhow!("input scene has no splats to tile"));
+        }
+        let ts_config = catetus_tileset::TilesetConfig::default();
+        let plan = catetus_tileset::plan_tileset(&scene, &ts_config)
+            .map_err(|e| anyhow!("tileset planning failed: {e}"))?;
+        let tile_count = plan.payloads.len();
+        let lod_levels = plan.lod_meta.lod_levels;
+        // Per-node-LOD (tile_count, splat_count) summary across all nodes.
+        let mut per_lod: Vec<(usize, usize)> = Vec::new();
+        for p in &plan.payloads {
+            if per_lod.len() <= p.lod {
+                per_lod.resize(p.lod + 1, (0, 0));
+            }
+            per_lod[p.lod].0 += 1;
+            per_lod[p.lod].1 += p.scene.len();
+        }
+        std::fs::create_dir_all(&dir)?;
+        let total_tile_bytes = if shared_palette {
+            // Shared-palette tileset: one scene-global SH-rest codebook
+            // (`palette.shpal`) + per-tile `.glb.shpalx` index sidecars.
+            let written = catetus_tileset::write_tileset_shared(
+                &plan,
+                &scene,
+                &dir,
+                &catetus_tileset::SharedPaletteConfig::default(),
+            )
+            .map_err(|e| anyhow!("writing shared-palette tileset failed: {e}"))?;
+            written.total_bytes
+        } else {
+            let codec = catetus_tileset::GlbTileCodec::from_cli_preset(preset_name);
+            catetus_tileset::write_tileset(&plan, &codec, &dir)
+                .map_err(|e| anyhow!("writing tileset failed: {e}"))?
+        };
+        if progress {
+            emit_progress(1.00, "done");
+        }
+        let kind = if shared_palette {
+            "shared-palette tileset"
+        } else {
+            "tileset"
+        };
+        println!(
+            "optimized {} -> {} {} ({} GLB tiles, {} octree LOD levels, {} splats)",
+            input.display(),
+            kind,
+            dir.display(),
+            tile_count,
+            lod_levels,
+            total_splats,
+        );
+        if shared_palette {
+            println!(
+                "  shared SH-rest palette: {}",
+                dir.join(catetus_tileset::SHARED_PALETTE_FILENAME).display()
+            );
+        }
+        let last_nonempty = per_lod.iter().rposition(|&(t, _)| t > 0).unwrap_or(0);
+        for (lod, &(ntiles, nsplats)) in per_lod.iter().enumerate() {
+            if ntiles == 0 {
+                continue;
+            }
+            let tag = if lod == 0 {
+                "coarsest"
+            } else if lod == last_nonempty {
+                "finest"
+            } else {
+                "mid"
+            };
+            println!("  per-node LOD {lod} ({tag}): {ntiles} tiles, {nsplats} splats");
+        }
+        println!(
+            "  manifests: lod-meta.json (SuperSplat) + tileset.json (3D Tiles 1.1); \
+             {:.2} MB tile payloads",
+            total_tile_bytes as f64 / (1024.0 * 1024.0),
+        );
+        return Ok(());
+    }
+
+    // `geospatial` short-circuits to the (legacy) Cesium tileset writer — no
+    // single .gltf out.
     if preset_name == "geospatial" {
         let dir = output_dir.expect("checked above");
         if progress {

@@ -1,0 +1,18 @@
+# Build outputs
+dist/
+node_modules/
+
+# MCPB bundle artifacts (the README.md is intentionally tracked)
+dist-bundle/build/
+dist-bundle/*.mcpb
+dist-bundle/*.mcpb.sig
+
+# Editor / OS
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Test artifacts
+coverage/
+.nyc_output/

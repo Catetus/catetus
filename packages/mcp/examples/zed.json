@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "Catetus MCP — Zed editor config.",
+    "",
+    "Zed reads MCP context-server config from its main settings.json:",
+    "  macOS:   ~/.config/zed/settings.json    (or ~/Library/Application Support/Zed/settings.json)",
+    "  Linux:   ~/.config/zed/settings.json",
+    "  Windows: %APPDATA%/Zed/settings.json",
+    "",
+    "Merge the `context_servers` block below into your settings.json (Zed already has",
+    "other top-level keys — do not overwrite the whole file). Restart Zed after editing,",
+    "or run `zed: restart` from the command palette.",
+    "",
+    "Zed names MCP servers 'context_servers'. They show up in the assistant panel.",
+    "",
+    "Two variants below: (1) local stdio (free + paid via env) and",
+    "(2) hosted HTTP at mcp.catetus.com (paid only). Pick ONE.",
+    "",
+    "FREE TIER (stdio, no key): analyze, list_presets, list_scenes, get_scene,",
+    "  optimize, compare, list_competitor_codecs, validate_pipeline.",
+    "PAID TIER (key set): also encode, score_fidelity, repack, predict_quality,",
+    "  recommend_preset, batch_jobs, list_jobs. Get a key at https://catetus.com/dashboard."
+  ],
+  "context_servers": {
+    "catetus": {
+      "_comment": "FREE + PAID via stdio. Omit CATETUS_API_KEY to use the free tier only.",
+      "command": {
+        "path": "npx",
+        "args": ["-y", "@catetus/mcp@latest"],
+        "env": {
+          "CATETUS_API_KEY": "cat_live_REPLACE_ME"
+        }
+      },
+      "settings": {}
+    },
+    "catetus-hosted-disabled": {
+      "_comment": "Alternative: hosted HTTP transport. Requires Zed 0.160+ with remote MCP support. Rename this key to `catetus` and delete the stdio entry above to use this one.",
+      "url": "https://mcp.catetus.com",
+      "headers": {
+        "Authorization": "Bearer cat_live_REPLACE_ME"
+      },
+      "settings": {}
+    }
+  }
+}

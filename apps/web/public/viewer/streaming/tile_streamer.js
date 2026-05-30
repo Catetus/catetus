@@ -23,6 +23,7 @@
  * mode awaits all pending fetches before emitting `frameRendered`.
  */
 import { decodeGlb } from './glb.js';
+import { isSftile, decodeSftile } from './sftile.js';
 export class TileStreamer {
     cache = new Map();
     inFlight = new Map();
@@ -36,6 +37,13 @@ export class TileStreamer {
     evictionCount = 0;
     hitCount = 0;
     missCount = 0;
+    /**
+     * When true, GLB tiles also fetch a sibling `.glb.shpalx` index sidecar and
+     * stash its raw bytes on the payload (`payload.shpalxBytes`). Set by
+     * `StreamingTileset.create` only when the tileset has a shared SH-rest
+     * palette; the runtime decodes + reconstructs full color from it.
+     */
+    fetchShpalx = false;
     constructor(opts = {}) {
         this.maxBytes = opts.maxBytes ?? 512 * 1024 * 1024;
         this.fetchImpl = opts.fetch ?? ((...a) => fetch(...a));
@@ -122,19 +130,68 @@ export class TileStreamer {
                 }
                 const ab = await res.arrayBuffer();
                 const bytes = new Uint8Array(ab);
-                let glb;
+                // Format dispatch by magic: STREAM-1 emits `.sftile`; STREAM-2's
+                // GLB tiles use the `glTF` magic. Branch so the same streamer
+                // serves whichever tile payload the encoder produced.
+                let payload;
                 try {
-                    glb = decodeGlb(bytes);
+                    if (isSftile(bytes)) {
+                        const scene = decodeSftile(bytes);
+                        payload = {
+                            kind: 'sftile',
+                            scene,
+                            bytes: bytes.byteLength,
+                            lastUsed: this.currentFrame,
+                        };
+                    }
+                    else {
+                        const glb = decodeGlb(bytes);
+                        payload = {
+                            kind: 'glb',
+                            json: glb.json,
+                            bin: glb.bin,
+                            bytes: bytes.byteLength,
+                            lastUsed: this.currentFrame,
+                        };
+                        // Shared-palette tilesets carry a per-tile `.glb.shpalx`
+                        // index sidecar; fetch it alongside the GLB so the runtime
+                        // can reconstruct full SH-rest color. Best-effort: a missing
+                        // sidecar leaves the tile at geometry+DC (never fails).
+                        if (typeof window !== 'undefined') {
+                            const dbg = (window.__shpalxDebug ??= { glbTiles: 0, attempted: 0, ok: 0, lastUrl: null, lastErr: null });
+                            dbg.glbTiles++;
+                            dbg.fetchShpalxFlag = this.fetchShpalx;
+                        }
+                        if (this.fetchShpalx) {
+                            try {
+                                const sxUrl = `${tile.contentUrl}.shpalx`;
+                                if (typeof window !== 'undefined') {
+                                    window.__shpalxDebug.attempted++;
+                                    window.__shpalxDebug.lastUrl = sxUrl;
+                                }
+                                const sxRes = await this.fetchImpl(sxUrl);
+                                if (sxRes.ok) {
+                                    const sxBytes = new Uint8Array(await sxRes.arrayBuffer());
+                                    payload.shpalxBytes = sxBytes;
+                                    payload.bytes += sxBytes.byteLength;
+                                    if (typeof window !== 'undefined')
+                                        window.__shpalxDebug.ok++;
+                                }
+                                else if (typeof window !== 'undefined') {
+                                    window.__shpalxDebug.lastErr = `HTTP ${sxRes.status}`;
+                                }
+                            }
+                            catch (e) {
+                                // No sidecar → DC-only for this tile; do not fail.
+                                if (typeof window !== 'undefined')
+                                    window.__shpalxDebug.lastErr = String(e && e.message || e);
+                            }
+                        }
+                    }
                 }
                 catch (err) {
                     throw new Error(`tile_fetch_failed: ${tile.id} ${err.message}`);
                 }
-                const payload = {
-                    json: glb.json,
-                    bin: glb.bin,
-                    bytes: bytes.byteLength,
-                    lastUsed: this.currentFrame,
-                };
                 this.cache.set(tile.id, payload);
                 this.residentBytes += payload.bytes;
                 this.maybeEvict();

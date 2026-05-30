@@ -1,0 +1,107 @@
+{
+  "schema": "catetus.presets.catalog/1.0",
+  "generated_utc": "2026-05-27T00:00:00Z",
+  "presets": [
+    {
+      "name": "lossless-repack",
+      "tier": "free",
+      "description": "Bit-exact PLY repack with no SH compression. Lossless. Use as a fidelity baseline or to convert PLY to gltf/glb without quality changes.",
+      "typicalRatio": 1.0,
+      "passes": ["repack"],
+      "bestFor": ["fidelity-baseline", "format-conversion", "lossless-archive"]
+    },
+    {
+      "name": "web-mobile",
+      "tier": "free",
+      "description": "Mobile-web sweet-spot preset. SH degree 1, 8-bit attribute quant, mobile-friendly SPZ output. Geometric mean ~22x compression on SplatBench.",
+      "typicalRatio": 0.045,
+      "passes": ["sh-trim", "attr-quant-8bit", "spz-encode"],
+      "bestFor": ["mobile-product-pages", "ar-quicklook", "low-bandwidth"],
+      "targetDevice": ["mobile-web"]
+    },
+    {
+      "name": "web-desktop",
+      "tier": "free",
+      "description": "Desktop-web preset. SH degree 2, 10-bit attribute quant. Higher fidelity than web-mobile, larger files. ~12x compression.",
+      "typicalRatio": 0.083,
+      "passes": ["sh-trim", "attr-quant-10bit", "spz-encode"],
+      "bestFor": ["desktop-marketing", "interactive-3d-web"],
+      "targetDevice": ["desktop-web"]
+    },
+    {
+      "name": "quest-browser",
+      "tier": "free",
+      "description": "Meta Quest browser preset. Optimized for the Quest 3 browser GPU budget. SH degree 1, aggressive floater prune.",
+      "typicalRatio": 0.038,
+      "passes": ["floater-prune", "sh-trim", "attr-quant-8bit", "spz-encode"],
+      "bestFor": ["vr-browser", "quest-webxr"],
+      "targetDevice": ["quest"]
+    },
+    {
+      "name": "visionos-preview",
+      "tier": "free",
+      "description": "Apple visionOS preview preset. Targets Reality Composer Pro-compatible USDZ-style glb. SH degree 2, color-managed.",
+      "typicalRatio": 0.062,
+      "passes": ["sh-trim", "color-manage-p3", "attr-quant-10bit", "gltf-encode"],
+      "bestFor": ["vision-pro-preview", "reality-kit"],
+      "targetDevice": ["visionos"]
+    },
+    {
+      "name": "thumbnail-preview",
+      "tier": "free",
+      "description": "Tiny preview tier for catalogue thumbnails. SH degree 0 (diffuse only), aggressive splat decimation. ~50x compression.",
+      "typicalRatio": 0.020,
+      "passes": ["splat-decimate", "sh-trim", "attr-quant-6bit", "spz-encode"],
+      "bestFor": ["thumbnails", "list-views", "preview-grids"],
+      "targetDevice": ["mobile-web", "desktop-web"]
+    },
+    {
+      "name": "quality-max",
+      "tier": "free",
+      "description": "Highest free-tier quality. SH degree 3, 12-bit quant, no decimation. ~6x compression but near-lossless visually.",
+      "typicalRatio": 0.165,
+      "passes": ["attr-quant-12bit", "spz-encode"],
+      "bestFor": ["hero-content", "fidelity-critical", "archival"]
+    },
+    {
+      "name": "size-min",
+      "tier": "free",
+      "description": "Smallest free-tier output. Aggressive prune + decimation + SH trim. ~32x compression with visible quality drop.",
+      "typicalRatio": 0.031,
+      "passes": ["floater-prune", "opacity-prune", "splat-decimate", "sh-trim", "attr-quant-6bit", "spz-encode"],
+      "bestFor": ["bandwidth-constrained", "embedded-previews"]
+    },
+    {
+      "name": "differentiable-repack",
+      "tier": "paid",
+      "description": "gsplat self-distillation pass that fine-tunes attributes to recover fidelity lost to quantization. ~3-5 dB PSNR improvement over web-mobile at the same byte budget. Runs on A100.",
+      "typicalRatio": 0.045,
+      "passes": ["sh-trim", "attr-quant-8bit", "gsplat-self-distill", "spz-encode"],
+      "bestFor": ["quality-at-mobile-budget", "ml-anchor-output"]
+    },
+    {
+      "name": "v52-quality",
+      "tier": "paid",
+      "description": "V5.2 SOTA quality tier. T2.1.R + joint-tail residual. +15.56 dB over SOG at ~1.02x SOG bytes on canonical-11. Best fidelity-per-byte on the market.",
+      "typicalRatio": 0.057,
+      "passes": ["t21r-anchor", "v52-tail-residual", "shpal-encode"],
+      "bestFor": ["fidelity-leader", "head-to-head-vs-sog", "premium-content"]
+    },
+    {
+      "name": "v52-balanced",
+      "tier": "paid",
+      "description": "V5.2 balanced tier. Pareto sweet-spot — ~10 dB over SOG at ~0.85x SOG bytes. Default paid recommendation.",
+      "typicalRatio": 0.048,
+      "passes": ["t21r-anchor", "v52-tail-residual-light", "shpal-encode"],
+      "bestFor": ["default-paid", "balanced-fidelity-bytes"]
+    },
+    {
+      "name": "t21r-fast",
+      "tier": "paid",
+      "description": "T2.1.R fast preset. Anchor-only (no V5.2 tail). +13.10 dB over SOG at ~1.02x SOG bytes; fastest paid preset (no tail-residual encode).",
+      "typicalRatio": 0.055,
+      "passes": ["t21r-anchor", "shpal-encode"],
+      "bestFor": ["batch-encodes", "throughput-bound"]
+    }
+  ]
+}

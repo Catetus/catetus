@@ -458,3 +458,96 @@ export function decodeShPaletteSidecar(
     shDegree: ext?.shDegree ?? 0,
   };
 }
+
+/** Decoded per-tile `.glb.shpalx` index sidecar (shared-palette tileset). */
+export interface TileIndexSidecar {
+  /** Tile splat count (== the tile GLB's POSITION accessor.count). */
+  n: number;
+  /** Codebook size the indices reference (sanity only; codebook is shared). */
+  k: number;
+  /** Per-tile-splat shared-codebook indices, tile-local order (length n). */
+  indices: Uint16Array;
+}
+
+/**
+ * Decode a per-tile `.glb.shpalx` index sidecar emitted by the shared-palette
+ * tileset codec (`catetus-tileset::shared_palette`). Wire format (little-endian,
+ * after zstd decompression of the whole file), SPLX-v1:
+ *   magic "SPLX" u32 (0x53504c58 LE) | version u32 (==1) | n u32 | k u32 |
+ *   indices u16[n]
+ *
+ * Each `indices[j]` is the shared-codebook centroid index for tile splat `j`
+ * (tile-local order, matching the tile GLB's splat order). The codebook lives
+ * ONCE at the tileset root (`palette.shpal`, decoded via
+ * {@link decodeShPaletteSidecar}); per-tile SH-rest = `codebook[indices[j]]`.
+ *
+ * @param compressed Raw bytes of the `.glb.shpalx` file.
+ * @param zstdDecompress Pure zstd frame decoder (e.g. from `makeZstd()`).
+ */
+export function decodeTileIndices(
+  compressed: Uint8Array,
+  zstdDecompress: ZstdDecompress,
+): TileIndexSidecar {
+  const raw = zstdDecompress(compressed);
+  const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  if (raw.byteLength < 16) {
+    throw new Error(`.shpalx too small: ${raw.byteLength} bytes`);
+  }
+  const magic = dv.getUint32(0, true);
+  if (magic !== 0x53504c58) {
+    throw new Error(`.shpalx magic mismatch: 0x${magic.toString(16)}`);
+  }
+  const version = dv.getUint32(4, true);
+  if (version !== 1) throw new Error(`unsupported .shpalx version: ${version}`);
+  const n = dv.getUint32(8, true);
+  const k = dv.getUint32(12, true);
+  if (raw.byteLength < 16 + n * 2) {
+    throw new Error('.shpalx truncated in indices');
+  }
+  const indices = new Uint16Array(n);
+  let off = 16;
+  for (let i = 0; i < n; i++) {
+    indices[i] = dv.getUint16(off, true);
+    off += 2;
+  }
+  return { n, k, indices };
+}
+
+/**
+ * Reconstruct an SH-rest blob (degree-3, 45 floats/splat) for a shared-palette
+ * tile from its per-splat codebook indices and the shared root codebook.
+ *
+ * Output layout matches `splatSceneToSoaChunk` / the WebGPU SoA path:
+ * splat-major, then coef-major, then channel-minor (interleaved RGB):
+ *     out[splat * 45 + k * 3 + c]   (coefCount = 15 for degree 3)
+ *
+ * The codebook (from {@link decodeShPaletteSidecar}) is CHANNEL-major to match
+ * Inria PLY's `f_rest_X` convention: `codebook[idx*45 + c*15 + k]`. This is the
+ * exact transpose `glb-polyfill/palette.ts::paletteShRestForSplat` performs for
+ * the single-file path, kept bit-identical so streamed tiles render the same
+ * view-dependent color as a dropped-in full GLB.
+ *
+ * @param indices Per-tile-splat codebook indices (from {@link decodeTileIndices}).
+ * @param codebook Decoded shared codebook (Float32Array, length K*45).
+ * @param splatCount Tile splat count (== indices.length).
+ */
+export function reconstructShRestBlob(
+  indices: Uint16Array,
+  codebook: Float32Array,
+  splatCount: number,
+): Float32Array {
+  const VQ_DIM = 45;
+  const COEF = 15; // degree-3 coefficient count (per channel)
+  const STRIDE = 15; // intra-centroid channel stride (fixed at VQ_DIM/3)
+  const out = new Float32Array(splatCount * VQ_DIM);
+  for (let s = 0; s < splatCount; s++) {
+    const cbBase = indices[s]! * VQ_DIM;
+    const dst = s * VQ_DIM;
+    for (let kk = 0; kk < COEF; kk++) {
+      out[dst + kk * 3 + 0] = codebook[cbBase + 0 * STRIDE + kk]!;
+      out[dst + kk * 3 + 1] = codebook[cbBase + 1 * STRIDE + kk]!;
+      out[dst + kk * 3 + 2] = codebook[cbBase + 2 * STRIDE + kk]!;
+    }
+  }
+  return out;
+}
