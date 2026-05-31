@@ -1,0 +1,24 @@
+{
+  "schema": "catetus.splatbench-v3.cell/0.1",
+  "commit": "b6b69cfb1deefcb4fb8da3997d62a117a3a54a42",
+  "ref": "main",
+  "preset": "fcgs-instant",
+  "scene_id": "treehill_mipnerf360_iter7k",
+  "scene_class": "outdoor-scene",
+  "scene_dataset": "mipnerf360",
+  "run_id": "sbv3-fa08339c7402ea9b",
+  "timestamp": "2026-05-31T05:13:13.742174+00:00",
+  "wall_dispatcher_secs": 0.0,
+  "result": {
+    "ok": true,
+    "dry_run": true,
+    "note": "MODAL_TOKEN_* not configured \u2014 emitting placeholder cell",
+    "ply_save_pct": null,
+    "delta_psnr_db": null,
+    "delta_ssim": null,
+    "delta_lpips": null,
+    "wall_secs": 0,
+    "modal_cost_cents": 0,
+    "output_url": null
+  }
+}
