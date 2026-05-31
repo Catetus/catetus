@@ -463,12 +463,15 @@ pub fn write_tileset_shared(
 /// Walk the 3D-Tiles tree and the LOD-meta tree in lockstep (identical shape)
 /// and set each 3D-Tiles node's `content.uri` to its finest LOD file.
 fn fill_tileset_content(ts: &mut TileNode, lm: &LodMetaNode, filenames: &[String]) {
-    // REPLACE refinement: a node's content is its COARSEST LOD (a small proxy);
-    // children refine it as the camera approaches. (Previously used lods.last()
-    // = finest, which made the root's first-paint tile the ENTIRE scene — a
-    // streaming-killer for big scenes; see STREAM-6.)
-    if let Some(coarsest) = lm.lods.first() {
-        if let Some(name) = filenames.get(coarsest.file) {
+    // Each node's content = its FINEST LOD. The viewer renders one tile per
+    // selected octree node, so content must carry that node's full detail or the
+    // scene renders permanently coarse (the bonsai-as-blob bug: drawing every
+    // node's coarsest LOD gave ~275k of 1.31M splats). This is NOT the old
+    // "finest = whole scene" streaming-killer: `proxy_cap` (20k) bounds EVERY
+    // tile including the root's finest, so the root still first-paints small
+    // (~20k) while deeper nodes add detail down to the full ~1.31M frontier.
+    if let Some(finest) = lm.lods.last() {
+        if let Some(name) = filenames.get(finest.file) {
             ts.content = Some(TileContent { uri: name.clone() });
         }
     }
