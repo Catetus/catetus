@@ -212,10 +212,6 @@
     }
 
     let rafHandle = null;
-    // Headless GPU-readback hook: expose the live camera pose so the visual
-    // harness can call __viewerRendererInstance.readbackRGBA(pose). camState is
-    // shared by both the single-file (Mode B) and tileset (Mode C) paths.
-    window.__getViewerPose = () => (camState ? poseFromState(camState) : null);
     let lastFrame = performance.now();
     // Tear down a running streaming tileset (its RAF loop + GPU runtime) before
     // loading a different scene, so the tileset loop can't keep drawing over the
