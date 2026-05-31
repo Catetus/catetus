@@ -412,11 +412,13 @@
         });
         window.__tilesetRuntime = runtime;
 
-        // Frame the camera on the tileset root bbox so the first paint is in
-        // view. The root tile's AABB is the whole-scene bound.
+        // Match the single-file path's first-paint camera: jump to the saved
+        // preset view (the known-good bonsai / Mip-NeRF-360 viewpoint) so a
+        // streamed scene frames the same way a directly-loaded one does. The
+        // root AABB is still recorded as currentBbox so the F key bbox-fits.
         const rootAabb = runtime.streaming.tileset.root.aabb;
         currentBbox = { min: [...rootAabb.min], max: [...rootAabb.max] };
-        frameCameraToBbox(camState, currentBbox);
+        applyPresetView(camState);
         controls.setHome(camState);
 
         let lastDraw = performance.now();
